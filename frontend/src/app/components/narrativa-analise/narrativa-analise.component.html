@@ -1,0 +1,48 @@
+<section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8" aria-labelledby="narrativa-heading">
+  <p class="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#dea34c]">Diagnóstico do Agente 2</p>
+  <h2 id="narrativa-heading" class="mb-5 text-2xl font-semibold text-[#f4f0e6] sm:text-3xl">Narrativa da análise</h2>
+
+  @if (loading()) {
+    <div class="flex min-h-32 items-center justify-center rounded-lg border border-[#304247] bg-[#10191d] text-[#b9c7c8]" role="status">
+      <span class="mr-3 h-3 w-3 animate-pulse rounded-full bg-[#dea34c]"></span>
+      Carregando narrativa...
+    </div>
+  } @else if (error()) {
+    <div class="rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
+      {{ error() }}
+    </div>
+  } @else if (!analise()) {
+    <div class="rounded-lg border border-dashed border-[#40565c] bg-[#10191d] px-6 py-12 text-center text-[#b9c7c8]">
+      Nenhuma análise gerada ainda.
+    </div>
+  } @else {
+    <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      @if (analise()!.gargalo_sistemico_atual) {
+        <span class="inline-flex self-start rounded-full border border-[#7a5a2a] bg-[#2a2115] px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#efbd6d]">
+          Gargalo atual: {{ analise()!.gargalo_sistemico_atual }}
+        </span>
+      } @else {
+        <span class="inline-flex self-start rounded-full border border-[#40565c] bg-[#10191d] px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#b9c7c8]">
+          Gargalo ainda não identificado
+        </span>
+      }
+      <p class="text-sm text-[#8fa5a7]">Gerada em {{ formatarData(analise()!.data_analise) }}</p>
+    </div>
+
+    @if (!analise()!.gargalo_sistemico_atual) {
+      <p class="mb-5 text-sm leading-6 text-[#b9c7c8]">
+        Ainda não há dados suficientes para identificar um gargalo sistêmico. Continue jogando e registrando partidas para que o Agente 2 possa gerar um diagnóstico mais preciso.
+      </p>
+    }
+
+    @if (analise()!.narrativa) {
+      <div class="space-y-4 text-base leading-8 text-[#d7dede]">
+        @for (paragrafo of paragrafosDaNarrativa(analise()!.narrativa!); track $index) {
+          <p>{{ paragrafo }}</p>
+        }
+      </div>
+    } @else {
+      <p class="text-sm text-[#8fa5a7]">Nenhuma narrativa textual disponível para esta análise.</p>
+    }
+  }
+</section>

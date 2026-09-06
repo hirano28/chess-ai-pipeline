@@ -10,13 +10,32 @@
       </p>
     </header>
 
+    <app-narrativa-analise />
+
     <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <section class="min-h-[30rem] rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-2xl shadow-black/20 sm:p-8" aria-labelledby="radar-heading">
-        <div class="mb-5 flex items-center justify-between gap-4">
+        <div class="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <h2 id="radar-heading" class="text-lg font-medium">Frequência por categoria</h2>
-          @if (!loading() && !error() && dados()) {
-            <span class="text-xs uppercase tracking-[0.18em] text-[#8fa5a7]">Última análise</span>
-          }
+          <div class="inline-flex self-start rounded-md border border-[#40565c] bg-[#10191d] p-1" role="group" aria-label="Modo de visualização">
+            <button
+              type="button"
+              class="rounded px-3 py-2 text-xs font-semibold transition-colors"
+              [class]="modoVisualizacao() === 'erros' ? 'rounded bg-[#dea34c] px-3 py-2 text-xs font-semibold text-[#162126]' : 'rounded px-3 py-2 text-xs font-semibold text-[#b9c7c8] hover:text-[#f4f0e6]'"
+              [attr.aria-pressed]="modoVisualizacao() === 'erros'"
+              (click)="selecionarModo('erros')"
+            >
+              Frequência de erros
+            </button>
+            <button
+              type="button"
+              class="rounded px-3 py-2 text-xs font-semibold transition-colors"
+              [class]="modoVisualizacao() === 'forcas' ? 'rounded bg-[#dea34c] px-3 py-2 text-xs font-semibold text-[#162126]' : 'rounded px-3 py-2 text-xs font-semibold text-[#b9c7c8] hover:text-[#f4f0e6]'"
+              [attr.aria-pressed]="modoVisualizacao() === 'forcas'"
+              (click)="selecionarModo('forcas')"
+            >
+              Pontos fortes
+            </button>
+          </div>
         </div>
 
         @if (loading()) {
@@ -45,13 +64,24 @@
 
       <aside class="rounded-lg border border-[#304247] bg-[#dbe4df] p-6 text-[#162126]">
         <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[#5b706d]">Como ler</p>
-        <p class="mt-4 text-sm leading-6">
-          Quanto mais distante do centro, maior a frequência relativa daquela categoria entre os seus erros críticos.
-        </p>
-        <div class="mt-8 border-t border-[#b8c8c1] pt-5 text-sm leading-6 text-[#405451]">
-          Os valores são normalizados em relação à categoria mais frequente nesta análise.
-        </div>
+        @if (modoVisualizacao() === 'erros') {
+          <p class="mt-4 text-sm leading-6">
+            Quanto mais distante do centro, maior a frequência relativa daquela categoria entre os seus erros críticos.
+          </p>
+          <div class="mt-8 border-t border-[#b8c8c1] pt-5 text-sm leading-6 text-[#405451]">
+            Os valores são normalizados em relação à categoria mais frequente nesta análise.
+          </div>
+        } @else {
+          <p class="mt-4 text-sm leading-6">
+            Quanto mais próximo da borda, menos essa categoria aparece nos seus erros recentes, uma aproximação de onde você está relativamente mais consistente.
+          </p>
+          <div class="mt-8 border-t border-[#b8c8c1] pt-5 text-sm leading-6 text-[#405451]">
+            Isso não mede habilidade real, apenas a ausência relativa de erros registrados nessa área.
+          </div>
+        }
       </aside>
     </div>
+
+    <app-sessoes-treino />
   </section>
 </main>

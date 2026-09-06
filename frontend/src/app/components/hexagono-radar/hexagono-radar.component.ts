@@ -22,6 +22,8 @@ import {
   AnaliseHexagonoMetricas,
   SupabaseService
 } from '../../services/supabase.service';
+import { SessoesTreinoComponent } from '../sessoes-treino/sessoes-treino.component';
+import { NarrativaAnaliseComponent } from '../narrativa-analise/narrativa-analise.component';
 
 Chart.register(
   RadarController,
@@ -47,6 +49,7 @@ type Categoria = (typeof CATEGORIAS)[number];
 @Component({
   selector: 'app-hexagono-radar',
   standalone: true,
+  imports: [SessoesTreinoComponent, NarrativaAnaliseComponent],
   templateUrl: './hexagono-radar.component.html'
 })
 export class HexagonoRadarComponent implements OnInit, OnDestroy {
@@ -56,6 +59,7 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   readonly dados = signal<AnaliseHexagonoMetricas | null>(null);
+  readonly modoVisualizacao = signal<'erros' | 'forcas'>('erros');
 
   private readonly supabaseService = inject(SupabaseService);
   private chart?: Chart<'radar'>;
@@ -65,10 +69,11 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
     effect(() => {
       const analise = this.dados();
       const canvas = this.radarCanvas();
+      const modo = this.modoVisualizacao();
       if (!analise?.frequencia_por_categoria || !canvas) {
         return;
       }
-      this.renderizarGrafico(canvas.nativeElement, analise);
+      this.renderizarGrafico(canvas.nativeElement, analise, modo);
     });
   }
 
@@ -78,6 +83,10 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.chart?.destroy();
+  }
+
+  selecionarModo(modo: 'erros' | 'forcas'): void {
+    this.modoVisualizacao.set(modo);
   }
 
   private async carregarAnalise(): Promise<void> {
@@ -102,7 +111,8 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
 
   private renderizarGrafico(
     canvas: HTMLCanvasElement,
-    analise: AnaliseHexagonoMetricas
+    analise: AnaliseHexagonoMetricas,
+    modo: 'erros' | 'forcas'
   ): void {
     const frequencias = analise.frequencia_por_categoria ?? {};
     const valores = CATEGORIAS.map((categoria) => this.numeroDaCategoria(frequencias, categoria));
@@ -110,9 +120,16 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
     const dadosNormalizados = maiorValor > 0
       ? valores.map((valor) => Math.round((valor / maiorValor) * 100))
       : valores;
+    const dadosExibidos = modo === 'forcas'
+      ? dadosNormalizados.map((valor) => 100 - valor)
+      : dadosNormalizados;
+    const label = modo === 'forcas'
+      ? 'Pontos fortes (aprox.) (%)'
+      : 'Frequência dos erros (%)';
 
     if (this.chart) {
-      this.chart.data.datasets[0].data = dadosNormalizados;
+      this.chart.data.datasets[0].data = dadosExibidos;
+      this.chart.data.datasets[0].label = label;
       this.chart.update();
       return;
     }
@@ -123,8 +140,8 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
         labels: [...CATEGORIAS],
         datasets: [
           {
-            label: 'Frequência dos erros (%)',
-            data: dadosNormalizados,
+            label,
+            data: dadosExibidos,
             backgroundColor: 'rgba(222, 163, 76, 0.2)',
             borderColor: '#dea34c',
             pointBackgroundColor: '#f4c878',
