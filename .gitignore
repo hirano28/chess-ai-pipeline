@@ -5,3 +5,4 @@ backend/logs/
 backend/rag/.ocr_cache/
 __pycache__/
 *.py[cod]
+node_modules/

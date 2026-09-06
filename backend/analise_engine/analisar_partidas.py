@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import io
 import logging
+import multiprocessing
 import os
+import queue
 import sys
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +28,11 @@ LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "analise_engine.log"
 PAGE_SIZE = 1000
 CRITICAL_SWING_CP = 100
 MAX_MATE_SCORE_CP = 10000
+PARTIDA_TIMEOUT_SECONDS = 300
+STOCKFISH_INIT_TIMEOUT_SECONDS = 15
+# O timeout da partida cobre todas as avaliações; mantenha este valor baixo
+# o suficiente para que dezenas de posições caibam no orçamento total.
+STOCKFISH_SEARCHTIME_MS = 3_000
 
 
 @dataclass(frozen=True)
@@ -101,6 +109,19 @@ def load_settings() -> AnalysisSettings:
     )
 
 
+def load_timeout_setting(name: str, default: int) -> int:
+    """Carrega um timeout inteiro positivo, mantendo defaults seguros."""
+
+    raw_value = os.getenv(name, str(default))
+    try:
+        value = int(raw_value)
+    except ValueError as error:
+        raise ValueError(f"{name} deve ser um inteiro") from error
+    if value < 1:
+        raise ValueError(f"{name} deve ser maior que zero")
+    return value
+
+
 def fetch_pending_games(client: Client, logger: logging.Logger) -> list[dict[str, Any]]:
     """Busca todas as partidas pendentes em páginas."""
 
@@ -161,12 +182,37 @@ def evaluate_position(engine: Stockfish, board: chess.Board, color: str) -> int:
     """Avalia uma posição da perspectiva do jogador da pipeline."""
 
     engine.set_fen_position(board.fen())
-    score_cp = evaluation_to_cp(engine.get_evaluation())
+    try:
+        evaluation = engine.get_evaluation(searchtime=STOCKFISH_SEARCHTIME_MS)
+    except TypeError:
+        # Mantém compatibilidade com engines falsos usados nos testes unitários.
+        evaluation = engine.get_evaluation()
+    score_cp = evaluation_to_cp(evaluation)
     return perspective_score(score_cp, color)
 
 
-def processar_partida(partida: dict, engine: Stockfish) -> ProcessResult:
-    """Analisa uma partida e retorna seus três maiores swings relevantes."""
+def validate_standard_game(game: chess.pgn.Game, partida_id: Any) -> None:
+    """Rejeita variantes e PGNs que não podem ser analisados com segurança."""
+
+    variant = (game.headers.get("Variant") or "").strip().lower()
+    if variant and variant not in {"standard", ""}:
+        raise ValueError(
+            f"Partida {partida_id} usa variante não padrão: "
+            f"{game.headers.get('Variant')}"
+        )
+    if game.headers.get("Chess960", "").strip().lower() in {"1", "true", "yes"}:
+        raise ValueError(f"Partida {partida_id} usa Chess960/Fischer Random")
+    if game.errors:
+        raise ValueError(
+            f"Partida {partida_id} possui PGN incompleto ou inválido: "
+            f"{'; '.join(str(error) for error in game.errors)}"
+        )
+    if game.end() is game:
+        raise ValueError(f"Partida {partida_id} não possui lances para analisar")
+
+
+def load_validated_game(partida: dict[str, Any]) -> chess.pgn.Game:
+    """Carrega e valida um PGN antes de qualquer chamada ao Stockfish."""
 
     partida_id = partida["id"]
     pgn = partida.get("pgn")
@@ -179,6 +225,16 @@ def processar_partida(partida: dict, engine: Stockfish) -> ProcessResult:
     game = chess.pgn.read_game(io.StringIO(pgn))
     if game is None:
         raise ValueError(f"Não foi possível fazer parse do PGN da partida {partida_id}")
+    validate_standard_game(game, partida_id)
+    return game
+
+
+def processar_partida(partida: dict, engine: Stockfish) -> ProcessResult:
+    """Analisa uma partida e retorna seus três maiores swings relevantes."""
+
+    partida_id = partida["id"]
+    color = partida.get("cor_jogada")
+    game = load_validated_game(partida)
 
     board = game.board()
     evaluated_moves: list[CriticalMove] = []
@@ -216,6 +272,99 @@ def processar_partida(partida: dict, engine: Stockfish) -> ProcessResult:
     return ProcessResult(partida_id=partida_id, critical_moves=critical_moves)
 
 
+def _processar_partida_em_processo(
+    partida: dict[str, Any],
+    stockfish_path: str,
+    stockfish_depth: int,
+    result_queue: multiprocessing.Queue,
+) -> None:
+    """Inicializa o engine e analisa uma partida em processo isolado."""
+
+    engine: Stockfish | None = None
+    try:
+        load_validated_game(partida)
+        engine = Stockfish(
+            path=stockfish_path,
+            depth=stockfish_depth,
+            turn_perspective=False,
+        )
+        result_queue.put({"kind": "ready"})
+        result = processar_partida(partida, engine)
+        result_queue.put({"kind": "result", "value": result})
+    except Exception as error:
+        result_queue.put(
+            {
+                "kind": "error",
+                "message": str(error),
+                "traceback": traceback.format_exc(),
+            }
+        )
+    finally:
+        if engine is not None:
+            try:
+                engine.send_quit_command()
+            except Exception:
+                pass
+
+
+def processar_partida_com_timeout(
+    partida: dict[str, Any],
+    settings: AnalysisSettings,
+    init_timeout_seconds: int,
+    partida_timeout_seconds: int,
+) -> ProcessResult:
+    """Analisa uma partida com limites independentes de init e execução."""
+
+    result_queue: multiprocessing.Queue = multiprocessing.Queue()
+    process = multiprocessing.get_context("spawn").Process(
+        target=_processar_partida_em_processo,
+        args=(partida, settings.stockfish_path, settings.stockfish_depth, result_queue),
+    )
+    started_at = time.monotonic()
+    process.start()
+    try:
+        remaining_init = max(
+            0.1, init_timeout_seconds - (time.monotonic() - started_at)
+        )
+        try:
+            message = result_queue.get(timeout=remaining_init)
+        except queue.Empty as error:
+            raise TimeoutError(
+                f"Partida {partida.get('id', 'desconhecida')} excedeu "
+                f"{init_timeout_seconds}s na inicialização do Stockfish"
+            ) from error
+        if message.get("kind") != "ready":
+            raise RuntimeError(
+                f"Falha ao inicializar Stockfish para a partida "
+                f"{partida.get('id', 'desconhecida')}: "
+                f"{message.get('message', 'erro desconhecido')}\n"
+                f"{message.get('traceback', '')}"
+            )
+
+        remaining_game = max(
+            0.1, partida_timeout_seconds - (time.monotonic() - started_at)
+        )
+        try:
+            message = result_queue.get(timeout=remaining_game)
+        except queue.Empty as error:
+            raise TimeoutError(
+                f"Partida {partida.get('id', 'desconhecida')} excedeu "
+                f"{partida_timeout_seconds}s de análise"
+            ) from error
+        if message.get("kind") == "error":
+            raise RuntimeError(
+                f"Falha na partida {partida.get('id', 'desconhecida')}: "
+                f"{message.get('message', 'erro desconhecido')}\n"
+                f"{message.get('traceback', '')}"
+            )
+        return message["value"]
+    finally:
+        if process.is_alive():
+            process.terminate()
+        process.join(timeout=5)
+        result_queue.close()
+
+
 def insert_critical_moves(
     client: Client, result: ProcessResult
 ) -> int:
@@ -241,36 +390,54 @@ def main() -> None:
 
     logger = configure_logging()
     processed = failed = critical_moves_inserted = 0
-    engine: Stockfish | None = None
     try:
         settings = load_settings()
+        init_timeout_seconds = load_timeout_setting(
+            "STOCKFISH_INIT_TIMEOUT_SECONDS", STOCKFISH_INIT_TIMEOUT_SECONDS
+        )
+        partida_timeout_seconds = load_timeout_setting(
+            "PARTIDA_TIMEOUT_SECONDS", PARTIDA_TIMEOUT_SECONDS
+        )
         client = create_client(
             settings.supabase_url, settings.supabase_service_role_key
         )
         pending_games = fetch_pending_games(client, logger)
-        engine = Stockfish(
-            path=settings.stockfish_path,
-            depth=settings.stockfish_depth,
-            turn_perspective=False,
-        )
         total = len(pending_games)
         start_time = time.time()
         for index, partida in enumerate(pending_games, start=1):
             partida_id = partida.get("id", "desconhecida")
+            external_id = partida.get("external_id", partida_id)
+            log_and_print(
+                logger,
+                f"Iniciando análise da partida {index}/{total} "
+                f"(external_id={external_id})...",
+            )
             try:
                 update_status(client, partida_id, "processando")
-                result = processar_partida(partida, engine)
+                result = processar_partida_com_timeout(
+                    partida,
+                    settings,
+                    init_timeout_seconds,
+                    partida_timeout_seconds,
+                )
                 critical_moves_inserted += insert_critical_moves(client, result)
                 update_status(client, partida_id, "concluido")
                 processed += 1
             except Exception:
                 failed += 1
-                logger.exception("Falha ao processar a partida %s", partida_id)
+                log_and_print(
+                    logger,
+                    f"Falha ao processar a partida {partida_id} "
+                    f"(external_id={external_id}); status será marcado como falhou.\n"
+                    f"{traceback.format_exc()}",
+                )
                 try:
                     update_status(client, partida_id, "falhou")
                 except Exception:
-                    logger.exception(
-                        "Falha ao marcar a partida %s como falhou", partida_id
+                    log_and_print(
+                        logger,
+                        f"Falha ao marcar a partida {partida_id} como falhou.\n"
+                        f"{traceback.format_exc()}",
                     )
             log_and_print(
                 logger,
@@ -281,13 +448,6 @@ def main() -> None:
     except Exception:
         failed += 1
         logger.exception("Falha geral na análise das partidas")
-    finally:
-        if engine is not None:
-            try:
-                engine.send_quit_command()
-            except Exception:
-                logger.exception("Falha ao fechar a instância do Stockfish")
-
     print(f"Partidas processadas com sucesso: {processed}")
     print(f"Partidas com falha: {failed}")
     print(f"Lances críticos inseridos: {critical_moves_inserted}")
