@@ -1,0 +1,61 @@
+name: Pipeline semanal
+
+on:
+  schedule:
+    # 07:00 em Brasilia (10:00 UTC).
+    - cron: "0 10 * * 1"
+  workflow_dispatch:
+
+jobs:
+  pipeline-semanal:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Instalar dependencias Python
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Executar Agente 2 - Analista
+        id: agente2_analista
+        run: python backend/agentes/agente2_analista.py
+
+      - name: Executar Agente 3 - Prescritor
+        id: agente3_prescritor
+        run: python backend/agentes/agente3_prescritor.py
+
+      - name: Registrar falhas no summary
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Falhas do pipeline semanal"
+            echo
+            echo "O workflow falhou em pelo menos uma etapa."
+            echo
+            echo "| Etapa | Resultado |"
+            echo "| --- | --- |"
+            echo "| Agente 2 | ${{ steps.agente2_analista.outcome || 'nao executada' }} |"
+            echo "| Agente 3 | ${{ steps.agente3_prescritor.outcome || 'nao executada' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-pipeline-semanal
+          path: backend/logs/*.log
+          if-no-files-found: warn

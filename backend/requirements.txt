@@ -1,0 +1,14 @@
+supabase
+pydantic
+python-dotenv
+chess
+stockfish
+google-genai
+anthropic
+requests
+pandas
+numpy
+pdfplumber
+pytesseract
+pdf2image
+Pillow

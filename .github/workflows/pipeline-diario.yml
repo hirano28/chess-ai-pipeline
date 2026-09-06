@@ -1,0 +1,100 @@
+name: Pipeline diario
+
+on:
+  schedule:
+    # 06:00 aproximado em Brasilia (09:00 UTC).
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  pipeline-diario:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      LICHESS_USERNAME: ${{ secrets.LICHESS_USERNAME }}
+      LICHESS_GAMES_LIMIT: ${{ secrets.LICHESS_GAMES_LIMIT }}
+      CHESSCOM_USERNAME: ${{ secrets.CHESSCOM_USERNAME }}
+      CHESSCOM_MONTHS_LIMIT: ${{ secrets.CHESSCOM_MONTHS_LIMIT }}
+      STOCKFISH_DEPTH: 16
+      GEMINI_RATE_LIMIT_SLEEP_SEC: 2
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Instalar dependencias Python
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Instalar Stockfish
+        id: instalar_stockfish
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y stockfish
+          STOCKFISH_PATH="$(command -v stockfish || true)"
+          if [ -z "$STOCKFISH_PATH" ]; then
+            for candidate in /usr/games/stockfish /usr/bin/stockfish; do
+              if [ -x "$candidate" ]; then
+                STOCKFISH_PATH="$candidate"
+                break
+              fi
+            done
+          fi
+          if [ -z "$STOCKFISH_PATH" ]; then
+            echo "Stockfish nao foi encontrado apos a instalacao." >&2
+            exit 1
+          fi
+          echo "STOCKFISH_PATH=$STOCKFISH_PATH" >> "$GITHUB_ENV"
+          echo "Stockfish encontrado em: $STOCKFISH_PATH"
+
+      - name: Coletar partidas do Lichess
+        id: coletar_lichess
+        continue-on-error: true
+        run: python backend/ingestao/coletar_partidas.py
+
+      - name: Coletar partidas do Chess.com
+        id: coletar_chesscom
+        continue-on-error: true
+        run: python backend/ingestao/coletar_partidas_chesscom.py
+
+      - name: Analisar partidas com Stockfish
+        id: analisar_engine
+        run: python backend/analise_engine/analisar_partidas.py
+
+      - name: Gerar diagnosticos com Agente 1
+        id: agente1_linter
+        run: python backend/agentes/agente1_linter.py
+
+      - name: Registrar falhas no summary
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Falhas do pipeline diario"
+            echo
+            echo "O workflow falhou em pelo menos uma etapa."
+            echo
+            echo "| Etapa | Resultado |"
+            echo "| --- | --- |"
+            echo "| Instalar Stockfish | ${{ steps.instalar_stockfish.outcome || 'nao executada' }} |"
+            echo "| Coleta Lichess | ${{ steps.coletar_lichess.outcome || 'nao executada' }} |"
+            echo "| Coleta Chess.com | ${{ steps.coletar_chesscom.outcome || 'nao executada' }} |"
+            echo "| Analise Stockfish | ${{ steps.analisar_engine.outcome || 'nao executada' }} |"
+            echo "| Agente 1 | ${{ steps.agente1_linter.outcome || 'nao executada' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-pipeline-diario
+          path: backend/logs/*.log
+          if-no-files-found: warn
