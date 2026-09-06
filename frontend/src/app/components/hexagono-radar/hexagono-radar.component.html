@@ -1,0 +1,57 @@
+<main class="min-h-screen bg-[#10191d] px-5 py-10 text-[#f4f0e6] sm:px-8 lg:px-12">
+  <section class="mx-auto flex w-full max-w-5xl flex-col gap-8">
+    <header class="max-w-2xl">
+      <p class="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-[#dea34c]">
+        Diagnóstico de desempenho
+      </p>
+      <h1 class="text-3xl font-semibold tracking-tight sm:text-5xl">Meu Hexágono de Xadrez</h1>
+      <p class="mt-4 text-base leading-7 text-[#b9c7c8]">
+        Uma visão das categorias que mais aparecem nos seus erros críticos.
+      </p>
+    </header>
+
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <section class="min-h-[30rem] rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-2xl shadow-black/20 sm:p-8" aria-labelledby="radar-heading">
+        <div class="mb-5 flex items-center justify-between gap-4">
+          <h2 id="radar-heading" class="text-lg font-medium">Frequência por categoria</h2>
+          @if (!loading() && !error() && dados()) {
+            <span class="text-xs uppercase tracking-[0.18em] text-[#8fa5a7]">Última análise</span>
+          }
+        </div>
+
+        @if (loading()) {
+          <div class="flex min-h-[23rem] items-center justify-center text-[#b9c7c8]" role="status">
+            <div class="flex items-center gap-3">
+              <span class="h-3 w-3 animate-pulse rounded-full bg-[#dea34c]"></span>
+              <span>Carregando sua análise...</span>
+            </div>
+          </div>
+        } @else if (error()) {
+          <div class="flex min-h-[23rem] items-center justify-center text-center" role="alert">
+            <p class="max-w-md leading-7 text-[#d7b9a7]">{{ error() }}</p>
+          </div>
+        } @else {
+          <div class="relative h-[400px] w-full">
+            <canvas
+              #radarCanvas
+              class="h-full w-full"
+              style="height: 400px"
+              aria-label="Gráfico radar das categorias de erro"
+              role="img"
+            ></canvas>
+          </div>
+        }
+      </section>
+
+      <aside class="rounded-lg border border-[#304247] bg-[#dbe4df] p-6 text-[#162126]">
+        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[#5b706d]">Como ler</p>
+        <p class="mt-4 text-sm leading-6">
+          Quanto mais distante do centro, maior a frequência relativa daquela categoria entre os seus erros críticos.
+        </p>
+        <div class="mt-8 border-t border-[#b8c8c1] pt-5 text-sm leading-6 text-[#405451]">
+          Os valores são normalizados em relação à categoria mais frequente nesta análise.
+        </div>
+      </aside>
+    </div>
+  </section>
+</main>
