@@ -13,6 +13,19 @@ Consolidação das duas pesquisas em fases executáveis, na ordem de melhor cust
 
 ---
 
+## Status geral (atualizado em 07/09/2026)
+
+- ✅ **Fase 12 concluída e validada matematicamente.** Testes confirmam a curva de Win% batendo com os valores públicos do Lichess (cp 300 → ~75%, 800 → ~95%), e a comparação de queda em posição equilibrada vs. já ganha confirma o objetivo (16,4 pontos percentuais de diferença).
+- ✅ **Fase 13 concluída e validada com 2 partidas reais anotadas manualmente** (`cwrI5a8c` e `AmxiZxvj`). Achados-chave:
+  - Confirmado: erros de processo que o próprio jogador identificou (ex: xeque não visto, ameaça percebida tarde) ficam **invisíveis** para o critério de gravidade isolada — só a erosão ou a própria anotação os capturam.
+  - Bug real encontrado e corrigido: o prompt do Agente 1 aplicado a eventos `EROSAO` inicialmente invertia a perspectiva (atribuía lances do próprio jogador ao oponente) e citava lances fora da janela. Corrigido com prompt dedicado (`build_erosion_prompt`), roteado por `tipo_evento`.
+  - **Achado novo e não previsto:** o detector de erosão revelou um padrão comportamental — a dama fazendo manobras repetidas e desconectadas (`Qc4-Qd3-Qc4`) enquanto o resto das peças fica parado — que o vocabulário atual de 16 tags não nomeia bem. Candidato a nova tag: `falta_de_coordenacao_de_pecas` (já usada pelo LLM organicamente, fora do vocabulário controlado — precisa ser formalizada ou mapeada para uma tag existente).
+- 🆕 **Achado que muda a Fase 14/15:** o próprio Lichess já calcula precisão/erros por fase (abertura/meio-jogo/final) e tem gráfico de tempo por lance com a curva de avaliação sobreposta ("Análise do computador" + "Tempo por movimento" na interface). Isso é exposto via API (`GET /game/export/{id}?evals=1&accuracy=1&clocks=1&division=1`, formato JSON) — não precisamos recalcular isso do zero com nosso próprio Stockfish, só consumir o que já existe pronto. Fases 14 e 15 abaixo foram ajustadas para refletir isso.
+
+**Ação pendente de decisão:** formalizar `falta_de_coordenacao_de_pecas` no vocabulário controlado (17ª tag) ou mapear para uma existente antes de escalar o processamento — decidir antes ou durante a Fase 14.
+
+---
+
 ## Fase 12 — Corrigir a métrica de gravidade (Win% em vez de centipawns crus)
 
 **Problema que resolve:** hoje, perder 300cp numa posição equilibrada e numa posição já ganha contam igual — distorcendo qual lance é "mais crítico".
@@ -43,15 +56,22 @@ Consolidação das duas pesquisas em fases executáveis, na ordem de melhor cust
 
 ---
 
-## Fase 14 — Estatísticas por fase, cor e abertura
+## Fase 14 — Estatísticas por fase, cor e abertura (AJUSTADA: puxar do Lichess, não recalcular)
 
 **Problema que resolve:** hoje não há visão de "erro em qual fase" nem "problema de repertório".
 
+**Ajuste importante (07/09/2026):** o Lichess já calcula precisão e contagem de erros por fase (abertura/meio-jogo/final) para toda partida analisada por ele. Em vez de recalcular isso do zero com nosso próprio Stockfish (caro e redundante), a Fase 14 passa a ser majoritariamente um **ETL simples**: puxar o que já existe pronto.
+
 **O que muda:**
-- `agente2_analista.py`: adicionar cálculo de ACPL/Win%-loss médio segmentado por fase (abertura/meio-jogo/final, usando número de lance ou material restante como proxy), por cor (brancas/pretas), e win-rate por ECO (você já coleta o campo).
+- Novo script `backend/ingestao/enriquecer_partidas_lichess.py`: para cada `external_id` de partida do Lichess já em `partidas`, chama `GET https://lichess.org/game/export/{id}?evals=1&accuracy=1&clocks=1&division=1&opening=1` (header `Accept: application/json`), extrai:
+  - `players.white/black.analysis.inaccuracy/mistake/blunder/acpl` (erros e ACPL por jogador).
+  - `division` (índices de lance onde abertura/meio-jogo/final começam).
+  - Isso NÃO se aplica a partidas do Chess.com (API diferente, sem esse endpoint) — documentar essa limitação: enriquecimento só cobre Lichess por enquanto.
+- Nova tabela `metricas_lichess_partida` (partida_id, precisao_propria, precisao_oponente, imprecisoes, erros, blunders, acpl, fase_abertura_fim, fase_meiojogo_fim).
+- `agente2_analista.py`: passa a cruzar essas métricas com win-rate por ECO (que você já coleta) e por cor — sem precisar computar ACPL por fase manualmente.
 - Novo card no dashboard mostrando essas quebras.
 
-**Critério de sucesso:** conseguir responder "eu jogo pior de brancas ou pretas?" e "meu problema é mais em aberturas específicas ou geral?" só olhando o dashboard.
+**Critério de sucesso:** conseguir responder "eu jogo pior de brancas ou pretas?" e "meu problema é mais em aberturas específicas ou geral?" só olhando o dashboard — usando dado que o Lichess já validou, não uma reimplementação nossa sujeita a bugs de cálculo.
 
 **Modelo sugerido:** Claude Sonnet 5.
 
@@ -61,9 +81,12 @@ Consolidação das duas pesquisas em fases executáveis, na ordem de melhor cust
 
 **Problema que resolve:** essa categoria está zerada desde o início — não por você ter ótima gestão de tempo, mas porque nunca coletamos o dado.
 
+**Ajuste (07/09/2026):** o mesmo endpoint da Fase 14 (`?clocks=1`) já traz o relógio por lance para partidas do Lichess — reaproveitar o mesmo script de enriquecimento em vez de reimplementar parsing de `%clk` do zero (embora o PGN também tenha isso nativamente e sirva de fallback para Chess.com, cuja API é diferente e precisa de tratamento próprio).
+
 **O que muda:**
-- `coletar_partidas.py` e `coletar_partidas_chesscom.py`: extrair os timestamps `%clk` já presentes no PGN, salvando tempo restante por lance (nova tabela `tempos_lance` ou array em `partidas`).
-- `analisar_partidas.py`: ao identificar um lance crítico, anexar o tempo restante e o tempo gasto naquele lance.
+- Reaproveitar `enriquecer_partidas_lichess.py` (Fase 14) para extrair também o array de `clocks` por lance, salvando em nova tabela `tempos_lance` (partida_id, numero_lance, tempo_restante_seg).
+- Para Chess.com: extrair `%clk` diretamente do PGN já armazenado (não depende de API externa, já temos o dado bruto salvo).
+- `analisar_partidas.py`: ao identificar um lance crítico, anexar o tempo restante e o tempo gasto naquele lance via join com `tempos_lance`.
 - Novo critério no Agente 1: se o tempo restante estava abaixo de um limiar (ex: <30s ou <15% do tempo total do controle), a tag preferencial passa a ser `gestao_de_tempo_ruim`, sobrepondo o palpite "cognitivo" — separando erro por pressão de tempo de erro por desconhecimento real.
 
 **Critério de sucesso:** `gestao_de_tempo_ruim` sai de zero; idealmente você consegue ver se seus blunders táticos concentram-se em apuro de tempo (mudaria o treino de "mais teoria" para "disciplina de relógio").
