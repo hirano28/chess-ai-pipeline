@@ -1,0 +1,709 @@
+{
+  "livro": "Xadrez Vitorioso - Taticas - Seirawan e Silman",
+  "capitulos": [
+    {
+      "capitulo": "PARTE 1",
+      "pagina_min": 12,
+      "pagina_max": 18,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque duplo",
+          "resumo_curto": "Recurso tático em que uma única peça cria duas ameaças simultâneas contra alvos adversários."
+        },
+        {
+          "conceito": "peça cravada",
+          "resumo_curto": "Restrição ao movimento de uma peça defensora cuja saída exporia um alvo mais valioso ou o próprio rei."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Proteção ativa do monarca contra combinações táticas e ameaças de xeque-mate."
+        },
+        {
+          "conceito": "sacrifício de desobstrução",
+          "resumo_curto": "Entrega consciente de material com o intuito de liberar casas ou linhas essenciais para a ofensiva."
+        }
+      ]
+    },
+    {
+      "capitulo": "COMO RECONHECER TÁTICAS E COMBINAÇÕES",
+      "pagina_min": 18,
+      "pagina_max": 20,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque duplo",
+          "resumo_curto": "Ameaça simultânea a dois alvos distintos que serve como base para a maioria das operações táticas."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A fragilidade ou exposição da posição do rei adversário constitui um gatilho essencial para a ocorrência de combinações."
+        },
+        {
+          "conceito": "peças sem defesa",
+          "resumo_curto": "A presença de peças desprotegidas ou mal guardadas cria vulnerabilidades imediatas a golpes táticos decisivos."
+        }
+      ]
+    },
+    {
+      "capitulo": "ATAQUES DESCOBERTOS",
+      "pagina_min": 21,
+      "pagina_max": 35,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque descoberto",
+          "resumo_curto": "Ocorre quando o movimento de uma peça desobstrui a linha de visão para que outra peça ataque de surpresa um alvo adversário."
+        },
+        {
+          "conceito": "ataque duplo",
+          "resumo_curto": "Consiste em ameaçar simultaneamente dois alvos distintos com um único lance, impossibilitando a defesa de ambos."
+        },
+        {
+          "conceito": "perda_de_material",
+          "resumo_curto": "Consequência tática inevitável para o adversário ao deixar peças vulneráveis ou sofrer múltiplos ataques coordenados."
+        }
+      ]
+    },
+    {
+      "capitulo": "ATAQUES DUPLOS DE UM PEÃO",
+      "pagina_min": 37,
+      "pagina_max": 40,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "garfo de peão",
+          "resumo_curto": "Ocorre quando um peão avança e ataca simultaneamente duas peças adversárias de maior valor."
+        },
+        {
+          "conceito": "ataque descoberto",
+          "resumo_curto": "O movimento de um peão desobstrui a linha de ataque de outra peça enquanto cria uma ameaça direta."
+        },
+        {
+          "conceito": "perda_de_material",
+          "resumo_curto": "Erros no posicionamento de peças menores diante do avanço de peões resultam na perda forçada de material."
+        }
+      ]
+    },
+    {
+      "capitulo": "CRAVADAS ABSOLUTAS",
+      "pagina_min": 41,
+      "pagina_max": 43,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "cravada absoluta",
+          "resumo_curto": "Imobiliza totalmente uma peça que protege diretamente o rei, impedindo qualquer movimento legal que o exponha ao xeque."
+        },
+        {
+          "conceito": "perda de material",
+          "resumo_curto": "Ocorre quando peças indefesas ou imobilizadas por cravadas não conseguem escapar de ataques sucessivos."
+        },
+        {
+          "conceito": "segurança do rei",
+          "resumo_curto": "Manter peças alinhadas com o próprio rei em colunas ou diagonais abertas cria graves vulnerabilidades táticas."
+        }
+      ]
+    },
+    {
+      "capitulo": "CRAVADAS RELATIVAS",
+      "pagina_min": 45,
+      "pagina_max": 59,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "cravada relativa",
+          "resumo_curto": "Ocorre quando a peça intermediária pode se mover legalmente, embora exponha uma peça mais valiosa, possibilitando contra-ataques táticos."
+        },
+        {
+          "conceito": "cravada absoluta",
+          "resumo_curto": "Imobiliza completamente a peça defensora, pois qualquer movimento dela exporia o próprio rei a um xeque ilegal."
+        },
+        {
+          "conceito": "pressão sobre peça cravada",
+          "resumo_curto": "Consiste em acumular novos ataques contra a peça já imobilizada para forçar a perda de material da defesa."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "Ocorre ao pressupor falsamente que uma peça em cravada relativa jamais irá se mover, permitindo contragolpes decisivos."
+        }
+      ]
+    },
+    {
+      "capitulo": "COMO DESTRUIR A PROTEÇÃO DO REI",
+      "pagina_min": 61,
+      "pagina_max": 64,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Arrancar o monarca de sua proteção de peões o expõe a ataques decisivos e redes de xeque-mate no centro aberto."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Sacrificar peças contra o enrocamento sem meios de manter o rei vulnerável permite que ele recue para a segurança."
+        },
+        {
+          "conceito": "troca_desfavoravel",
+          "resumo_curto": "Ceder duas peças menores ativas em troca de torre e peão costuma ser vantajoso para o defensor durante o meio-jogo."
+        }
+      ]
+    },
+    {
+      "capitulo": "O XEQUE-MATE NA PRIMEIRA FILEIRA",
+      "pagina_min": 65,
+      "pagina_max": 73,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "mate da primeira fileira",
+          "resumo_curto": "Padrão tático em que o rei é encurralado na fileira base por seus próprios peões e atacado por uma torre ou dama."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A integridade do monarca deve ser mantida com rotas de fuga adequadas para neutralizar ameaças letais."
+        },
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Deixar de abrir preventivamente uma casa de escape (luft) para o rei costuma resultar em desastres quando as colunas se abrem."
+        }
+      ]
+    },
+    {
+      "capitulo": "COMO JOGAR NUMA COLUNA ABERTA",
+      "pagina_min": 77,
+      "pagina_max": 80,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "torre na sétima fileira",
+          "resumo_curto": "A ocupação da penúltima fileira permite atacar peões indefesos e restringir severamente o rei adversário."
+        },
+        {
+          "conceito": "domínio de coluna aberta",
+          "resumo_curto": "Colunas desobstruídas de peões funcionam como vias essenciais para a infiltração de peças pesadas no território inimigo."
+        },
+        {
+          "conceito": "dobragem de torres",
+          "resumo_curto": "Alinhar duas torres na mesma coluna cria uma bateria poderosa para forçar a penetração e ampliar a pressão sobre a posição rival."
+        }
+      ]
+    },
+    {
+      "capitulo": "COMO JOGAR NUMA DIAGONAL ABERTA",
+      "pagina_min": 82,
+      "pagina_max": 105,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "diagonais abertas",
+          "resumo_curto": "Os bispos atingem seu poder máximo de ataque e controle quando posicionados em longas diagonais desobstruídas."
+        },
+        {
+          "conceito": "bateria de dama e bispo",
+          "resumo_curto": "Alinhar a dama e o bispo na mesma diagonal cria ameaças táticas devastadoras e decisivas contra a posição adversária."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A falta de casas de fuga deixa o rei extremamente vulnerável a redes de mate provocadas pela ação coordenada dos bispos."
+        }
+      ]
+    },
+    {
+      "capitulo": "O MOINHO DE VENTO",
+      "pagina_min": 108,
+      "pagina_max": 112,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "moinho de vento",
+          "resumo_curto": "Combinação forçada e alternada de xeques e xeques descobertos que permite capturar várias peças em sequência."
+        },
+        {
+          "conceito": "lance intermediário",
+          "resumo_curto": "Movimento inesperado inserido antes de uma recaptura ou continuação previsível para alterar o resultado tático."
+        },
+        {
+          "conceito": "xeque descoberto",
+          "resumo_curto": "Ataque contra o rei adversário revelado ao mover uma peça que desobstrui a linha de ação de outra."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "Falha na visualização de lances forçados ao presumir sequências automáticas de trocas sem antecipar réplicas do oponente."
+        }
+      ]
+    },
+    {
+      "capitulo": "PERSEGUIÇÕES PERPÉTUAS",
+      "pagina_min": 113,
+      "pagina_max": 114,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "perseguição perpétua",
+          "resumo_curto": "Ataque contínuo a uma peça inimiga que não possui casas de fuga seguras, forçando o empate."
+        },
+        {
+          "conceito": "lance intermediário",
+          "resumo_curto": "Inserção de uma jogada forçada e inesperada no meio de uma sequência para alterar o desfecho tático."
+        },
+        {
+          "conceito": "empate por repetição",
+          "resumo_curto": "Recurso defensivo para garantir a igualdade ao forçar o surgimento da mesma posição três vezes no tabuleiro."
+        }
+      ]
+    },
+    {
+      "capitulo": "COMO CONSTRUIR UMA FORTALEZA",
+      "pagina_min": 115,
+      "pagina_max": 115,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "construção de fortaleza",
+          "resumo_curto": "Criação de uma barreira defensiva intransponível para assegurar o empate mesmo com desvantagem material."
+        },
+        {
+          "conceito": "corte do rei",
+          "resumo_curto": "Utilização da torre para erguer uma barreira de casas e impedir o avanço decisivo do monarca adversário."
+        },
+        {
+          "conceito": "atividade do rei",
+          "resumo_curto": "Mobilização direta do rei no final da partida, tornando-o uma peça ativa indispensável para o ataque ou defesa."
+        }
+      ]
+    },
+    {
+      "capitulo": "COMO MANTER O EXÉRCITO INIMIGO AFASTADO",
+      "pagina_min": 117,
+      "pagina_max": 117,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "bloqueio defensivo",
+          "resumo_curto": "Criação de uma barreira intransponível que impede a penetração de peças inimigas e anula o impacto da desvantagem material."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Julgar a posição unicamente pelo balanço de material, ignorando que linhas fechadas impedem a conversão dessa vantagem."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "Avançar peões que desfazem o bloqueio protetor e concedem ao adversário as casas ou colunas necessárias para invadir."
+        }
+      ]
+    },
+    {
+      "capitulo": "DESEQUILÍBRIOS MATERIAIS QUE LEVAM AO EMPATE",
+      "pagina_min": 118,
+      "pagina_max": 121,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "erro_tecnico_de_final",
+          "resumo_curto": "Cometer imprecisões no final da partida, como avançar o peão de torre precipitadamente, pode transformar uma vitória garantida em empate."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Julgar que qualquer vantagem de material garante vitória ignora limitações teóricas de combinações de peças incapazes de forçar o mate."
+        },
+        {
+          "conceito": "recurso de afogamento",
+          "resumo_curto": "O lado em desvantagem material pode se salvar buscando o confinamento do próprio rei em casas de borda para forçar o empate."
+        }
+      ]
+    },
+    {
+      "capitulo": "ARMADILHAS PARA AS PEÇAS MAIORES",
+      "pagina_min": 121,
+      "pagina_max": 121,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "aprisionamento de peça",
+          "resumo_curto": "Neutralizar a peça mais forte do adversário limitando sua mobilidade até torná-la inofensiva."
+        },
+        {
+          "conceito": "perda de material",
+          "resumo_curto": "Buscar recursos defensivos extraordinários para forçar o empate mesmo estando em grande desvantagem material."
+        },
+        {
+          "conceito": "mobilidade de peças",
+          "resumo_curto": "Reconhecer que o poder prático de uma peça depende do espaço disponível para manobrar, e não apenas do seu valor nominal."
+        }
+      ]
+    },
+    {
+      "capitulo": "PARTE 2",
+      "pagina_min": 126,
+      "pagina_max": 126,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A vulnerabilidade do rei adversário e a ausência de defensores diretos abrem caminho para combinações decisivas de xeque-mate."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Peças menores afastadas da ação principal deixam o tabuleiro desequilibrado e incapaz de conter o ataque adversário."
+        },
+        {
+          "conceito": "sacrifício de atração",
+          "resumo_curto": "A entrega forçada de material atrai o rei inimigo para posições abertas onde ele não pode escapar da rede de mate."
+        }
+      ]
+    },
+    {
+      "capitulo": "ANDERSSEN - KIESERITZKY",
+      "pagina_min": 128,
+      "pagina_max": 129,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Iniciar ações ofensivas antes de concluir o desenvolvimento e assegurar o controle central expõe as peças a perdas de tempo."
+        },
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Buscar contra-ataques ou ganhos materiais imediatos sem neutralizar as ameaças ativas do adversário compromete a posição."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Capturar peças distantes em detrimento da proteção do próprio rei deixa o monarca vulnerável a redes de mate devastadoras."
+        }
+      ]
+    },
+    {
+      "capitulo": "ANDERSSEN - DUFRESNE",
+      "pagina_min": 131,
+      "pagina_max": 134,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Manter o rei no centro sem proteção adequada deixa a posição vulnerável a ataques decisivos."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "Permitir a abertura de colunas e diagonais contra o próprio rei centralizado facilita a ofensiva adversária."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "Falhar em prever sacrifícios e sequências forçadas do oponente resulta em derrotas táticas imediatas."
+        }
+      ]
+    },
+    {
+      "capitulo": "MORPHY-DUQUE DE BRAUNSCHWEIG",
+      "pagina_min": 135,
+      "pagina_max": 136,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Tentar contra-ataques antes de completar a mobilização das peças resulta no colapso rápido da posição."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "Abrir a posição em desvantagem de desenvolvimento beneficia diretamente o adversário que possui peças mais ativas."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Manter peças passivas e sem jogo nas alas impede uma defesa articulada contra investidas concentradas."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Deixar o rei preso no centro diante de colunas abertas expõe o monarca a arremates táticos decisivos."
+        }
+      ]
+    },
+    {
+      "capitulo": "OUTRAS PARTIDAS",
+      "pagina_min": 138,
+      "pagina_max": 150,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "O rei desprotegido e isolado de defensores torna-se alvo fácil para sacrifícios destrutivos e redes de mate."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Peças inativas e presas nas casas iniciais deixam o exército desarticulado para conter ataques concentrados."
+        },
+        {
+          "conceito": "passividade_excessiva",
+          "resumo_curto": "O atraso severo no desenvolvimento entrega a iniciativa e permite ao adversário explorar golpes táticos imediatos."
+        }
+      ]
+    },
+    {
+      "capitulo": "SPIELMANN - A. FLAMBERG",
+      "pagina_min": 141,
+      "pagina_max": 141,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Manter o rei no centro sem roque e com colunas abertas facilita um ataque devastador do adversário."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Priorizar a captura gananciosa de peões com a dama em vez de desenvolver as próprias peças leva ao colapso da posição."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "Permitir a abertura forçada das colunas centrais expõe o monarca vulnerável à ação direta das torres e bispos inimigos."
+        }
+      ]
+    },
+    {
+      "capitulo": "SPIELMANN - R. L'HERMET",
+      "pagina_min": 142,
+      "pagina_max": 142,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Avançar peões sem necessidade na ala do roque enfraquece a proteção do monarca e oferece alvos claros para o ataque adversário."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "Executar rupturas centrais tardias e despreparadas pode abrir colunas e diagonais que beneficiam a ofensiva do oponente."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Lances de peão impensados geram pontos de contato permanentes que facilitam a abertura violenta da posição defensiva."
+        }
+      ]
+    },
+    {
+      "capitulo": "MARSHALL - A. BURN",
+      "pagina_min": 147,
+      "pagina_max": 147,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "O enfraquecimento das defesas ao redor do rei permitiu um ataque coordenado e fulminante que culminou em mate."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "A tentativa de bloquear a ameaça com peões acabou abrindo a coluna-h diretamente contra a própria posição do monarca."
+        },
+        {
+          "conceito": "peça cravada",
+          "resumo_curto": "O golpe tático final aproveita a imobilidade de uma peça defensora cravada para forçar o desfecho da partida."
+        }
+      ]
+    },
+    {
+      "capitulo": "MARSHALL - A. RUBINSTEIN",
+      "pagina_min": 149,
+      "pagina_max": 149,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Negligenciar o roque e deixar o monarca no centro expõe a posição a contra-ataques letais."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Lançar uma ofensiva na ala sem controlar ou fechar o centro é uma estratégia precipitada e propensa ao fracasso."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "Escolher lances tentadores sem aprofundar o cálculo impede de antecipar sacrifícios decisivos do adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "ALEKHINE - O. CHAJES",
+      "pagina_min": 153,
+      "pagina_max": 153,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "peça cravada",
+          "resumo_curto": "A imobilização tática de peças adversárias foi decisiva para abrir caminho e conquistar vantagem material."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "O avanço descuidado de peões na abertura gerou buracos críticos nas casas escuras da posição preta."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "O roque rápido protegeu o rei branco e colocou a torre em jogo enquanto o rei adversário permaneceu vulnerável no centro."
+        }
+      ]
+    },
+    {
+      "capitulo": "R. RÉTI - ALEKHINE",
+      "pagina_min": 155,
+      "pagina_max": 157,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "O texto ilustra como a ruptura da cadeia defensiva e o avanço de peões podem desproteger gravemente o monarca."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "O avanço das peças brancas na ala da dama as distanciou da defesa do rei, resultando em peças mal posicionadas."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "As pretas utilizam o avanço do peão-h para abrir linhas e explorar a fragilidade do ponto g3 na ala do rei."
+        }
+      ]
+    },
+    {
+      "capitulo": "ALEKHINE - EM. LASKER",
+      "pagina_min": 158,
+      "pagina_max": 160,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "Lances imprecisos permitem ao adversário criar ameaças consecutivas e ditar o ritmo da partida."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A falta de defensores e o enfraquecimento do enroque tornam o monarca vulnerável a sacrifícios e redes de mate."
+        },
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Deixar de conter ou expulsar peças ativas do oponente em tempo hábil facilita a criação de um ataque fulminante."
+        }
+      ]
+    },
+    {
+      "capitulo": "EXIBIÇÃO SIMULTANEA",
+      "pagina_min": 162,
+      "pagina_max": 163,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A exposição precoce do rei preto após o sacrifício em f7 comprometeu sua defesa e permitiu às brancas criar redes de mate decisivas."
+        },
+        {
+          "conceito": "passividade_excessiva",
+          "resumo_curto": "A escolha de lances tímidos na abertura, como 4...d6, cedeu o controle do centro e permitiu ao adversário tomar a iniciativa."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "As pretas confiaram em contra-ameaças aparentes sem prever os profundos recursos de defesa ativa e contra-ataque das brancas."
+        }
+      ]
+    },
+    {
+      "capitulo": "EXIBIÇÃO SIMULTÃNEA",
+      "pagina_min": 164,
+      "pagina_max": 164,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A negligência na proteção do monarca preto e o desmantelamento de sua ala permitiram uma rede de mate decisiva conduzida pelas brancas."
+        },
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "As pretas gastaram tempos excessivos manobrando cavalos para capturar bispos, cedendo o controle das ações e o ataque ao adversário."
+        },
+        {
+          "conceito": "simplificacao_prematura",
+          "resumo_curto": "A troca precipitada do bispo defensor em d4 por receio de vê-lo bloqueado enfraqueceu ainda mais a posição das pretas."
+        }
+      ]
+    },
+    {
+      "capitulo": "GUROENIDZE - TAL",
+      "pagina_min": 166,
+      "pagina_max": 168,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A exposição do rei a sacrifícios e ataques diretos no meio-jogo conduz a perdas decisivas."
+        },
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Subestimar as ameaças ativas do adversário com lances lentos permite rupturas táticas devastadoras."
+        },
+        {
+          "conceito": "peça cravada",
+          "resumo_curto": "Imobilizar peças de defesa adversárias neutraliza a coordenação inimiga e intensifica o ataque."
+        }
+      ]
+    },
+    {
+      "capitulo": "HÜBNER - KASPAROV",
+      "pagina_min": 169,
+      "pagina_max": 170,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A permanência do rei no centro expôs as brancas a um ataque fulminante por diagonais e colunas abertas."
+        },
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "Lances imprecisos no início forçaram as brancas a uma postura passiva da qual não conseguiram mais se recuperar."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "A incapacidade de prever os golpes táticos e saltos agressivos de cavalo levou as brancas a uma posição insustentável."
+        }
+      ]
+    },
+    {
+      "capitulo": "KASPAROV - O. ANDERSSON",
+      "pagina_min": 171,
+      "pagina_max": 173,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "passividade_excessiva",
+          "resumo_curto": "Lances lentos e defensivos concederam tempo e espaço para que as brancas mobilizassem suas forças com total liberdade."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A incapacidade de evacuar o rei do centro do tabuleiro deixou a posição preta exposta a uma ofensiva decisiva."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Peças deslocadas para casas marginais e descoordenadas tornaram impossível organizar uma defesa eficiente contra o ataque adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "KASPAROV - GHEORGHIU",
+      "pagina_min": 175,
+      "pagina_max": 175,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Atrasar o roque e manter o rei preso no centro expõe a posição a arremates e ataques fulminantes."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Peças dispersas e desconectadas não conseguem articular uma defesa eficiente contra a pressão contínua do adversário."
+        },
+        {
+          "conceito": "peça cravada",
+          "resumo_curto": "A imobilidade de uma peça sujeita à cravada permite ao atacante somar novas forças para intensificar a ameaça."
+        }
+      ]
+    },
+    {
+      "capitulo": "PARTE 3",
+      "pagina_min": 176,
+      "pagina_max": 202,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "peça cravada",
+          "resumo_curto": "Imobilização de uma peça adversária que não pode se mover sem expor um alvo de maior valor atrás dela."
+        },
+        {
+          "conceito": "ataque descoberto",
+          "resumo_curto": "Manobra em que a movimentação de uma peça libera a linha de ação de outra para criar uma ameaça."
+        },
+        {
+          "conceito": "garfo tatico",
+          "resumo_curto": "Ataque simultâneo realizado por uma única peça contra dois ou mais alvos adversários indefesos."
+        },
+        {
+          "conceito": "espeto tatico",
+          "resumo_curto": "Golpe que ataca uma peça valiosa alinhada na frente de outra, forçando sua saída e expondo o alvo posterior."
+        }
+      ]
+    },
+    {
+      "capitulo": "CHAVE PARA AVALIAÇÃO DO DESEMPENHO NOS TESTES TÁTICOS",
+      "pagina_min": 204,
+      "pagina_max": 212,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Um dos objetivos fundamentais na abertura é realizar o roque rapidamente para proteger o rei e ativar as torres."
+        },
+        {
+          "conceito": "ataque descoberto",
+          "resumo_curto": "Tática em que a movimentação de uma peça libera a linha de ação de outra que estava oculta para criar uma ameaça."
+        },
+        {
+          "conceito": "ataque duplo",
+          "resumo_curto": "Manobra tática ofensiva que cria ameaças simultâneas contra duas peças ou alvos adversários em um único lance."
+        }
+      ]
+    }
+  ]
+}
