@@ -23,6 +23,7 @@ from supabase import Client, create_client
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
+from backend.common.chess_math import centipawns_para_win_percent  # noqa: E402
 from backend.common.progress import format_progress, log_and_print  # noqa: E402
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "analise_engine.log"
 PAGE_SIZE = 1000
@@ -53,6 +54,7 @@ class CriticalMove:
     notation: str
     evaluation_before_cp: int
     evaluation_after_cp: int
+    win_percent_drop: float
 
 
 @dataclass(frozen=True)
@@ -248,19 +250,25 @@ def processar_partida(partida: dict, engine: Stockfish) -> ProcessResult:
             if board.is_checkmate():
                 break
             after_cp = evaluate_position(engine, board, color)
+            win_percent_drop = round(
+                centipawns_para_win_percent(before_cp)
+                - centipawns_para_win_percent(after_cp),
+                2,
+            )
             evaluated_moves.append(
                 CriticalMove(
                     move_number=move_number,
                     notation=notation,
                     evaluation_before_cp=before_cp,
                     evaluation_after_cp=after_cp,
+                    win_percent_drop=win_percent_drop,
                 )
             )
         else:
             board.push(move)
 
     evaluated_moves.sort(
-        key=lambda item: abs(item.evaluation_after_cp - item.evaluation_before_cp),
+        key=lambda item: abs(item.win_percent_drop),
         reverse=True,
     )
     critical_moves = [
@@ -368,7 +376,12 @@ def processar_partida_com_timeout(
 def insert_critical_moves(
     client: Client, result: ProcessResult
 ) -> int:
-    """Insere os lances críticos de uma partida e retorna a quantidade."""
+    """Substitui os lances críticos de uma partida e retorna a quantidade inserida."""
+
+    # Remove lances de execuções anteriores para que um reprocessamento nunca duplique.
+    client.table("lances_criticos").delete().eq(
+        "partida_id", result.partida_id
+    ).execute()
 
     inserted = 0
     for move in result.critical_moves:
@@ -379,6 +392,7 @@ def insert_critical_moves(
                 "lance_notacao": move.notation,
                 "avaliacao_antes_cp": move.evaluation_before_cp,
                 "avaliacao_depois_cp": move.evaluation_after_cp,
+                "queda_win_percent": move.win_percent_drop,
             }
         ).execute()
         inserted += 1
