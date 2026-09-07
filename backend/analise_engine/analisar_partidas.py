@@ -29,7 +29,10 @@ LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "analise_engine.log"
 PAGE_SIZE = 1000
 CRITICAL_SWING_CP = 100
 MAX_MATE_SCORE_CP = 10000
-PARTIDA_TIMEOUT_SECONDS = 300
+# Janela deslizante (em lances do jogador) e queda líquida mínima para erosão.
+WINDOW_SIZE_EROSAO = 8
+EROSAO_THRESHOLD_PERCENT = 15.0
+PARTIDA_TIMEOUT_SECONDS = 600
 STOCKFISH_INIT_TIMEOUT_SECONDS = 15
 # O timeout da partida cobre todas as avaliações; mantenha este valor baixo
 # o suficiente para que dezenas de posições caibam no orçamento total.
@@ -48,13 +51,27 @@ class AnalysisSettings:
 
 @dataclass(frozen=True)
 class CriticalMove:
-    """Dados de um lance cuja avaliação mudou significativamente."""
+    """Dados de um evento crítico (pico isolado ou janela de erosão)."""
+
+    move_number: int
+    notation: str | None
+    evaluation_before_cp: int
+    evaluation_after_cp: int
+    win_percent_drop: float
+    tipo_evento: str = "PICO"
+    move_number_fim: int | None = None
+
+
+@dataclass(frozen=True)
+class PlayerMoveEval:
+    """Avaliação de um lance do jogador em ordem cronológica."""
 
     move_number: int
     notation: str
     evaluation_before_cp: int
     evaluation_after_cp: int
-    win_percent_drop: float
+    win_percent_before: float
+    win_percent_after: float
 
 
 @dataclass(frozen=True)
@@ -231,15 +248,128 @@ def load_validated_game(partida: dict[str, Any]) -> chess.pgn.Game:
     return game
 
 
+def load_erosao_settings() -> tuple[int, float]:
+    """Carrega o tamanho da janela e o limiar de erosão do ambiente."""
+
+    raw_window = os.getenv("WINDOW_SIZE_EROSAO", str(WINDOW_SIZE_EROSAO))
+    try:
+        window_size = int(raw_window)
+    except ValueError as error:
+        raise ValueError("WINDOW_SIZE_EROSAO deve ser um inteiro") from error
+    if window_size < 1:
+        raise ValueError("WINDOW_SIZE_EROSAO deve ser maior que zero")
+
+    raw_threshold = os.getenv(
+        "EROSAO_THRESHOLD_PERCENT", str(EROSAO_THRESHOLD_PERCENT)
+    )
+    try:
+        threshold = float(raw_threshold)
+    except ValueError as error:
+        raise ValueError("EROSAO_THRESHOLD_PERCENT deve ser um número") from error
+    return window_size, threshold
+
+
+def selecionar_picos(player_moves: list[PlayerMoveEval]) -> list[CriticalMove]:
+    """Escolhe até três lances com a maior queda isolada de win_percent."""
+
+    candidatos = [
+        CriticalMove(
+            move_number=move.move_number,
+            notation=move.notation,
+            evaluation_before_cp=move.evaluation_before_cp,
+            evaluation_after_cp=move.evaluation_after_cp,
+            win_percent_drop=round(
+                move.win_percent_before - move.win_percent_after, 2
+            ),
+        )
+        for move in player_moves
+    ]
+    candidatos.sort(key=lambda item: abs(item.win_percent_drop), reverse=True)
+    return [
+        move
+        for move in candidatos[:3]
+        if abs(move.evaluation_after_cp - move.evaluation_before_cp)
+        >= CRITICAL_SWING_CP
+    ]
+
+
+def calcular_max_eventos_erosao(total_lances_jogador: int) -> int:
+    """Escala o número de eventos de erosão permitidos com o tamanho da partida."""
+
+    return max(1, min(3, total_lances_jogador // 20))
+
+
+def detectar_erosao(
+    player_moves: list[PlayerMoveEval],
+    pico_move_numbers: set[int],
+    window_size: int,
+    threshold_percent: float,
+) -> list[CriticalMove]:
+    """Detecta até N janelas não sobrepostas com queda líquida acima do limiar."""
+
+    if window_size < 1 or len(player_moves) < window_size:
+        return []
+
+    candidatos: list[tuple[float, int]] = []
+    for start in range(0, len(player_moves) - window_size + 1):
+        janela = player_moves[start : start + window_size]
+        queda_liquida = janela[0].win_percent_before - janela[-1].win_percent_after
+        if queda_liquida >= threshold_percent:
+            candidatos.append((queda_liquida, start))
+
+    if not candidatos:
+        return []
+
+    # Guloso: prioriza as maiores quedas, pulando o que sobrepõe demais o já escolhido.
+    candidatos.sort(key=lambda item: item[0], reverse=True)
+    max_eventos = calcular_max_eventos_erosao(len(player_moves))
+
+    selecionados: list[CriticalMove] = []
+    move_numbers_selecionados: set[int] = set()
+    for queda_liquida, start in candidatos:
+        if len(selecionados) >= max_eventos:
+            break
+
+        janela = player_moves[start : start + window_size]
+        move_numbers_janela = {move.move_number for move in janela}
+
+        sobreposicao_pico = len(move_numbers_janela & pico_move_numbers)
+        if sobreposicao_pico / window_size > 0.5:
+            continue
+
+        sobreposicao_selecionados = len(
+            move_numbers_janela & move_numbers_selecionados
+        )
+        if sobreposicao_selecionados / window_size > 0.5:
+            continue
+
+        inicio = janela[0]
+        fim = janela[-1]
+        selecionados.append(
+            CriticalMove(
+                move_number=inicio.move_number,
+                notation=None,
+                evaluation_before_cp=inicio.evaluation_before_cp,
+                evaluation_after_cp=fim.evaluation_after_cp,
+                win_percent_drop=round(queda_liquida, 2),
+                tipo_evento="EROSAO",
+                move_number_fim=fim.move_number,
+            )
+        )
+        move_numbers_selecionados.update(move_numbers_janela)
+
+    return selecionados
+
+
 def processar_partida(partida: dict, engine: Stockfish) -> ProcessResult:
-    """Analisa uma partida e retorna seus três maiores swings relevantes."""
+    """Analisa uma partida e retorna seus picos e um possível evento de erosão."""
 
     partida_id = partida["id"]
     color = partida.get("cor_jogada")
     game = load_validated_game(partida)
 
     board = game.board()
-    evaluated_moves: list[CriticalMove] = []
+    player_moves: list[PlayerMoveEval] = []
     for move in game.mainline_moves():
         playing_color = "BRANCAS" if board.turn == chess.WHITE else "PRETAS"
         if playing_color == color:
@@ -250,33 +380,29 @@ def processar_partida(partida: dict, engine: Stockfish) -> ProcessResult:
             if board.is_checkmate():
                 break
             after_cp = evaluate_position(engine, board, color)
-            win_percent_drop = round(
-                centipawns_para_win_percent(before_cp)
-                - centipawns_para_win_percent(after_cp),
-                2,
-            )
-            evaluated_moves.append(
-                CriticalMove(
+            player_moves.append(
+                PlayerMoveEval(
                     move_number=move_number,
                     notation=notation,
                     evaluation_before_cp=before_cp,
                     evaluation_after_cp=after_cp,
-                    win_percent_drop=win_percent_drop,
+                    win_percent_before=centipawns_para_win_percent(before_cp),
+                    win_percent_after=centipawns_para_win_percent(after_cp),
                 )
             )
         else:
             board.push(move)
 
-    evaluated_moves.sort(
-        key=lambda item: abs(item.win_percent_drop),
-        reverse=True,
+    critical_moves = selecionar_picos(player_moves)
+    window_size, threshold = load_erosao_settings()
+    critical_moves.extend(
+        detectar_erosao(
+            player_moves,
+            {move.move_number for move in critical_moves},
+            window_size,
+            threshold,
+        )
     )
-    critical_moves = [
-        move
-        for move in evaluated_moves[:3]
-        if abs(move.evaluation_after_cp - move.evaluation_before_cp)
-        >= CRITICAL_SWING_CP
-    ]
     return ProcessResult(partida_id=partida_id, critical_moves=critical_moves)
 
 
@@ -389,10 +515,12 @@ def insert_critical_moves(
             {
                 "partida_id": result.partida_id,
                 "numero_lance": move.move_number,
+                "numero_lance_fim": move.move_number_fim,
                 "lance_notacao": move.notation,
                 "avaliacao_antes_cp": move.evaluation_before_cp,
                 "avaliacao_depois_cp": move.evaluation_after_cp,
                 "queda_win_percent": move.win_percent_drop,
+                "tipo_evento": move.tipo_evento,
             }
         ).execute()
         inserted += 1

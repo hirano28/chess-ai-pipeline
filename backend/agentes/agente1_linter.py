@@ -80,6 +80,7 @@ class AgentSettings:
     supabase_service_role_key: str
     gemini_api_key: str
     rate_limit_sleep_seconds: float
+    limiar_apuro_tempo_seg: float
 
 
 def configure_logging() -> logging.Logger:
@@ -122,18 +123,25 @@ def load_settings() -> AgentSettings:
     if sleep_seconds < 0:
         raise ValueError("GEMINI_RATE_LIMIT_SLEEP_SEC não pode ser negativo")
 
+    raw_limiar = os.getenv("LIMIAR_APURO_TEMPO_SEG", "15")
+    try:
+        limiar_apuro_tempo_seg = float(raw_limiar)
+    except ValueError as error:
+        raise ValueError("LIMIAR_APURO_TEMPO_SEG deve ser um número") from error
+
     return AgentSettings(
         supabase_url=required["SUPABASE_URL"],
         supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],
         gemini_api_key=required["GEMINI_API_KEY"],
         rate_limit_sleep_seconds=sleep_seconds,
+        limiar_apuro_tempo_seg=limiar_apuro_tempo_seg,
     )
 
 
 def fetch_critical_moves(
     supabase_client: Client, logger: logging.Logger
 ) -> list[dict[str, Any]]:
-    """Busca lances críticos com o PGN da partida relacionada."""
+    """Busca lances críticos com o PGN da partida e o tempo de relógio, quando existirem."""
 
     moves: list[dict[str, Any]] = []
     offset = 0
@@ -152,8 +160,66 @@ def fetch_critical_moves(
             offset,
         )
         if len(page) < PAGE_SIZE:
-            return moves
+            break
         offset += PAGE_SIZE
+
+    tempos_index = fetch_tempos_lance_index(supabase_client, logger)
+    for lance in moves:
+        attach_tempo_lance(lance, tempos_index)
+    return moves
+
+
+def fetch_tempos_lance_index(
+    supabase_client: Client, logger: logging.Logger
+) -> dict[tuple[Any, int, str], dict[str, Any]]:
+    """Indexa tempos_lance por (partida_id, numero_lance, cor), em páginas."""
+
+    index: dict[tuple[Any, int, str], dict[str, Any]] = {}
+    offset = 0
+    while True:
+        response = (
+            supabase_client.table("tempos_lance")
+            .select("partida_id, numero_lance, cor, tempo_restante_seg, tempo_gasto_seg")
+            .range(offset, offset + PAGE_SIZE - 1)
+            .execute()
+        )
+        page = response.data or []
+        for row in page:
+            chave = (row.get("partida_id"), row.get("numero_lance"), row.get("cor"))
+            index[chave] = row
+        logger.info(
+            "Página de tempos_lance carregada: %d registros (offset %d)",
+            len(page),
+            offset,
+        )
+        if len(page) < PAGE_SIZE:
+            return index
+        offset += PAGE_SIZE
+
+
+def attach_tempo_lance(
+    lance: dict[str, Any],
+    tempos_index: dict[tuple[Any, int, str], dict[str, Any]],
+) -> None:
+    """Preenche tempo_restante_seg/tempo_gasto_seg no lance, quando existirem.
+
+    Partidas do Chess.com ou lances sem esse dado simplesmente não recebem os
+    campos, e o restante do fluxo continua funcionando normalmente.
+    """
+
+    try:
+        partida = get_partida(lance)
+    except ValueError:
+        return
+    cor_jogada = partida.get("cor_jogada")
+    numero_lance = lance.get("numero_lance")
+    if cor_jogada is None or numero_lance is None:
+        return
+    chave = (partida.get("id"), int(numero_lance), cor_jogada)
+    tempo_row = tempos_index.get(chave)
+    if tempo_row is not None:
+        lance["tempo_restante_seg"] = tempo_row.get("tempo_restante_seg")
+        lance["tempo_gasto_seg"] = tempo_row.get("tempo_gasto_seg")
 
 
 def fetch_diagnosed_move_ids(
@@ -224,6 +290,35 @@ def reconstruct_context(pgn: str, move_number: int) -> str:
     return " ".join(context_tokens) or "(sem lances anteriores disponíveis)"
 
 
+def reconstruct_erosion_window(
+    pgn: str, move_start: int, move_end: int, color: str
+) -> str:
+    """Reconstrói apenas os lances do jogador dentro da janela de erosão."""
+
+    game = chess.pgn.read_game(io.StringIO(pgn))
+    if game is None:
+        raise ValueError("Não foi possível fazer parse do PGN da partida")
+
+    player_is_white = str(color).strip().upper() == "BRANCAS"
+    board = game.board()
+    tokens: list[str] = []
+    for move in game.mainline_moves():
+        current_move_number = board.fullmove_number
+        if current_move_number > move_end:
+            break
+        is_white_move = board.turn == chess.WHITE
+        if (
+            move_start <= current_move_number <= move_end
+            and is_white_move == player_is_white
+        ):
+            san = board.san(move)
+            prefixo = f"{current_move_number}." if player_is_white else f"{current_move_number}..."
+            tokens.append(f"{prefixo} {san}")
+        board.push(move)
+    return " ".join(tokens) or "(sem lances do jogador na janela)"
+
+
+
 def strip_json_fences(text: str) -> str:
     """Remove fences markdown caso o modelo as inclua apesar da instrução."""
 
@@ -274,7 +369,9 @@ def call_gemini(
     raise RuntimeError("Chamada ao Gemini encerrada sem resultado")
 
 
-def build_prompt(lance: dict[str, Any], context: str) -> str:
+def build_prompt(
+    lance: dict[str, Any], context: str, time_pressure_note: str = ""
+) -> str:
     """Monta o prompt estruturado para o diagnóstico estratégico."""
 
     return f"""Você é um treinador de xadrez. Faça um traceback estratégico do lance abaixo.
@@ -315,7 +412,137 @@ Dados do lance:
 - avaliacao_depois_cp: {lance.get('avaliacao_depois_cp')}
 - numero_lance: {lance.get('numero_lance')}
 - trecho_pgn_das_duas_jogadas_anteriores: {context}
+{time_pressure_note}"""
+
+
+def em_apuro_de_tempo(
+    tempo_restante_seg: float,
+    tempo_gasto_seg: float | None,
+    limiar_seg: float,
+) -> bool:
+    """Detecta apuro de tempo: relógio baixo, ou lance muito rápido com pouco tempo."""
+
+    if tempo_restante_seg <= limiar_seg:
+        return True
+    return (
+        tempo_gasto_seg is not None
+        and tempo_restante_seg <= 30
+        and tempo_gasto_seg <= 2
+    )
+
+
+def build_time_pressure_note(
+    tempo_restante_seg: float, tempo_gasto_seg: float | None
+) -> str:
+    """Monta a nota de apuro de tempo a ser anexada ao prompt de diagnóstico."""
+
+    gasto_display = (
+        f"{tempo_gasto_seg:.1f}s" if tempo_gasto_seg is not None else "um tempo não registrado"
+    )
+    return (
+        f"- apuro_de_tempo: O jogador tinha apenas {tempo_restante_seg:.1f}s restantes "
+        f"no relógio e gastou apenas {gasto_display} neste lance - considere fortemente "
+        "que isso foi um erro causado por apuro de tempo, não por desconhecimento "
+        "conceitual, e inclua a tag gestao_de_tempo_ruim entre as tags escolhidas quando "
+        "isso for o caso.\n"
+    )
+
+
+def montar_time_pressure_note(lance: dict[str, Any], limiar_seg: float) -> str:
+    """Retorna a nota de apuro de tempo do lance, ou string vazia se não aplicável."""
+
+    tempo_restante_seg = lance.get("tempo_restante_seg")
+    if tempo_restante_seg is None:
+        return ""
+    tempo_gasto_seg = lance.get("tempo_gasto_seg")
+    if not em_apuro_de_tempo(tempo_restante_seg, tempo_gasto_seg, limiar_seg):
+        return ""
+    return build_time_pressure_note(tempo_restante_seg, tempo_gasto_seg)
+
+
+def build_erosion_prompt(
+    lance: dict[str, Any], window_moves: str, color: str
+) -> str:
+    """Monta o prompt de diagnóstico para um evento de erosão (sequência)."""
+
+    cor_legivel = "Brancas" if str(color).strip().upper() == "BRANCAS" else "Pretas"
+    numero_lance = lance.get("numero_lance")
+    numero_lance_fim = lance.get("numero_lance_fim")
+    return f"""Você é um treinador de xadrez. Analise um evento de EROSÃO ESTRATÉGICA:
+uma perda de vantagem GRADUAL ao longo de uma SEQUÊNCIA de lances (do lance
+{numero_lance} até o lance {numero_lance_fim}), não um erro isolado de um único lance.
+
+O jogador analisado está jogando de {cor_legivel}. Explique o PADRÃO que causou a
+erosão gradual ao longo dessa sequência específica — não aponte um único
+"lance culpado".
+
+REGRA OBRIGATÓRIA: não descreva lances de fora do intervalo
+[{numero_lance}, {numero_lance_fim}] e não inverta a perspectiva — todas as ações
+analisadas são do jogador de {cor_legivel}, nunca do oponente.
+
+Antes de responder, analise silenciosamente em 3 etapas: (1) como a vantagem foi
+se deteriorando ao longo da sequência, (2) qual padrão recorrente do jogador de
+{cor_legivel} explica a queda, e (3) qual princípio conceitual foi violado e qual
+ação corrige o padrão. Não exponha esse raciocínio intermediário na resposta.
+
+Responda ESTRITAMENTE com um único JSON válido compatível com o schema abaixo,
+sem texto antes ou depois e sem markdown fences.
+
+O campo tags_falha deve conter de 1 a 3 tags, escolhidas SOMENTE desta lista
+fechada (as mais relevantes). Nunca invente uma tag nova; valores fora desta
+lista serão rejeitados na validação:
+"perda_de_material", "seguranca_do_rei", "calculo_tatico_deficiente",
+"visao_em_tunel", "perda_de_iniciativa", "erro_tecnico_de_final",
+"fraqueza_estrutural_de_peoes", "negligencia_profilatica",
+"gestao_de_tempo_ruim", "abertura_de_linhas_desfavoravel",
+"simplificacao_prematura", "avaliacao_posicional_incorreta",
+"troca_desfavoravel", "falta_de_coordenacao_de_pecas",
+"ataque_prematuro", "passividade_excessiva".
+
+Schema:
+{{
+  "fase_do_jogo": "ABERTURA|MEIO_JOGO|FINAL",
+  "tags_falha": ["escolher 1 a 3 tags da lista fechada acima"],
+  "diagnostico_mecanico": "string",
+  "raiz_conceitual_violada": "string",
+  "refinamento_pos_revisao": "string",
+  "acao_corretiva_sugerida": "string",
+  "confianca_diagnostico": "ALTA|MEDIA|BAIXA"
+}}
+
+Dados do evento de erosão:
+- tipo_evento: EROSAO
+- cor_do_jogador: {cor_legivel}
+- numero_lance_inicio: {numero_lance}
+- numero_lance_fim: {numero_lance_fim}
+- avaliacao_antes_cp (início da janela): {lance.get('avaliacao_antes_cp')}
+- avaliacao_depois_cp (fim da janela): {lance.get('avaliacao_depois_cp')}
+- queda_win_percent: {lance.get('queda_win_percent')}
+- lances_do_jogador_na_janela: {window_moves}
 """
+
+
+def montar_prompt(
+    lance: dict[str, Any], partida: dict[str, Any], limiar_apuro_tempo_seg: float = 15.0
+) -> str:
+    """Escolhe o prompt adequado ao tipo de evento (PICO ou EROSAO)."""
+
+    pgn = partida.get("pgn")
+    if not isinstance(pgn, str) or not pgn.strip():
+        raise ValueError(f"Lance {lance.get('id')} não possui PGN da partida")
+
+    tipo_evento = str(lance.get("tipo_evento") or "PICO").upper()
+    if tipo_evento == "EROSAO":
+        move_start = int(lance["numero_lance"])
+        move_end = int(lance.get("numero_lance_fim") or move_start)
+        color = partida.get("cor_jogada")
+        window = reconstruct_erosion_window(pgn, move_start, move_end, color)
+        return build_erosion_prompt(lance, window, color)
+
+    context = reconstruct_context(pgn, int(lance["numero_lance"]))
+    time_pressure_note = montar_time_pressure_note(lance, limiar_apuro_tempo_seg)
+    return build_prompt(lance, context, time_pressure_note)
+
 
 
 def correction_prompt(original_prompt: str, error: ValidationError) -> str:
@@ -347,11 +574,7 @@ def processar_lance(
     settings = settings or load_settings()
     logger = logger or configure_logging()
     partida = get_partida(lance)
-    pgn = partida.get("pgn")
-    if not isinstance(pgn, str) or not pgn.strip():
-        raise ValueError(f"Lance {lance.get('id')} não possui PGN da partida")
-    context = reconstruct_context(pgn, int(lance["numero_lance"]))
-    prompt = build_prompt(lance, context)
+    prompt = montar_prompt(lance, partida, settings.limiar_apuro_tempo_seg)
     response_text = call_gemini(client, prompt, settings.rate_limit_sleep_seconds, logger)
     try:
         diagnosis = parse_diagnosis(response_text)
