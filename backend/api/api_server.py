@@ -18,7 +18,7 @@ import chess
 import google.genai as genai
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from stockfish import Stockfish
 
 
@@ -27,19 +27,28 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from backend.agentes.revisar_exercicio_avulso import (  # noqa: E402
     EngineIndisponivelError,
     configure_console_logger,
-    processar_revisao_avulsa,
+    normalizar_lances,
+    processar_revisao_sequencia,
     resolver_posicao,
     salvar_exercicio,
 )
 from backend.agentes.revisar_pensamento import load_settings  # noqa: E402
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
 
-ALLOWED_ORIGIN = "http://localhost:4200"
+DEFAULT_ALLOWED_ORIGINS = (
+    "http://localhost:4200",
+    "https://chess-ai-pipeline.vercel.app",
+)
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", ",".join(DEFAULT_ALLOWED_ORIGINS)).split(",")
+    if origin.strip()
+]
 
 app = FastAPI(title="Chess AI Pipeline - API de revisão avulsa")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[ALLOWED_ORIGIN],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -49,15 +58,47 @@ _state: dict[str, Any] = {}
 
 
 class RevisarAvulsoRequest(BaseModel):
-    """Payload de entrada: posição (FEN ou PGN), lance e pensamento do jogador."""
+    """Payload de entrada: posição (FEN ou PGN), lance(s) e pensamento do jogador.
+
+    Aceita 'lance' (string única, compat) OU 'lances' (lista SAN na ordem em que
+    ocorrem a partir da posição). Quando ambos vêm, 'lances' tem prioridade.
+    """
 
     posicao: str
-    lance: str
+    lance: str | None = None
+    lances: list[str] | None = None
     pensamento: str
 
 
+class AvaliacaoSequenciaItem(BaseModel):
+    """Avaliação de um único lance DO JOGADOR dentro da sequência."""
+
+    indice_na_sequencia: int
+    lance_jogado: str
+    melhor_lance: str | None
+    queda_win_percent: float
+    qualidade_lance: str
+    qualidade_raciocinio: str
+    feedback_texto: str
+    analise_mestre: str
+    top_candidatos: list[dict] = Field(default_factory=list)
+
+
 class RevisarAvulsoResponse(BaseModel):
-    """Resultado da revisão, pronto para exibição no dashboard."""
+    """Resultado da revisão de uma sequência, pronto para exibição no dashboard.
+
+    'avaliacoes' tem um item por lance DO JOGADOR (para um lance único, 1 item).
+    'lances' lista todos os lances aplicados (jogador + adversário), em SAN.
+    """
+
+    fen: str
+    lances: list[str]
+    avaliacoes: list[AvaliacaoSequenciaItem]
+    resumo_geral: str | None = None
+
+
+class SalvarAvulsoRequest(BaseModel):
+    """Payload de um exercício (um lance do jogador) a persistir, mais fen/pensamento."""
 
     lance_jogado: str
     melhor_lance: str | None
@@ -66,11 +107,7 @@ class RevisarAvulsoResponse(BaseModel):
     qualidade_raciocinio: str
     feedback_texto: str
     analise_mestre: str
-
-
-class SalvarAvulsoRequest(RevisarAvulsoResponse):
-    """Mesmo payload de resposta de /revisar-avulso, mais fen e o pensamento original."""
-
+    top_candidatos: list[dict] = Field(default_factory=list)
     fen: str
     texto_pensamento: str
 
@@ -132,24 +169,23 @@ def verificar_api_key(x_api_key: str | None = Header(default=None, alias="X-API-
     dependencies=[Depends(verificar_api_key)],
 )
 def revisar_avulso(payload: RevisarAvulsoRequest) -> RevisarAvulsoResponse:
-    """Avalia um exercício avulso (FEN ou PGN completo) e retorna o feedback."""
+    """Avalia um exercício avulso (lance único ou sequência) e retorna o feedback."""
 
     try:
+        lances_san = normalizar_lances(payload.lances, payload.lance)
         board = resolver_posicao(payload.posicao)
         fen = board.fen()
-        move = board.parse_san(payload.lance)
-        lance_san = board.san(move)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     try:
-        resultado = processar_revisao_avulsa(
+        resultado = processar_revisao_sequencia(
             _state["engine"],
             _state["gemini_client"],
             _state["settings"],
             _state["logger"],
             fen,
-            lance_san,
+            lances_san,
             payload.pensamento,
             _state["engine_lock"],
         )

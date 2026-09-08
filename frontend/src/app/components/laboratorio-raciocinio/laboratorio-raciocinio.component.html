@@ -66,16 +66,20 @@
 
       <div class="mb-5">
         <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-          Seu lance
+          Seu(s) lance(s)
         </label>
         <input
           type="text"
           class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
-          placeholder="Ex: Nxe5"
+          placeholder="Um lance (Nxe5) ou uma sequência (Nd5, Qc6, Bxe6)"
           [value]="lance()"
           [disabled]="carregando()"
           (input)="lance.set($any($event.target).value)"
         />
+        <p class="mt-2 text-xs leading-5 text-[#8fa5a7]">
+          Em uma sequência, o 1º lance é seu, o 2º é a resposta do adversário, o 3º é
+          seu de novo, e assim por diante — só os seus lances são avaliados.
+        </p>
       </div>
 
       <div class="mb-6">
@@ -108,58 +112,90 @@
           {{ carregando() ? 'Analisando...' : 'Analisar' }}
         </button>
       } @else {
-        <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5 sm:p-6">
-          <div class="mb-4 flex flex-wrap items-center gap-3">
-            <span
-              class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
-              [class]="corBadgeQualidadeLance(resultado()!.qualidade_lance)"
-            >
-              Lance: {{ resultado()!.qualidade_lance }}
-            </span>
-            <span
-              class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
-              [class]="corBadgeQualidadeRaciocinio(resultado()!.qualidade_raciocinio)"
-            >
-              Raciocínio: {{ resultado()!.qualidade_raciocinio }}
-            </span>
+        <p class="mb-4 text-sm text-[#8fa5a7]">
+          Linha avaliada: <span class="font-semibold text-[#d7dede]">{{ resultado()!.lances.join(' ') }}</span>
+          — {{ resultado()!.avaliacoes.length }} lance(s) seu(s) avaliado(s).
+        </p>
+
+        <div class="flex flex-col gap-5">
+          @for (item of resultado()!.avaliacoes; track item.indice_na_sequencia) {
+            <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5 sm:p-6">
+              <div class="mb-4 flex flex-wrap items-center gap-3">
+                <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#b9c7c8]">
+                  Lance {{ item.lance_jogado }}
+                </span>
+                <span
+                  class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
+                  [class]="corBadgeQualidadeLance(item.qualidade_lance)"
+                >
+                  Lance: {{ item.qualidade_lance }}
+                </span>
+                <span
+                  class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
+                  [class]="corBadgeQualidadeRaciocinio(item.qualidade_raciocinio)"
+                >
+                  Raciocínio: {{ item.qualidade_raciocinio }}
+                </span>
+              </div>
+
+              <div class="mb-4 grid gap-3 text-sm sm:grid-cols-3">
+                <p><span class="text-[#8fa5a7]">Lance jogado:</span> <span class="font-semibold">{{ item.lance_jogado }}</span></p>
+                <p><span class="text-[#8fa5a7]">Melhor lance:</span> <span class="font-semibold">{{ item.melhor_lance ?? '—' }}</span></p>
+                <p><span class="text-[#8fa5a7]">Queda de win%:</span> <span class="font-semibold">{{ item.queda_win_percent }}</span></p>
+              </div>
+
+              @if (item.top_candidatos.length > 0) {
+                <p class="mb-3 text-sm text-[#8fa5a7]">
+                  Top candidatos:
+                  <span class="font-semibold text-[#d7dede]">
+                    @for (cand of item.top_candidatos; track cand.lance) {
+                      {{ cand.lance }} ({{ cand.avaliacao }})@if (!$last) {, }
+                    }
+                  </span>
+                </p>
+              }
+
+              <p class="mb-2 text-base leading-7 text-[#d7dede]">{{ item.feedback_texto }}</p>
+              <p class="text-sm leading-6 text-[#b9c7c8]"><span class="text-[#8fa5a7]">Análise do mestre:</span> {{ item.analise_mestre }}</p>
+            </div>
+          }
+        </div>
+
+        @if (resultado()!.resumo_geral) {
+          <div class="mt-5 rounded-lg border border-[#3a4d33] bg-[#141d13] p-5 sm:p-6">
+            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#8fbf6f]">Resumo geral da sequência</p>
+            <p class="text-base leading-7 text-[#d7dede]">{{ resultado()!.resumo_geral }}</p>
           </div>
+        }
 
-          <div class="mb-4 grid gap-3 text-sm sm:grid-cols-3">
-            <p><span class="text-[#8fa5a7]">Lance jogado:</span> <span class="font-semibold">{{ resultado()!.lance_jogado }}</span></p>
-            <p><span class="text-[#8fa5a7]">Melhor lance:</span> <span class="font-semibold">{{ resultado()!.melhor_lance ?? '—' }}</span></p>
-            <p><span class="text-[#8fa5a7]">Queda de win%:</span> <span class="font-semibold">{{ resultado()!.queda_win_percent }}</span></p>
-          </div>
-
-          <p class="mb-6 text-base leading-7 text-[#d7dede]">{{ resultado()!.feedback_texto }}</p>
-
-          <div class="flex flex-wrap gap-3">
-            @if (!salvo()) {
-              <button
-                type="button"
-                class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-4 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
-                [disabled]="salvando()"
-                (click)="salvarExercicio()"
-              >
-                {{ salvando() ? 'Salvando...' : 'Salvar este exercício' }}
-              </button>
-            } @else {
-              <span class="inline-flex items-center rounded-full border border-[#557267] bg-[#20352e] px-4 py-2 text-sm font-semibold text-[#a9d2bd]">
-                Exercício salvo
-              </span>
-            }
-
+        <div class="mt-6 flex flex-wrap gap-3">
+          @if (!salvo()) {
             <button
               type="button"
-              class="inline-flex min-h-10 items-center justify-center rounded-md border border-[#40565c] px-4 py-2 text-sm font-semibold text-[#b9c7c8] transition-colors hover:text-[#f4f0e6]"
-              (click)="novaAnalise()"
+              class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-4 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
+              [disabled]="salvando()"
+              (click)="salvarExercicio()"
             >
-              Nova análise
+              {{ salvando() ? 'Salvando...' : 'Salvar este exercício' }}
             </button>
-          </div>
+          } @else {
+            <span class="inline-flex items-center rounded-full border border-[#557267] bg-[#20352e] px-4 py-2 text-sm font-semibold text-[#a9d2bd]">
+              Exercício salvo
+            </span>
+          }
+
+          <button
+            type="button"
+            class="inline-flex min-h-10 items-center justify-center rounded-md border border-[#40565c] px-4 py-2 text-sm font-semibold text-[#b9c7c8] transition-colors hover:text-[#f4f0e6]"
+            (click)="novaAnalise()"
+          >
+            Nova análise
+          </button>
         </div>
       }
     </section>
     }
   </section>
 </main>
+
 

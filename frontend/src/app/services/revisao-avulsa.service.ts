@@ -4,13 +4,28 @@ import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthLocalService } from './auth-local.service';
 
-export interface ResultadoRevisaoAvulsa {
+export interface CandidatoMotor {
+  lance: string;
+  avaliacao: string;
+}
+
+export interface AvaliacaoSequenciaItem {
+  indice_na_sequencia: number;
   lance_jogado: string;
   melhor_lance: string | null;
   queda_win_percent: number;
   qualidade_lance: string;
   qualidade_raciocinio: string;
   feedback_texto: string;
+  analise_mestre: string;
+  top_candidatos: CandidatoMotor[];
+}
+
+export interface ResultadoRevisaoAvulsa {
+  fen: string;
+  lances: string[];
+  avaliacoes: AvaliacaoSequenciaItem[];
+  resumo_geral: string | null;
 }
 
 export interface RevisarAvulsaResult {
@@ -39,14 +54,14 @@ export class RevisaoAvulsaService {
 
   async revisar(
     posicao: string,
-    lance: string,
+    lances: string[],
     pensamento: string
   ): Promise<RevisarAvulsaResult> {
     try {
       const resultado = await firstValueFrom(
         this.http.post<ResultadoRevisaoAvulsa>(
           `${environment.apiLocalUrl}/revisar-avulso`,
-          { posicao, lance, pensamento },
+          { posicao, lances, pensamento },
           { headers: this.headersComChave() }
         )
       );
@@ -61,7 +76,7 @@ export class RevisaoAvulsaService {
   }
 
   async salvar(
-    resultado: ResultadoRevisaoAvulsa,
+    avaliacao: AvaliacaoSequenciaItem,
     fen: string,
     textoPensamento: string
   ): Promise<SalvarAvulsaResult> {
@@ -69,7 +84,7 @@ export class RevisaoAvulsaService {
       await firstValueFrom(
         this.http.post(
           `${environment.apiLocalUrl}/revisar-avulso/salvar`,
-          { ...resultado, fen, texto_pensamento: textoPensamento },
+          { ...avaliacao, fen, texto_pensamento: textoPensamento },
           { headers: this.headersComChave() }
         )
       );

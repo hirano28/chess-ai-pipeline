@@ -32,11 +32,14 @@ from backend.agentes.revisar_pensamento import (  # noqa: E402
     RevisaoRaciocinio,
     Settings,
     build_prompt,
+    call_gemini,
     classificar_qualidade_lance,
     gerar_revisao,
     load_settings,
     obter_linha_principal,
     obter_melhor_lance,
+    obter_top_candidatos,
+    strip_json_fences,
 )
 from backend.analise_engine.analisar_partidas import evaluate_position  # noqa: E402
 from backend.common.chess_math import centipawns_para_win_percent  # noqa: E402
@@ -112,6 +115,27 @@ def ler_lance(board: chess.Board) -> chess.Move:
             print(f"Lance inválido: {error}. Tente novamente.\n")
 
 
+def ler_lances(board: chess.Board) -> list[str]:
+    """Pede um ou vários lances SAN (separados por espaço/vírgula) e valida a linha.
+
+    O 1º lance é do jogador, o 2º do adversário, o 3º do jogador, e assim por diante.
+    """
+
+    while True:
+        entrada = input(
+            "Seus lances (SAN, um ou vários; alternando com o adversário, "
+            "ex: Nd5, Qc6, Bxe6): "
+        ).strip()
+        try:
+            lances = normalizar_lances(None, entrada)
+            scratch = board.copy()
+            for lance in lances:
+                scratch.push(scratch.parse_san(lance))
+            return lances
+        except ValueError as error:
+            print(f"Sequência inválida: {error}. Tente novamente.\n")
+
+
 def ler_texto_pensamento() -> str:
     """Lê múltiplas linhas de raciocínio até uma linha só com 'FIM'."""
 
@@ -157,6 +181,7 @@ def avaliar_lance_avulso(
             engine, board, searchtime_ms=EXERCICIO_AVULSO_SEARCHTIME_MS
         )
         linha_principal = obter_linha_principal(engine, board)
+        top_candidatos = obter_top_candidatos(engine, board)
         lance_jogado = board.san(move)
         board.push(move)
         after_cp = evaluate_position(
@@ -166,7 +191,9 @@ def avaliar_lance_avulso(
         centipawns_para_win_percent(before_cp) - centipawns_para_win_percent(after_cp),
         2,
     )
-    return AvaliacaoLance(lance_jogado, melhor_lance, queda_win_percent, linha_principal)
+    return AvaliacaoLance(
+        lance_jogado, melhor_lance, queda_win_percent, linha_principal, top_candidatos
+    )
 
 
 def resolver_posicao(posicao: str) -> chess.Board:
@@ -226,7 +253,13 @@ def processar_revisao_avulsa(
         avaliacao.queda_win_percent, settings.limiar_lance_bom, settings.limiar_lance_ruim
     )
     prompt = build_prompt(texto_pensamento, avaliacao, qualidade_lance)
-    revisao = gerar_revisao(gemini_client, prompt, logger, avaliacao.linha_principal)
+    revisao = gerar_revisao(
+        gemini_client,
+        prompt,
+        logger,
+        avaliacao.linha_principal,
+        avaliacao.top_candidatos,
+    )
 
     return {
         "lance_jogado": avaliacao.lance_jogado,
@@ -236,6 +269,193 @@ def processar_revisao_avulsa(
         "qualidade_raciocinio": revisao.qualidade_raciocinio,
         "feedback_texto": revisao.feedback_texto,
         "analise_mestre": revisao.analise_mestre,
+        "top_candidatos": revisao.top_candidatos,
+    }
+
+
+def normalizar_lances(lances: list[str] | None, lance: str | None) -> list[str]:
+    """Normaliza a entrada para uma lista de lances SAN (compat com 'lance' único).
+
+    Aceita 'lances' (lista) OU 'lance' (string única, tratada como sequência de 1).
+    Também divide uma única string com vários lances separados por espaço/vírgula.
+    """
+
+    brutos: list[str] = []
+    if lances:
+        brutos = list(lances)
+    elif lance:
+        brutos = [lance]
+
+    tokens: list[str] = []
+    for item in brutos:
+        for parte in item.replace(",", " ").split():
+            if parte.strip():
+                tokens.append(parte.strip())
+
+    if not tokens:
+        raise ValueError("Informe ao menos um lance (campo 'lance' ou 'lances').")
+    return tokens
+
+
+def _descrever_contexto_sequencia(
+    lances_sequencia: list[str],
+    indice_atual: int,
+    numero_lance_jogador: int,
+) -> str:
+    """Descreve, para o prompt, a posição deste lance do jogador dentro da linha."""
+
+    linha_texto = " ".join(lances_sequencia)
+    lance_atual = lances_sequencia[indice_atual]
+    if indice_atual == 0:
+        return (
+            f"A linha completa informada é: {linha_texto}. Este é o 1º lance do "
+            f"jogador ({lance_atual}), o ponto de partida do plano."
+        )
+    lance_adversario = lances_sequencia[indice_atual - 1]
+    return (
+        f"A linha completa informada é: {linha_texto}. Este é o {numero_lance_jogador}º "
+        f"lance do jogador ({lance_atual}), jogado APÓS a resposta do adversário "
+        f"'{lance_adversario}'."
+    )
+
+
+def build_prompt_resumo_sequencia(
+    texto_pensamento: str, avaliacoes_jogador: list[dict[str, Any]]
+) -> str:
+    """Monta o prompt do resumo geral que comenta a sequência do jogador como um todo."""
+
+    linhas = []
+    for item in avaliacoes_jogador:
+        candidatos = ", ".join(
+            f"{cand['lance']} ({cand['avaliacao']})"
+            for cand in item.get("top_candidatos") or []
+        )
+        linhas.append(
+            f"- lance {item['lance_jogado']}: qualidade {item['qualidade_lance']}, "
+            f"melhor do motor {item['melhor_lance']}, candidatos: {candidatos or '—'}"
+        )
+    resumo_lances = "\n".join(linhas)
+
+    return f"""Você é um treinador de xadrez. Um jogador resolveu um exercício de
+"adivinhe o lance" que envolvia uma SEQUÊNCIA de lances dele (alternados com as
+respostas do adversário).
+
+O pensamento declarado pelo jogador para a sequência inteira foi:
+\"\"\"{texto_pensamento}\"\"\"
+
+Avaliação objetiva de cada lance DO JOGADOR na sequência (do motor):
+{resumo_lances}
+
+Escreva um RESUMO GERAL curto (2 a 4 frases) comentando a sequência como um todo.
+Foque especialmente em: o raciocínio inicial declarado se manteve válido ao longo
+da sequência? A necessidade de reposicionar peças (ex.: mover a mesma peça de novo)
+realmente invalidou a ideia original, ou fazia parte do plano? Seja construtivo e
+objetivo. Responda apenas com o texto do resumo, sem markdown e sem JSON."""
+
+
+def gerar_resumo_sequencia(
+    gemini_client: Any,
+    logger: logging.Logger,
+    texto_pensamento: str,
+    avaliacoes_jogador: list[dict[str, Any]],
+) -> str | None:
+    """Gera o resumo geral da sequência; retorna None em caso de falha (é opcional)."""
+
+    if len(avaliacoes_jogador) < 2:
+        return None
+    prompt = build_prompt_resumo_sequencia(texto_pensamento, avaliacoes_jogador)
+    try:
+        return strip_json_fences(call_gemini(gemini_client, prompt, logger))
+    except Exception:
+        logger.warning("Falha ao gerar resumo geral da sequência; seguindo sem ele.")
+        return None
+
+
+def processar_revisao_sequencia(
+    engine: Stockfish,
+    gemini_client: Any,
+    settings: Settings,
+    logger: logging.Logger,
+    fen: str,
+    lances_san: list[str],
+    texto_pensamento: str,
+    engine_lock: threading.Lock | None = None,
+) -> dict[str, Any]:
+    """Avalia uma SEQUÊNCIA de lances a partir de uma posição.
+
+    Convenção: o 1º lance é do jogador, o 2º é resposta do adversário, o 3º é do
+    jogador de novo, e assim por diante (alternância). Apenas os lances DO JOGADOR
+    (índices pares) são avaliados quanto à qualidade; os do adversário só avançam a
+    posição. Retorna uma lista de avaliações (uma por lance do jogador) + resumo.
+    """
+
+    board = chess.Board(fen)
+    lances_reais: list[str] = []
+    avaliacoes: list[dict[str, Any]] = []
+    numero_lance_jogador = 0
+
+    for indice, lance_san in enumerate(lances_san):
+        try:
+            move = board.parse_san(lance_san)
+        except ValueError as error:
+            raise ValueError(
+                f"Lance inválido na sequência: '{lance_san}' "
+                f"(posição {indice + 1}). {error}"
+            ) from error
+
+        san_real = board.san(move)
+        eh_do_jogador = indice % 2 == 0
+
+        if eh_do_jogador:
+            numero_lance_jogador += 1
+            avaliacao = avaliar_lance_avulso(engine, board, move, engine_lock)
+            qualidade_lance = classificar_qualidade_lance(
+                avaliacao.queda_win_percent,
+                settings.limiar_lance_bom,
+                settings.limiar_lance_ruim,
+            )
+            contexto = _descrever_contexto_sequencia(
+                lances_san, indice, numero_lance_jogador
+            )
+            prompt = build_prompt(
+                texto_pensamento, avaliacao, qualidade_lance, contexto
+            )
+            revisao = gerar_revisao(
+                gemini_client,
+                prompt,
+                logger,
+                avaliacao.linha_principal,
+                avaliacao.top_candidatos,
+            )
+            avaliacoes.append(
+                {
+                    "indice_na_sequencia": indice + 1,
+                    "lance_jogado": avaliacao.lance_jogado,
+                    "melhor_lance": avaliacao.melhor_lance,
+                    "queda_win_percent": avaliacao.queda_win_percent,
+                    "qualidade_lance": qualidade_lance,
+                    "qualidade_raciocinio": revisao.qualidade_raciocinio,
+                    "feedback_texto": revisao.feedback_texto,
+                    "analise_mestre": revisao.analise_mestre,
+                    "top_candidatos": revisao.top_candidatos,
+                }
+            )
+        else:
+            # Lance do adversário: apenas avança a posição, não é avaliado
+            # (operação de tabuleiro pura, sem acesso ao engine).
+            board.push(move)
+
+        lances_reais.append(san_real)
+
+    resumo_geral = gerar_resumo_sequencia(
+        gemini_client, logger, texto_pensamento, avaliacoes
+    )
+
+    return {
+        "fen": fen,
+        "lances": lances_reais,
+        "avaliacoes": avaliacoes,
+        "resumo_geral": resumo_geral,
     }
 
 
@@ -245,12 +465,35 @@ def imprimir_resultado(resultado: dict[str, Any]) -> None:
     print("\n" + "=" * 60)
     print(f"Lance jogado:            {resultado['lance_jogado']}")
     print(f"Melhor lance (motor):    {resultado['melhor_lance']}")
+    top_candidatos = resultado.get("top_candidatos") or []
+    if top_candidatos:
+        candidatos_texto = ", ".join(
+            f"{cand['lance']} ({cand['avaliacao']})" for cand in top_candidatos
+        )
+        print(f"Top candidatos (motor):  {candidatos_texto}")
     print(f"Queda de win%:           {resultado['queda_win_percent']}")
     print(f"Qualidade do lance:      {resultado['qualidade_lance']}")
     print(f"Qualidade do raciocínio: {resultado['qualidade_raciocinio']}")
     print(f"Feedback: {resultado['feedback_texto']}")
     print(f"Análise do mestre: {resultado['analise_mestre']}")
     print("=" * 60 + "\n")
+
+
+def imprimir_resultado_sequencia(resultado: dict[str, Any]) -> None:
+    """Imprime, um bloco por lance do jogador, o resultado de uma sequência."""
+
+    avaliacoes = resultado.get("avaliacoes") or []
+    print(f"\nLinha avaliada: {' '.join(resultado.get('lances') or [])}")
+    print(f"Lances do jogador avaliados: {len(avaliacoes)}")
+    for ordem, item in enumerate(avaliacoes, start=1):
+        print(f"\n----- Lance {ordem} do jogador "
+              f"(posição {item['indice_na_sequencia']} na linha) -----")
+        imprimir_resultado(item)
+    resumo = resultado.get("resumo_geral")
+    if resumo:
+        print("===== RESUMO GERAL DA SEQUÊNCIA =====")
+        print(resumo)
+        print("=" * 60 + "\n")
 
 
 def salvar_exercicio(
@@ -287,19 +530,21 @@ def executar_um_exercicio(
 
     board = ler_fen()
     fen = board.fen()
-    move = ler_lance(board)
-    lance_san = board.san(move)
+    lances_san = ler_lances(board)
     texto_pensamento = ler_texto_pensamento()
 
     print("\nAvaliando com o Stockfish e consultando o Gemini...")
-    resultado = processar_revisao_avulsa(
-        engine, gemini_client, settings, logger, fen, lance_san, texto_pensamento
+    resultado = processar_revisao_sequencia(
+        engine, gemini_client, settings, logger, fen, lances_san, texto_pensamento
     )
 
-    imprimir_resultado(resultado)
+    imprimir_resultado_sequencia(resultado)
 
-    if perguntar_sim_nao("Salvar este exercício?"):
-        salvar_exercicio(supabase_client, fen, texto_pensamento, resultado)
+    avaliacoes = resultado.get("avaliacoes") or []
+    if avaliacoes and perguntar_sim_nao(
+        "Salvar este exercício (o 1º lance do jogador)?"
+    ):
+        salvar_exercicio(supabase_client, fen, texto_pensamento, avaliacoes[0])
         print("Exercício salvo.\n")
     else:
         print("Exercício não salvo.\n")

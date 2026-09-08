@@ -13,7 +13,10 @@ import chess
 from backend.agentes.revisar_exercicio_avulso import (
     EngineIndisponivelError,
     _acquire_engine_lock,
+    _descrever_contexto_sequencia,
+    normalizar_lances,
     processar_revisao_avulsa,
+    processar_revisao_sequencia,
 )
 from backend.agentes.revisar_pensamento import Settings
 
@@ -181,6 +184,104 @@ class AcquireEngineLockTimeoutTest(unittest.TestCase):
         with _acquire_engine_lock(None):
             executou = True
         self.assertTrue(executou)
+
+
+class _FakeEngineSequencia:
+    """Fake mínimo do Stockfish para os testes de sequência (sem concorrência)."""
+
+    def set_fen_position(self, fen: str) -> None:
+        pass
+
+    def get_evaluation(self, searchtime: int | None = None) -> dict[str, Any]:
+        return {"type": "cp", "value": 20}
+
+    def get_best_move_time(self, time_ms: int) -> str:
+        return "e2e4"
+
+    def get_top_moves(self, n: int, verbose: bool = False) -> list[dict[str, Any]]:
+        return []
+
+
+class NormalizarLancesTest(unittest.TestCase):
+    def test_lista_direta(self) -> None:
+        self.assertEqual(normalizar_lances(["Nd5", "Qc6"], None), ["Nd5", "Qc6"])
+
+    def test_lance_unico_compat(self) -> None:
+        self.assertEqual(normalizar_lances(None, "e4"), ["e4"])
+
+    def test_divide_por_virgula_e_espaco(self) -> None:
+        self.assertEqual(
+            normalizar_lances(None, "Nd5, Qc6 Bxe6"), ["Nd5", "Qc6", "Bxe6"]
+        )
+
+    def test_lista_com_prioridade_sobre_lance(self) -> None:
+        self.assertEqual(normalizar_lances(["Nd5"], "e4"), ["Nd5"])
+
+    def test_vazio_levanta_erro(self) -> None:
+        with self.assertRaises(ValueError):
+            normalizar_lances(None, None)
+
+
+class DescreverContextoSequenciaTest(unittest.TestCase):
+    def test_primeiro_lance_do_jogador(self) -> None:
+        contexto = _descrever_contexto_sequencia(["Nd5", "Qc6", "Bxe6"], 0, 1)
+        self.assertIn("1º lance do jogador", contexto)
+        self.assertIn("Nd5", contexto)
+
+    def test_lance_posterior_menciona_resposta_do_adversario(self) -> None:
+        contexto = _descrever_contexto_sequencia(["Nd5", "Qc6", "Bxe6"], 2, 2)
+        self.assertIn("APÓS a resposta do adversário", contexto)
+        self.assertIn("Qc6", contexto)
+        self.assertIn("Bxe6", contexto)
+
+
+class ProcessarRevisaoSequenciaTest(unittest.TestCase):
+    def test_avalia_apenas_lances_do_jogador(self) -> None:
+        resultado = processar_revisao_sequencia(
+            _FakeEngineSequencia(),
+            _FakeGeminiClient(),
+            _fake_settings(),
+            _fake_logger(),
+            chess.Board().fen(),
+            ["e4", "e5", "Nf3"],
+            "Quero abrir o centro e desenvolver.",
+        )
+
+        # e4 (índice 0) e Nf3 (índice 2) são do jogador; e5 só avança a posição.
+        self.assertEqual(len(resultado["avaliacoes"]), 2)
+        self.assertEqual(resultado["avaliacoes"][0]["lance_jogado"], "e4")
+        self.assertEqual(resultado["avaliacoes"][0]["indice_na_sequencia"], 1)
+        self.assertEqual(resultado["avaliacoes"][1]["lance_jogado"], "Nf3")
+        self.assertEqual(resultado["avaliacoes"][1]["indice_na_sequencia"], 3)
+        self.assertEqual(resultado["lances"], ["e4", "e5", "Nf3"])
+        # 2 lances do jogador → resumo geral é gerado.
+        self.assertIsNotNone(resultado["resumo_geral"])
+
+    def test_lance_unico_gera_uma_avaliacao_sem_resumo(self) -> None:
+        resultado = processar_revisao_sequencia(
+            _FakeEngineSequencia(),
+            _FakeGeminiClient(),
+            _fake_settings(),
+            _fake_logger(),
+            chess.Board().fen(),
+            ["e4"],
+            "Abro no centro.",
+        )
+
+        self.assertEqual(len(resultado["avaliacoes"]), 1)
+        self.assertIsNone(resultado["resumo_geral"])
+
+    def test_lance_ilegal_na_sequencia_levanta_erro(self) -> None:
+        with self.assertRaises(ValueError):
+            processar_revisao_sequencia(
+                _FakeEngineSequencia(),
+                _FakeGeminiClient(),
+                _fake_settings(),
+                _fake_logger(),
+                chess.Board().fen(),
+                ["e4", "e5", "Zz9"],
+                "x",
+            )
 
 
 if __name__ == "__main__":

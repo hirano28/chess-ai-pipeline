@@ -21,7 +21,6 @@ export class LaboratorioRaciocinioComponent {
 
   readonly salvando = signal(false);
   readonly salvo = signal(false);
-
   private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
   private readonly authLocalService = inject(AuthLocalService);
 
@@ -51,9 +50,18 @@ export class LaboratorioRaciocinioComponent {
   get formularioValido(): boolean {
     return (
       this.posicao().trim().length > 0 &&
-      this.lance().trim().length > 0 &&
+      this.lancesSequencia().length > 0 &&
       this.pensamento().trim().length > 0
     );
+  }
+
+  /** Divide o campo "Seus lances" por espaço/vírgula, ignorando vazios. */
+  lancesSequencia(): string[] {
+    return this.lance()
+      .replace(/,/g, ' ')
+      .split(/\s+/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
   }
 
   async analisar(): Promise<void> {
@@ -69,7 +77,7 @@ export class LaboratorioRaciocinioComponent {
     try {
       const resposta = await this.revisaoAvulsaService.revisar(
         this.posicao().trim(),
-        this.lance().trim(),
+        this.lancesSequencia(),
         this.pensamento().trim()
       );
       if (resposta.chaveInvalida) {
@@ -90,7 +98,8 @@ export class LaboratorioRaciocinioComponent {
 
   async salvarExercicio(): Promise<void> {
     const resultado = this.resultado();
-    if (!resultado || this.salvando()) {
+    const primeira = resultado?.avaliacoes?.[0];
+    if (!primeira || this.salvando()) {
       return;
     }
 
@@ -99,8 +108,8 @@ export class LaboratorioRaciocinioComponent {
 
     try {
       const resposta = await this.revisaoAvulsaService.salvar(
-        resultado,
-        this.posicao().trim(),
+        primeira,
+        resultado!.fen,
         this.pensamento().trim()
       );
       if (resposta.chaveInvalida) {

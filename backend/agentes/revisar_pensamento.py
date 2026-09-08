@@ -21,7 +21,7 @@ import chess
 import chess.pgn
 import google.genai as genai
 from dotenv import load_dotenv
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from stockfish import Stockfish
 from supabase import Client, create_client
 
@@ -40,6 +40,9 @@ MODEL_NAME = "gemini-flash-latest"
 PAGE_SIZE = 1000
 SERVER_ERROR_RETRY_LIMIT = 3
 SERVER_ERROR_BACKOFF_SECONDS = (5, 15, 45)
+# Abaixo desta diferença de centipawns, os 2 melhores candidatos são tratados
+# como opções próximas em qualidade (evita linguagem de "resposta única certa").
+CANDIDATOS_PROXIMOS_LIMIAR_CP = 30
 
 
 class RevisaoRaciocinio(BaseModel):
@@ -48,6 +51,9 @@ class RevisaoRaciocinio(BaseModel):
     qualidade_raciocinio: Literal["SOLIDO", "FALHO", "INDETERMINADO"]
     feedback_texto: str
     analise_mestre: str
+    # Candidatos reais do motor (lance + avaliação); injetados após o parse,
+    # não gerados pelo Gemini (por isso têm default e ficam fora do prompt-schema).
+    top_candidatos: list[dict] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -71,6 +77,7 @@ class AvaliacaoLance:
     melhor_lance: str | None
     queda_win_percent: float
     linha_principal: list[str] = field(default_factory=list)
+    top_candidatos: list[dict] = field(default_factory=list)
 
 
 def configure_logging() -> logging.Logger:
@@ -255,6 +262,80 @@ def obter_linha_principal(
     return linha_principal
 
 
+def _formatar_avaliacao(
+    centipawn: int | None, mate: int | None, perspectiva_brancas: bool
+) -> str:
+    """Formata a avaliação do motor (cp ou mate) na perspectiva do lado a jogar."""
+
+    sinal = 1 if perspectiva_brancas else -1
+    if mate is not None:
+        return f"M{mate * sinal}"
+    if centipawn is not None:
+        return f"{centipawn * sinal:+d}"
+    return "?"
+
+
+def _parse_cp(avaliacao: str) -> int | None:
+    """Extrai o valor em centipawns de uma avaliação; None se for mate/indefinido."""
+
+    if not avaliacao or avaliacao.startswith("M"):
+        return None
+    try:
+        return int(avaliacao)
+    except ValueError:
+        return None
+
+
+def obter_top_candidatos(
+    engine: Stockfish, board: chess.Board, num: int = 3
+) -> list[dict]:
+    """Consulta os até `num` melhores candidatos do motor (SAN + avaliação).
+
+    Usa get_top_moves(num), já ordenado do melhor para o pior na perspectiva do
+    lado a jogar. As avaliações são normalizadas para a perspectiva de quem joga.
+    """
+
+    engine.set_fen_position(board.fen())
+    try:
+        top_moves = engine.get_top_moves(num)
+    except Exception:
+        return []
+
+    perspectiva_brancas = board.turn == chess.WHITE
+    candidatos: list[dict] = []
+    for item in top_moves:
+        uci = item.get("Move")
+        if not uci:
+            continue
+        try:
+            san = board.san(chess.Move.from_uci(uci))
+        except (ValueError, AssertionError):
+            continue
+        candidatos.append(
+            {
+                "lance": san,
+                "avaliacao": _formatar_avaliacao(
+                    item.get("Centipawn"), item.get("Mate"), perspectiva_brancas
+                ),
+            }
+        )
+    return candidatos
+
+
+def candidatos_proximos(
+    top_candidatos: list[dict], limiar_cp: int = CANDIDATOS_PROXIMOS_LIMIAR_CP
+) -> bool:
+    """True se os 2 melhores candidatos têm avaliações de cp próximas (< limiar)."""
+
+    if len(top_candidatos) < 2:
+        return False
+    cp0 = _parse_cp(top_candidatos[0].get("avaliacao", ""))
+    cp1 = _parse_cp(top_candidatos[1].get("avaliacao", ""))
+    if cp0 is None or cp1 is None:
+        return False
+    return abs(cp0 - cp1) < limiar_cp
+
+
 def avaliar_lance(
     engine: Stockfish, pgn: str, numero_lance: int, cor_jogada: str
 ) -> AvaliacaoLance:
@@ -272,6 +353,7 @@ def avaliar_lance(
             before_cp = evaluate_position(engine, board, cor_jogada)
             melhor_lance = obter_melhor_lance(engine, board)
             linha_principal = obter_linha_principal(engine, board)
+            top_candidatos = obter_top_candidatos(engine, board)
             board.push(move)
             after_cp = evaluate_position(engine, board, cor_jogada)
             queda_win_percent = round(
@@ -280,13 +362,18 @@ def avaliar_lance(
                 2,
             )
             return AvaliacaoLance(
-                lance_jogado, melhor_lance, queda_win_percent, linha_principal
+                lance_jogado,
+                melhor_lance,
+                queda_win_percent,
+                linha_principal,
+                top_candidatos,
             )
         board.push(move)
 
     raise ValueError(
         f"Lance {numero_lance} ({cor_jogada}) não encontrado no PGN da partida"
     )
+
 
 
 def classificar_qualidade_lance(
@@ -305,6 +392,7 @@ def build_prompt(
     texto_pensamento: str,
     avaliacao: AvaliacaoLance,
     qualidade_lance: str,
+    contexto_sequencia: str | None = None,
 ) -> str:
     """Monta o prompt de revisão do raciocínio para o Gemini."""
 
@@ -312,6 +400,33 @@ def build_prompt(
         " ".join(avaliacao.linha_principal)
         if avaliacao.linha_principal
         else "(linha principal indisponível)"
+    )
+
+    if avaliacao.top_candidatos:
+        top_candidatos_texto = "; ".join(
+            f"{cand['lance']} ({cand['avaliacao']})"
+            for cand in avaliacao.top_candidatos
+        )
+    else:
+        top_candidatos_texto = "(candidatos indisponíveis)"
+
+    nota_candidatos_proximos = (
+        "\n- ATENÇÃO: os dois melhores candidatos têm avaliações muito próximas "
+        "(diferença < 30 centipawns). Trate-os como opções PRÓXIMAS em qualidade; "
+        "NÃO use linguagem de \"única resposta certa\" — reconheça que há mais de "
+        "uma boa escolha."
+        if candidatos_proximos(avaliacao.top_candidatos)
+        else ""
+    )
+
+    bloco_sequencia = (
+        f"\n\nContexto de SEQUÊNCIA (exercício de múltiplos lances):\n{contexto_sequencia}\n"
+        "O pensamento anotado se aplica à sequência como um todo, não só a este lance. "
+        "Ao avaliar ESTE lance, considere explicitamente se o raciocínio geral "
+        "declarado ainda fazia sentido continuar sendo aplicado neste ponto, ou se a "
+        "resposta do adversário deveria ter mudado o plano."
+        if contexto_sequencia
+        else ""
     )
 
     return f"""Você é um treinador de xadrez revisando o RACIOCÍNIO de um jogador, não apenas o resultado.
@@ -323,12 +438,13 @@ ou errado no tabuleiro.
 Dados objetivos (do motor, não os revele como "certo/errado" de forma dura):
 - lance_realmente_jogado: {avaliacao.lance_jogado}
 - melhor_lance_segundo_o_motor: {avaliacao.melhor_lance}
+- top_candidatos_do_motor (melhores lances com avaliação, do melhor para o pior): {top_candidatos_texto}
 - linha_principal_do_motor (continuação completa, não apenas o primeiro lance): {linha_principal_texto}
 - queda_win_percent_real: {avaliacao.queda_win_percent}
-- qualidade_objetiva_do_lance: {qualidade_lance}
+- qualidade_objetiva_do_lance: {qualidade_lance}{nota_candidatos_proximos}
 
 Pensamento anotado pelo jogador:
-\"\"\"{texto_pensamento}\"\"\"
+\"\"\"{texto_pensamento}\"\"\"{bloco_sequencia}
 
 Classifique qualidade_raciocinio em UM destes valores:
 - "SOLIDO": o jogador considerou as opções relevantes e tomou uma decisão justificada,
@@ -337,9 +453,12 @@ Classifique qualidade_raciocinio em UM destes valores:
   estava disponível na posição).
 - "INDETERMINADO": o texto é vago demais para avaliar o raciocínio.
 
-Escreva também um feedback_texto curto (2 a 3 frases) sugerindo como refinar o
-raciocínio. Ele deve ser SEMPRE construtivo, mesmo quando o lance foi objetivamente
-bom (nesse caso, reforce o que foi bem pensado e aponte um próximo passo).
+Escreva um feedback_texto curto (2 a 4 frases) com uma explicação COMPARATIVA dos
+top_candidatos_do_motor acima. Cite os candidatos pelo nome (na mesma notação SAN
+fornecida). Se o lance do usuário NÃO estiver entre os candidatos listados, explique
+objetivamente por que os candidatos apresentados são superiores. Se ESTIVER entre
+eles, reconheça isso explicitamente. NÃO invente candidatos além dos fornecidos.
+Mantenha o tom sempre construtivo.
 
 Escreva também um analise_mestre (2 a 4 frases) explicando como um jogador forte
 abordaria essa posição, mencionando o PLANO por trás da linha_principal_do_motor
@@ -356,6 +475,7 @@ markdown fences, compatível com este schema:
   "analise_mestre": "string"
 }}
 """
+
 
 
 def strip_json_fences(text: str) -> str:
@@ -474,6 +594,45 @@ def fallback_analise_mestre(linha_principal: list[str]) -> str:
     )
 
 
+def _formatar_candidatos_texto(top_candidatos: list[dict]) -> str:
+    """Formata os candidatos como 'lance (avaliação)' separados por vírgula."""
+
+    return ", ".join(
+        f"{cand['lance']} ({cand['avaliacao']})" for cand in top_candidatos
+    )
+
+
+def correction_prompt_top_candidatos(
+    original_prompt: str,
+    top_candidatos: list[dict],
+    lances_faltantes_texto: list[str],
+) -> str:
+    """Solicita nova resposta quando feedback_texto não cita os candidatos reais."""
+
+    candidatos_texto = _formatar_candidatos_texto(top_candidatos)
+    faltantes = ", ".join(lances_faltantes_texto)
+    return (
+        f"{original_prompt}\n\n"
+        "A resposta anterior de feedback_texto não citou os candidatos reais do "
+        f"motor. Os candidatos corretos e literais são: {candidatos_texto}\n"
+        f"Estes candidatos obrigatórios NÃO apareceram no seu texto: {faltantes}\n"
+        "Reescreva feedback_texto citando EXATAMENTE esses lances (copie a notação "
+        "literalmente), sem inventar candidatos além dos fornecidos. Responda "
+        "novamente apenas com o JSON válido, sem markdown e sem explicações externas."
+    )
+
+
+def fallback_top_candidatos(top_candidatos: list[dict]) -> str:
+    """Gera feedback_texto sem LLM, listando os candidatos reais literalmente."""
+
+    candidatos_texto = _formatar_candidatos_texto(top_candidatos)
+    return (
+        f"Os melhores candidatos do motor nesta posição são: {candidatos_texto}. "
+        "Compare seu lance com essas opções para entender as alternativas mais fortes."
+    )
+
+
+
 def validar_analise_mestre(
     client: Any,
     prompt: str,
@@ -523,11 +682,61 @@ def validar_analise_mestre(
     )
 
 
+def validar_top_candidatos(
+    client: Any,
+    prompt: str,
+    revisao: RevisaoRaciocinio,
+    top_candidatos: list[dict],
+    logger: logging.Logger,
+) -> RevisaoRaciocinio:
+    """Garante que feedback_texto cite os candidatos reais (retry + fallback).
+
+    Mesma estratégia de validar_analise_mestre: verifica se os 2 melhores
+    candidatos aparecem literalmente no texto; se não, 1 retry de correção e,
+    persistindo o erro, substitui feedback_texto por um fallback não-LLM.
+    """
+
+    lances_esperados = [cand["lance"] for cand in top_candidatos[:2]]
+    if not lances_esperados:
+        return revisao
+
+    faltantes = lances_faltantes(revisao.feedback_texto, lances_esperados)
+    if not faltantes:
+        return revisao
+
+    logger.warning(
+        "feedback_texto não citou os candidatos %s do motor; tentando correção.",
+        faltantes,
+    )
+    try:
+        response_text = call_gemini(
+            client,
+            correction_prompt_top_candidatos(prompt, top_candidatos, faltantes),
+            logger,
+        )
+        revisao_corrigida = parse_revisao(response_text)
+        if not lances_faltantes(revisao_corrigida.feedback_texto, lances_esperados):
+            # Preserva os demais campos já validados; troca só feedback_texto.
+            return revisao.model_copy(
+                update={"feedback_texto": revisao_corrigida.feedback_texto}
+            )
+    except ValidationError as error:
+        logger.warning("Retry de top_candidatos falhou na validação: %s", error)
+
+    logger.warning(
+        "feedback_texto ainda sem os candidatos após retry; usando fallback não-LLM."
+    )
+    return revisao.model_copy(
+        update={"feedback_texto": fallback_top_candidatos(top_candidatos)}
+    )
+
+
 def gerar_revisao(
     client: Any,
     prompt: str,
     logger: logging.Logger,
     linha_principal: list[str] | None = None,
+    top_candidatos: list[dict] | None = None,
 ) -> RevisaoRaciocinio:
     """Chama o Gemini e valida, com uma tentativa extra de correção."""
 
@@ -544,6 +753,12 @@ def gerar_revisao(
         revisao = validar_analise_mestre(
             client, prompt, revisao, linha_principal, logger
         )
+    if top_candidatos:
+        revisao = validar_top_candidatos(
+            client, prompt, revisao, top_candidatos, logger
+        )
+        # Injeta os candidatos reais do motor (Gemini não os gera).
+        revisao = revisao.model_copy(update={"top_candidatos": top_candidatos})
     return revisao
 
 
@@ -612,7 +827,11 @@ def run() -> None:
                 anotacao.get("texto_pensamento") or "", avaliacao, qualidade_lance
             )
             revisao = gerar_revisao(
-                gemini_client, prompt, logger, avaliacao.linha_principal
+                gemini_client,
+                prompt,
+                logger,
+                avaliacao.linha_principal,
+                avaliacao.top_candidatos,
             )
             inserir_revisao(client, anotacao, qualidade_lance, avaliacao, revisao)
             revisadas_ok += 1
