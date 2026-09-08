@@ -32,7 +32,10 @@ from backend.agentes.revisar_exercicio_avulso import (  # noqa: E402
     resolver_posicao,
     salvar_exercicio,
 )
-from backend.agentes.revisar_pensamento import load_settings  # noqa: E402
+from backend.agentes.revisar_pensamento import (  # noqa: E402
+    carregar_passos_guia,
+    load_settings,
+)
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
 
 DEFAULT_ALLOWED_ORIGINS = (
@@ -224,3 +227,20 @@ def revisar_avulso_salvar(payload: SalvarAvulsoRequest) -> dict[str, str]:
         ) from error
 
     return {"status": "salvo"}
+
+
+@app.get("/guia-passos")
+def guia_passos() -> dict[str, list[dict[str, Any]]]:
+    """Retorna só os títulos numerados dos passos do guia (conteúdo público).
+
+    Serve o resumo leve exibido no frontend; lido do .md em runtime, então
+    acompanha edições do guia sem mudança de código.
+    """
+
+    passos = carregar_passos_guia()
+    return {
+        "passos": [
+            {"numero": passo["numero"], "titulo": passo["titulo"]}
+            for passo in passos
+        ]
+    }

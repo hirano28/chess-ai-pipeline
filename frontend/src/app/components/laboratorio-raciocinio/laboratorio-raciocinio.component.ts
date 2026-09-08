@@ -1,5 +1,6 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import {
+  GuiaPasso,
   ResultadoRevisaoAvulsa,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
@@ -10,7 +11,7 @@ import { AuthLocalService } from '../../services/auth-local.service';
   standalone: true,
   templateUrl: './laboratorio-raciocinio.component.html'
 })
-export class LaboratorioRaciocinioComponent {
+export class LaboratorioRaciocinioComponent implements OnInit {
   readonly posicao = signal('');
   readonly lance = signal('');
   readonly pensamento = signal('');
@@ -21,6 +22,11 @@ export class LaboratorioRaciocinioComponent {
 
   readonly salvando = signal(false);
   readonly salvo = signal(false);
+
+  // Resumo leve dos 8 passos do guia (buscado de GET /guia-passos, discreto).
+  readonly guiaPassos = signal<GuiaPasso[]>([]);
+  readonly guiaAberto = signal(false);
+
   private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
   private readonly authLocalService = inject(AuthLocalService);
 
@@ -30,6 +36,14 @@ export class LaboratorioRaciocinioComponent {
 
   get chaveFormularioValido(): boolean {
     return this.chaveInput().trim().length > 0;
+  }
+
+  async ngOnInit(): Promise<void> {
+    this.guiaPassos.set(await this.revisaoAvulsaService.guiaPassos());
+  }
+
+  toggleGuia(): void {
+    this.guiaAberto.update((aberto) => !aberto);
   }
 
   salvarChave(): void {

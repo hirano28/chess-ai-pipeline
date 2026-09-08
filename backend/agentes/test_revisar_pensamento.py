@@ -243,6 +243,23 @@ class BuildPromptChecklistTest(unittest.TestCase):
         for chave in CHECKLIST_KEYS:
             self.assertIn(chave, prompt)
 
+    def test_prompt_inclui_instrucao_de_causalidade(self) -> None:
+        avaliacao = AvaliacaoLance(
+            lance_jogado="Nd5",
+            melhor_lance="g3",
+            queda_win_percent=5.5,
+            linha_principal=["g3", "Kd8"],
+            top_candidatos=[{"lance": "g3", "avaliacao": "-254"}],
+        )
+
+        prompt = build_prompt("Centralizei o cavalo.", avaliacao, "SUBOTIMO")
+
+        self.assertIn("conecte EXPLICITAMENTE", prompt)
+        self.assertIn("[candidato real]", prompt)
+        self.assertIn("top_candidatos_do_motor REAIS", prompt)
+        # Exceção para lance BOM: não força a conexão.
+        self.assertIn("Se qualidade_lance for BOM, não force essa conexão", prompt)
+
 
 
 class CandidatosProximosTest(unittest.TestCase):
@@ -434,6 +451,65 @@ class GerarRevisaoTopCandidatosTest(unittest.TestCase):
         )
         self.assertIn("Bxa6 (+210)", revisao.feedback_texto)
         self.assertEqual(revisao.top_candidatos, self.top_candidatos)
+
+    def test_retry_quando_feedback_cita_candidato_inventado(self) -> None:
+        # 1ª resposta cita os candidatos reais MAS também inventa "Qd7"; retry limpo.
+        inventado = _revisao_json(
+            "Plano com Bxa6.",
+            feedback_texto="Bxa6 e Nc4 são fortes, e você ignorou Qd7 também.",
+        )
+        limpo = _revisao_json(
+            "Plano com Bxa6.",
+            feedback_texto="Os candidatos Bxa6 e Nc4 superam seu lance.",
+        )
+        client = _FakeGeminiClient([inventado, limpo])
+
+        revisao = gerar_revisao(
+            client, "PROMPT", self.logger, top_candidatos=self.top_candidatos
+        )
+
+        self.assertEqual(len(client.models.prompts), 2)
+        self.assertIn("Bxa6", revisao.feedback_texto)
+        self.assertNotIn("Qd7", revisao.feedback_texto)
+
+    def test_fallback_quando_candidato_inventado_persiste(self) -> None:
+        inventado = _revisao_json(
+            "Plano com Bxa6.",
+            feedback_texto="Bxa6 e Nc4 são fortes, mas Qd7 seria melhor.",
+        )
+        ainda_inventado = _revisao_json(
+            "Plano com Bxa6.",
+            feedback_texto="Bxa6 e Nc4 são boas, porém Rd8 vencia.",
+        )
+        client = _FakeGeminiClient([inventado, ainda_inventado])
+
+        revisao = gerar_revisao(
+            client, "PROMPT", self.logger, top_candidatos=self.top_candidatos
+        )
+
+        self.assertEqual(len(client.models.prompts), 2)
+        self.assertEqual(
+            revisao.feedback_texto, fallback_top_candidatos(self.top_candidatos)
+        )
+
+    def test_lance_jogado_nao_conta_como_inventado(self) -> None:
+        # feedback cita o lance jogado (Nb5) além dos candidatos reais: OK, sem retry.
+        certa = _revisao_json(
+            "Plano com Bxa6.",
+            feedback_texto="Seu Nb5 perde tempo; Bxa6 e Nc4 eram superiores.",
+        )
+        client = _FakeGeminiClient([certa])
+
+        revisao = gerar_revisao(
+            client,
+            "PROMPT",
+            self.logger,
+            top_candidatos=self.top_candidatos,
+            lance_jogado="Nb5",
+        )
+
+        self.assertEqual(len(client.models.prompts), 1)
+        self.assertIn("Nb5", revisao.feedback_texto)
 
 
 if __name__ == "__main__":

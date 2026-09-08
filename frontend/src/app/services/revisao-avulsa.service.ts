@@ -9,6 +9,11 @@ export interface CandidatoMotor {
   avaliacao: string;
 }
 
+export interface GuiaPasso {
+  numero: number;
+  titulo: string;
+}
+
 export interface AvaliacaoSequenciaItem {
   indice_na_sequencia: number;
   lance_jogado: string;
@@ -102,6 +107,20 @@ export class RevisaoAvulsaService {
   private headersComChave(): HttpHeaders {
     const chave = this.authLocalService.getKey();
     return chave ? new HttpHeaders({ 'X-API-Key': chave }) : new HttpHeaders();
+  }
+
+  /** Busca só os títulos dos 8 passos do guia (endpoint público, sem chave). */
+  async guiaPassos(): Promise<GuiaPasso[]> {
+    try {
+      const resposta = await firstValueFrom(
+        this.http.get<{ passos: GuiaPasso[] }>(
+          `${environment.apiLocalUrl}/guia-passos`
+        )
+      );
+      return resposta.passos ?? [];
+    } catch {
+      return [];
+    }
   }
 
   private isUnauthorized(cause: unknown): boolean {

@@ -560,6 +560,14 @@ objetivamente por que os candidatos apresentados são superiores. Se ESTIVER ent
 eles, reconheça isso explicitamente. NÃO invente candidatos além dos fornecidos.
 Mantenha o tom sempre construtivo.
 
+Depois de preencher o checklist_rotina, no campo feedback_texto, se qualquer passo
+estiver marcado NAO e a qualidade_lance NÃO for BOM, conecte EXPLICITAMENTE pelo
+menos um passo não seguido ao que teria sido descoberto se seguido — usando os
+top_candidatos_do_motor REAIS já fornecidos (não invente). Formato esperado: "Como
+você não [ação do passo], não considerou [candidato real], que [motivo real baseado
+na avaliação real]". Se qualidade_lance for BOM, não force essa conexão — só elogie
+o que funcionou.
+
 Escreva também um analise_mestre (2 a 4 frases) explicando como um jogador forte
 abordaria essa posição, mencionando o PLANO por trás da linha_principal_do_motor
 acima — não apenas "o melhor lance é X", mas o raciocínio estratégico/tático da
@@ -674,6 +682,22 @@ def lances_faltantes(
     return [lance for lance in lances_esperados if lance not in citados]
 
 
+def lances_inventados(
+    texto: str, lances_reais_permitidos: set[str]
+) -> list[str]:
+    """Retorna os lances SAN citados no texto que NÃO são lances reais do motor.
+
+    Serve para pegar candidatos "inventados": qualquer SAN mencionado que não
+    esteja entre os lances reais permitidos (candidatos + lance jogado + linha).
+    """
+
+    inventados: list[str] = []
+    for lance in extrair_lances_san(texto):
+        if lance not in lances_reais_permitidos and lance not in inventados:
+            inventados.append(lance)
+    return inventados
+
+
 def correction_prompt_analise_mestre(
     original_prompt: str,
     linha_principal: list[str],
@@ -718,19 +742,33 @@ def correction_prompt_top_candidatos(
     original_prompt: str,
     top_candidatos: list[dict],
     lances_faltantes_texto: list[str],
+    lances_inventados_texto: list[str] | None = None,
 ) -> str:
-    """Solicita nova resposta quando feedback_texto não cita os candidatos reais."""
+    """Solicita nova resposta quando feedback_texto não bate com os candidatos reais."""
 
     candidatos_texto = _formatar_candidatos_texto(top_candidatos)
-    faltantes = ", ".join(lances_faltantes_texto)
+    problemas = []
+    if lances_faltantes_texto:
+        problemas.append(
+            "Estes candidatos obrigatórios NÃO apareceram no seu texto: "
+            + ", ".join(lances_faltantes_texto)
+        )
+    if lances_inventados_texto:
+        problemas.append(
+            "Estes lances citados NÃO existem entre os candidatos reais (você os "
+            "inventou): " + ", ".join(lances_inventados_texto)
+        )
+    problemas_texto = "\n".join(problemas)
     return (
         f"{original_prompt}\n\n"
-        "A resposta anterior de feedback_texto não citou os candidatos reais do "
-        f"motor. Os candidatos corretos e literais são: {candidatos_texto}\n"
-        f"Estes candidatos obrigatórios NÃO apareceram no seu texto: {faltantes}\n"
+        "A resposta anterior de feedback_texto não está consistente com os "
+        f"candidatos reais do motor. Os candidatos corretos e literais são: "
+        f"{candidatos_texto}\n"
+        f"{problemas_texto}\n"
         "Reescreva feedback_texto citando EXATAMENTE esses lances (copie a notação "
-        "literalmente), sem inventar candidatos além dos fornecidos. Responda "
-        "novamente apenas com o JSON válido, sem markdown e sem explicações externas."
+        "literalmente) e SEM citar nenhum lance que não esteja entre os candidatos "
+        "reais fornecidos. Responda novamente apenas com o JSON válido, sem markdown "
+        "e sem explicações externas."
     )
 
 
@@ -800,34 +838,53 @@ def validar_top_candidatos(
     revisao: RevisaoRaciocinio,
     top_candidatos: list[dict],
     logger: logging.Logger,
+    lance_jogado: str = "",
+    linha_principal: list[str] | None = None,
 ) -> RevisaoRaciocinio:
-    """Garante que feedback_texto cite os candidatos reais (retry + fallback).
+    """Garante que feedback_texto seja consistente com os candidatos reais.
 
-    Mesma estratégia de validar_analise_mestre: verifica se os 2 melhores
-    candidatos aparecem literalmente no texto; se não, 1 retry de correção e,
-    persistindo o erro, substitui feedback_texto por um fallback não-LLM.
+    Duas checagens (retry + fallback), mesma estratégia de validar_analise_mestre:
+    - FALTANTES: os 2 melhores candidatos precisam aparecer literalmente no texto.
+    - INVENTADOS: nenhum lance citado pode ser um candidato inexistente (só são
+      permitidos os candidatos reais, o lance jogado e a linha principal do motor).
     """
 
     lances_esperados = [cand["lance"] for cand in top_candidatos[:2]]
     if not lances_esperados:
         return revisao
 
+    permitidos = {cand["lance"] for cand in top_candidatos}
+    if lance_jogado:
+        permitidos.add(lance_jogado)
+    permitidos.update(linha_principal or [])
+
     faltantes = lances_faltantes(revisao.feedback_texto, lances_esperados)
-    if not faltantes:
+    inventados = lances_inventados(revisao.feedback_texto, permitidos)
+    if not faltantes and not inventados:
         return revisao
 
     logger.warning(
-        "feedback_texto não citou os candidatos %s do motor; tentando correção.",
+        "feedback_texto inconsistente com os candidatos (faltantes=%s, "
+        "inventados=%s); tentando correção.",
         faltantes,
+        inventados,
     )
     try:
         response_text = call_gemini(
             client,
-            correction_prompt_top_candidatos(prompt, top_candidatos, faltantes),
+            correction_prompt_top_candidatos(
+                prompt, top_candidatos, faltantes, inventados
+            ),
             logger,
         )
         revisao_corrigida = parse_revisao(response_text)
-        if not lances_faltantes(revisao_corrigida.feedback_texto, lances_esperados):
+        faltantes_pos = lances_faltantes(
+            revisao_corrigida.feedback_texto, lances_esperados
+        )
+        inventados_pos = lances_inventados(
+            revisao_corrigida.feedback_texto, permitidos
+        )
+        if not faltantes_pos and not inventados_pos:
             # Preserva os demais campos já validados; troca só feedback_texto.
             return revisao.model_copy(
                 update={"feedback_texto": revisao_corrigida.feedback_texto}
@@ -836,7 +893,7 @@ def validar_top_candidatos(
         logger.warning("Retry de top_candidatos falhou na validação: %s", error)
 
     logger.warning(
-        "feedback_texto ainda sem os candidatos após retry; usando fallback não-LLM."
+        "feedback_texto ainda inconsistente após retry; usando fallback não-LLM."
     )
     return revisao.model_copy(
         update={"feedback_texto": fallback_top_candidatos(top_candidatos)}
@@ -849,6 +906,7 @@ def gerar_revisao(
     logger: logging.Logger,
     linha_principal: list[str] | None = None,
     top_candidatos: list[dict] | None = None,
+    lance_jogado: str = "",
 ) -> RevisaoRaciocinio:
     """Chama o Gemini e valida, com uma tentativa extra de correção."""
 
@@ -867,7 +925,13 @@ def gerar_revisao(
         )
     if top_candidatos:
         revisao = validar_top_candidatos(
-            client, prompt, revisao, top_candidatos, logger
+            client,
+            prompt,
+            revisao,
+            top_candidatos,
+            logger,
+            lance_jogado,
+            linha_principal,
         )
         # Injeta os candidatos reais do motor (Gemini não os gera).
         revisao = revisao.model_copy(update={"top_candidatos": top_candidatos})
@@ -944,6 +1008,7 @@ def run() -> None:
                 logger,
                 avaliacao.linha_principal,
                 avaliacao.top_candidatos,
+                avaliacao.lance_jogado,
             )
             inserir_revisao(client, anotacao, qualidade_lance, avaliacao, revisao)
             revisadas_ok += 1

@@ -259,6 +259,7 @@ def processar_revisao_avulsa(
         logger,
         avaliacao.linha_principal,
         avaliacao.top_candidatos,
+        avaliacao.lance_jogado,
     )
 
     return {
@@ -427,6 +428,7 @@ def processar_revisao_sequencia(
                 logger,
                 avaliacao.linha_principal,
                 avaliacao.top_candidatos,
+                avaliacao.lance_jogado,
             )
             avaliacoes.append(
                 {

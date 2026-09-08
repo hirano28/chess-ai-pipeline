@@ -83,9 +83,30 @@
       </div>
 
       <div class="mb-6">
-        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-          O que você estava pensando?
-        </label>
+        <div class="mb-2 flex items-center gap-2">
+          <label class="block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+            O que você estava pensando?
+          </label>
+          @if (guiaPassos().length > 0) {
+            <button
+              type="button"
+              class="flex h-5 w-5 items-center justify-center rounded-full border border-[#40565c] text-xs font-bold text-[#8fa5a7] transition-colors hover:border-[#dea34c] hover:text-[#dea34c]"
+              [attr.aria-expanded]="guiaAberto()"
+              aria-label="Ver a rotina dos 8 passos"
+              title="Ver a rotina dos 8 passos"
+              (click)="toggleGuia()"
+            >?</button>
+          }
+        </div>
+
+        @if (guiaAberto()) {
+          <ol class="mb-3 list-decimal space-y-1 rounded-md border border-[#304247] bg-[#10191d] px-6 py-3 text-xs leading-5 text-[#b9c7c8]">
+            @for (passo of guiaPassos(); track passo.numero) {
+              <li>{{ passo.titulo }}</li>
+            }
+          </ol>
+        }
+
         <textarea
           rows="4"
           class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm leading-6 text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
