@@ -19,10 +19,11 @@ Consolidação das duas pesquisas em fases executáveis, na ordem de melhor cust
 - ✅ **Fase 13 concluída e validada com 2 partidas reais anotadas manualmente** (`cwrI5a8c` e `AmxiZxvj`). Achados-chave:
   - Confirmado: erros de processo que o próprio jogador identificou (ex: xeque não visto, ameaça percebida tarde) ficam **invisíveis** para o critério de gravidade isolada — só a erosão ou a própria anotação os capturam.
   - Bug real encontrado e corrigido: o prompt do Agente 1 aplicado a eventos `EROSAO` inicialmente invertia a perspectiva (atribuía lances do próprio jogador ao oponente) e citava lances fora da janela. Corrigido com prompt dedicado (`build_erosion_prompt`), roteado por `tipo_evento`.
-  - **Achado novo e não previsto:** o detector de erosão revelou um padrão comportamental — a dama fazendo manobras repetidas e desconectadas (`Qc4-Qd3-Qc4`) enquanto o resto das peças fica parado — que o vocabulário atual de 16 tags não nomeia bem. Candidato a nova tag: `falta_de_coordenacao_de_pecas` (já usada pelo LLM organicamente, fora do vocabulário controlado — precisa ser formalizada ou mapeada para uma tag existente).
+  - **Achado revisado após consulta direta ao banco (mesma data):** `falta_de_coordenacao_de_pecas` **já fazia parte do vocabulário controlado de 16 tags** desde a Fase 5 — não era uma tag nova "vazando" do controle do LLM, só estava sub-utilizada (34 ocorrências em 458 diagnósticos, a 10ª mais comum das 15 tags já vistas). A Fase 13 (erosão) foi o mecanismo que trouxe à tona um padrão que já tinha nome certo à espera. **Nenhuma tag nova precisa ser criada.**
+- **Confirmado por consulta direta:** a única tag das 16 com **zero ocorrências em 458 diagnósticos** é `gestao_de_tempo_ruim` — 100% explicado pela ausência do dado de relógio (não coletamos isso ainda), reforçando a prioridade da Fase 15.
 - 🆕 **Achado que muda a Fase 14/15:** o próprio Lichess já calcula precisão/erros por fase (abertura/meio-jogo/final) e tem gráfico de tempo por lance com a curva de avaliação sobreposta ("Análise do computador" + "Tempo por movimento" na interface). Isso é exposto via API (`GET /game/export/{id}?evals=1&accuracy=1&clocks=1&division=1`, formato JSON) — não precisamos recalcular isso do zero com nosso próprio Stockfish, só consumir o que já existe pronto. Fases 14 e 15 abaixo foram ajustadas para refletir isso.
 
-**Ação pendente de decisão:** formalizar `falta_de_coordenacao_de_pecas` no vocabulário controlado (17ª tag) ou mapear para uma existente antes de escalar o processamento — decidir antes ou durante a Fase 14.
+**Ação pendente de decisão:** nenhuma — o vocabulário atual está correto e completo, só faltando dado de relógio para ativar `gestao_de_tempo_ruim` (Fase 15).
 
 ---
 

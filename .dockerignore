@@ -1,10 +1,7 @@
-.env
 .venv/
-
+**/__pycache__/
 backend/logs/
+backend/rag/livros_pdf/
 backend/rag/.ocr_cache/
-__pycache__/
-*.py[cod]
 node_modules/
-
-env.yaml
+.env

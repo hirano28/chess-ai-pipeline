@@ -24,6 +24,7 @@ import {
 } from '../../services/supabase.service';
 import { SessoesTreinoComponent } from '../sessoes-treino/sessoes-treino.component';
 import { NarrativaAnaliseComponent } from '../narrativa-analise/narrativa-analise.component';
+import { PerguntasPendentesComponent } from '../perguntas-pendentes/perguntas-pendentes.component';
 
 Chart.register(
   RadarController,
@@ -49,7 +50,7 @@ type Categoria = (typeof CATEGORIAS)[number];
 @Component({
   selector: 'app-hexagono-radar',
   standalone: true,
-  imports: [SessoesTreinoComponent, NarrativaAnaliseComponent],
+  imports: [SessoesTreinoComponent, NarrativaAnaliseComponent, PerguntasPendentesComponent],
   templateUrl: './hexagono-radar.component.html'
 })
 export class HexagonoRadarComponent implements OnInit, OnDestroy {

@@ -1,0 +1,165 @@
+<main class="min-h-screen bg-[#10191d] px-5 py-10 text-[#f4f0e6] sm:px-8 lg:px-12">
+  <section class="mx-auto flex w-full max-w-3xl flex-col gap-8">
+    <header class="max-w-2xl">
+      <p class="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-[#dea34c]">
+        Feedback imediato
+      </p>
+      <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">Laboratório de Raciocínio</h1>
+      <p class="mt-4 text-base leading-7 text-[#b9c7c8]">
+        Cole uma posição avulsa (FEN ou PGN), o lance que você jogou e o que estava pensando —
+        receba feedback na hora, sem esperar o pipeline em lote.
+      </p>
+    </header>
+
+    @if (!chaveConfigurada()) {
+      <section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8">
+        <h2 class="mb-2 text-lg font-semibold">Chave de acesso</h2>
+        <p class="mb-5 text-sm leading-6 text-[#b9c7c8]">
+          Este laboratório fala com o servidor Python local, que exige uma chave de API.
+          Informe-a para liberar a análise.
+        </p>
+
+        @if (erroChave()) {
+          <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
+            {{ erroChave() }}
+          </div>
+        }
+
+        <div class="mb-5">
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+            Chave de acesso
+          </label>
+          <input
+            type="password"
+            class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
+            placeholder="Cole a chave de API fornecida"
+            [value]="chaveInput()"
+            (input)="chaveInput.set($any($event.target).value)"
+            (keydown.enter)="salvarChave()"
+          />
+        </div>
+
+        <button
+          type="button"
+          class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-not-allowed disabled:opacity-60"
+          [disabled]="!chaveFormularioValido"
+          (click)="salvarChave()"
+        >
+          Salvar chave
+        </button>
+      </section>
+    } @else {
+    <section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8">
+      <div class="mb-5">
+        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+          Posição (FEN ou PGN)
+        </label>
+        <textarea
+          rows="4"
+          class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm leading-6 text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
+          placeholder="Ex: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1  ou  1. e4 e5 2. Nf3"
+          [value]="posicao()"
+          [disabled]="carregando()"
+          (input)="posicao.set($any($event.target).value)"
+        ></textarea>
+      </div>
+
+      <div class="mb-5">
+        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+          Seu lance
+        </label>
+        <input
+          type="text"
+          class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
+          placeholder="Ex: Nxe5"
+          [value]="lance()"
+          [disabled]="carregando()"
+          (input)="lance.set($any($event.target).value)"
+        />
+      </div>
+
+      <div class="mb-6">
+        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+          O que você estava pensando?
+        </label>
+        <textarea
+          rows="4"
+          class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm leading-6 text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
+          placeholder="Descreva seu raciocínio, alternativas consideradas e por que escolheu esse lance."
+          [value]="pensamento()"
+          [disabled]="carregando()"
+          (input)="pensamento.set($any($event.target).value)"
+        ></textarea>
+      </div>
+
+      @if (erro()) {
+        <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
+          {{ erro() }}
+        </div>
+      }
+
+      @if (!resultado()) {
+        <button
+          type="button"
+          class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
+          [disabled]="!formularioValido || carregando()"
+          (click)="analisar()"
+        >
+          {{ carregando() ? 'Analisando...' : 'Analisar' }}
+        </button>
+      } @else {
+        <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5 sm:p-6">
+          <div class="mb-4 flex flex-wrap items-center gap-3">
+            <span
+              class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
+              [class]="corBadgeQualidadeLance(resultado()!.qualidade_lance)"
+            >
+              Lance: {{ resultado()!.qualidade_lance }}
+            </span>
+            <span
+              class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
+              [class]="corBadgeQualidadeRaciocinio(resultado()!.qualidade_raciocinio)"
+            >
+              Raciocínio: {{ resultado()!.qualidade_raciocinio }}
+            </span>
+          </div>
+
+          <div class="mb-4 grid gap-3 text-sm sm:grid-cols-3">
+            <p><span class="text-[#8fa5a7]">Lance jogado:</span> <span class="font-semibold">{{ resultado()!.lance_jogado }}</span></p>
+            <p><span class="text-[#8fa5a7]">Melhor lance:</span> <span class="font-semibold">{{ resultado()!.melhor_lance ?? '—' }}</span></p>
+            <p><span class="text-[#8fa5a7]">Queda de win%:</span> <span class="font-semibold">{{ resultado()!.queda_win_percent }}</span></p>
+          </div>
+
+          <p class="mb-6 text-base leading-7 text-[#d7dede]">{{ resultado()!.feedback_texto }}</p>
+
+          <div class="flex flex-wrap gap-3">
+            @if (!salvo()) {
+              <button
+                type="button"
+                class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-4 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
+                [disabled]="salvando()"
+                (click)="salvarExercicio()"
+              >
+                {{ salvando() ? 'Salvando...' : 'Salvar este exercício' }}
+              </button>
+            } @else {
+              <span class="inline-flex items-center rounded-full border border-[#557267] bg-[#20352e] px-4 py-2 text-sm font-semibold text-[#a9d2bd]">
+                Exercício salvo
+              </span>
+            }
+
+            <button
+              type="button"
+              class="inline-flex min-h-10 items-center justify-center rounded-md border border-[#40565c] px-4 py-2 text-sm font-semibold text-[#b9c7c8] transition-colors hover:text-[#f4f0e6]"
+              (click)="novaAnalise()"
+            >
+              Nova análise
+            </button>
+          </div>
+        </div>
+      }
+    </section>
+    }
+  </section>
+</main>
+

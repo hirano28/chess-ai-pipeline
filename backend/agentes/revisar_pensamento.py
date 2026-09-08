@@ -13,7 +13,7 @@ import os
 import re
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -47,6 +47,7 @@ class RevisaoRaciocinio(BaseModel):
 
     qualidade_raciocinio: Literal["SOLIDO", "FALHO", "INDETERMINADO"]
     feedback_texto: str
+    analise_mestre: str
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,7 @@ class AvaliacaoLance:
     lance_jogado: str
     melhor_lance: str | None
     queda_win_percent: float
+    linha_principal: list[str] = field(default_factory=list)
 
 
 def configure_logging() -> logging.Logger:
@@ -205,12 +207,14 @@ def _get_partida(anotacao: dict[str, Any]) -> dict[str, Any]:
     return partida
 
 
-def obter_melhor_lance(engine: Stockfish, board: chess.Board) -> str | None:
+def obter_melhor_lance(
+    engine: Stockfish, board: chess.Board, searchtime_ms: int = STOCKFISH_SEARCHTIME_MS
+) -> str | None:
     """Consulta o melhor lance do motor na posição, em SAN."""
 
     engine.set_fen_position(board.fen())
     try:
-        uci = engine.get_best_move_time(STOCKFISH_SEARCHTIME_MS)
+        uci = engine.get_best_move_time(searchtime_ms)
     except TypeError:
         uci = engine.get_best_move()
     if not uci:
@@ -219,6 +223,36 @@ def obter_melhor_lance(engine: Stockfish, board: chess.Board) -> str | None:
         return board.san(chess.Move.from_uci(uci))
     except (ValueError, AssertionError):
         return uci
+
+
+def obter_linha_principal(
+    engine: Stockfish, board: chess.Board, num_lances: int = 6
+) -> list[str]:
+    """Consulta a linha principal (PV) completa do motor na posição, em SAN.
+
+    Usa get_top_moves(1, verbose=True), que expõe a PV inteira em `PVMoves`
+    (não só o primeiro lance).
+    """
+
+    engine.set_fen_position(board.fen())
+    try:
+        top_moves = engine.get_top_moves(1, verbose=True)
+    except Exception:
+        return []
+    if not top_moves:
+        return []
+
+    pv_uci = (top_moves[0].get("PVMoves") or "").split()
+    scratch = board.copy()
+    linha_principal: list[str] = []
+    for uci_move in pv_uci[:num_lances]:
+        try:
+            move = chess.Move.from_uci(uci_move)
+            linha_principal.append(scratch.san(move))
+            scratch.push(move)
+        except (ValueError, AssertionError):
+            break
+    return linha_principal
 
 
 def avaliar_lance(
@@ -237,6 +271,7 @@ def avaliar_lance(
             lance_jogado = board.san(move)
             before_cp = evaluate_position(engine, board, cor_jogada)
             melhor_lance = obter_melhor_lance(engine, board)
+            linha_principal = obter_linha_principal(engine, board)
             board.push(move)
             after_cp = evaluate_position(engine, board, cor_jogada)
             queda_win_percent = round(
@@ -244,7 +279,9 @@ def avaliar_lance(
                 - centipawns_para_win_percent(after_cp),
                 2,
             )
-            return AvaliacaoLance(lance_jogado, melhor_lance, queda_win_percent)
+            return AvaliacaoLance(
+                lance_jogado, melhor_lance, queda_win_percent, linha_principal
+            )
         board.push(move)
 
     raise ValueError(
@@ -271,6 +308,12 @@ def build_prompt(
 ) -> str:
     """Monta o prompt de revisão do raciocínio para o Gemini."""
 
+    linha_principal_texto = (
+        " ".join(avaliacao.linha_principal)
+        if avaliacao.linha_principal
+        else "(linha principal indisponível)"
+    )
+
     return f"""Você é um treinador de xadrez revisando o RACIOCÍNIO de um jogador, não apenas o resultado.
 
 Um lance crítico foi anotado pelo jogador com o que ele estava pensando. Sua tarefa
@@ -280,6 +323,7 @@ ou errado no tabuleiro.
 Dados objetivos (do motor, não os revele como "certo/errado" de forma dura):
 - lance_realmente_jogado: {avaliacao.lance_jogado}
 - melhor_lance_segundo_o_motor: {avaliacao.melhor_lance}
+- linha_principal_do_motor (continuação completa, não apenas o primeiro lance): {linha_principal_texto}
 - queda_win_percent_real: {avaliacao.queda_win_percent}
 - qualidade_objetiva_do_lance: {qualidade_lance}
 
@@ -297,11 +341,19 @@ Escreva também um feedback_texto curto (2 a 3 frases) sugerindo como refinar o
 raciocínio. Ele deve ser SEMPRE construtivo, mesmo quando o lance foi objetivamente
 bom (nesse caso, reforce o que foi bem pensado e aponte um próximo passo).
 
+Escreva também um analise_mestre (2 a 4 frases) explicando como um jogador forte
+abordaria essa posição, mencionando o PLANO por trás da linha_principal_do_motor
+acima — não apenas "o melhor lance é X", mas o raciocínio estratégico/tático da
+sequência. Baseie sua explicação EXCLUSIVAMENTE na linha fornecida pelo motor. Não
+invente avaliação própria. Explique o plano por trás dela em linguagem natural,
+como um treinador explicaria a um aluno.
+
 Responda ESTRITAMENTE com um único JSON válido, sem texto antes ou depois e sem
 markdown fences, compatível com este schema:
 {{
   "qualidade_raciocinio": "SOLIDO|FALHO|INDETERMINADO",
-  "feedback_texto": "string"
+  "feedback_texto": "string",
+  "analise_mestre": "string"
 }}
 """
 
@@ -369,19 +421,130 @@ def parse_revisao(text: str) -> RevisaoRaciocinio:
     return RevisaoRaciocinio.model_validate_json(strip_json_fences(text))
 
 
+# Padrão de notação algébrica SAN (inclui roque, captura, promoção e xeque/mate).
+SAN_MOVE_PATTERN = re.compile(
+    r"O-O-O|O-O|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?"
+)
+
+
+def extrair_lances_san(texto: str) -> list[str]:
+    """Extrai os lances em notação SAN mencionados em um texto livre."""
+
+    return SAN_MOVE_PATTERN.findall(texto)
+
+
+def lances_faltantes(
+    analise_mestre: str, lances_esperados: list[str]
+) -> list[str]:
+    """Retorna os lances esperados que NÃO aparecem literalmente no texto."""
+
+    citados = set(extrair_lances_san(analise_mestre))
+    return [lance for lance in lances_esperados if lance not in citados]
+
+
+def correction_prompt_analise_mestre(
+    original_prompt: str,
+    linha_principal: list[str],
+    lances_faltantes_texto: list[str],
+) -> str:
+    """Solicita nova análise quando o texto não cita a linha principal real."""
+
+    linha_texto = " ".join(linha_principal)
+    faltantes = ", ".join(lances_faltantes_texto)
+    return (
+        f"{original_prompt}\n\n"
+        "A resposta anterior de analise_mestre citou lances que NÃO correspondem "
+        "à linha principal fornecida pelo motor. A linha principal correta e "
+        f"literal é: {linha_texto}\n"
+        f"Estes lances obrigatórios NÃO apareceram no seu texto: {faltantes}\n"
+        "Reescreva analise_mestre citando EXATAMENTE os lances da linha principal "
+        "acima, na mesma notação (copie-os literalmente), sem trocar peças nem "
+        "inverter a ordem. Responda novamente apenas com o JSON válido, sem "
+        "markdown e sem explicações externas."
+    )
+
+
+def fallback_analise_mestre(linha_principal: list[str]) -> str:
+    """Gera analise_mestre sem LLM, formatando a linha principal literalmente."""
+
+    linha_texto = " ".join(linha_principal)
+    return (
+        f"A linha principal sugerida pelo motor é: {linha_texto} — considere "
+        "estudar essa sequência para entender o plano."
+    )
+
+
+def validar_analise_mestre(
+    client: Any,
+    prompt: str,
+    revisao: RevisaoRaciocinio,
+    linha_principal: list[str],
+    logger: logging.Logger,
+) -> RevisaoRaciocinio:
+    """Garante que analise_mestre cite a linha principal real (retry + fallback).
+
+    Verifica se ao menos os 2 primeiros lances da linha_principal aparecem
+    literalmente no texto. Se não, dispara 1 retry de correção; se ainda falhar,
+    substitui analise_mestre por um fallback não-LLM formatando a linha literal.
+    """
+
+    lances_esperados = linha_principal[:2]
+    if not lances_esperados:
+        return revisao
+
+    faltantes = lances_faltantes(revisao.analise_mestre, lances_esperados)
+    if not faltantes:
+        return revisao
+
+    logger.warning(
+        "analise_mestre não citou os lances %s da linha principal; tentando "
+        "correção.",
+        faltantes,
+    )
+    revisao_base = revisao
+    try:
+        response_text = call_gemini(
+            client,
+            correction_prompt_analise_mestre(prompt, linha_principal, faltantes),
+            logger,
+        )
+        revisao_corrigida = parse_revisao(response_text)
+        revisao_base = revisao_corrigida
+        if not lances_faltantes(revisao_corrigida.analise_mestre, lances_esperados):
+            return revisao_corrigida
+    except ValidationError as error:
+        logger.warning("Retry de analise_mestre falhou na validação: %s", error)
+
+    logger.warning(
+        "analise_mestre ainda incorreta após retry; usando fallback não-LLM."
+    )
+    return revisao_base.model_copy(
+        update={"analise_mestre": fallback_analise_mestre(linha_principal)}
+    )
+
+
 def gerar_revisao(
-    client: Any, prompt: str, logger: logging.Logger
+    client: Any,
+    prompt: str,
+    logger: logging.Logger,
+    linha_principal: list[str] | None = None,
 ) -> RevisaoRaciocinio:
     """Chama o Gemini e valida, com uma tentativa extra de correção."""
 
     response_text = call_gemini(client, prompt, logger)
     try:
-        return parse_revisao(response_text)
+        revisao = parse_revisao(response_text)
     except ValidationError as validation_error:
         response_text = call_gemini(
             client, correction_prompt(prompt, validation_error), logger
         )
-        return parse_revisao(response_text)
+        revisao = parse_revisao(response_text)
+
+    if linha_principal:
+        revisao = validar_analise_mestre(
+            client, prompt, revisao, linha_principal, logger
+        )
+    return revisao
 
 
 def inserir_revisao(
@@ -448,7 +611,9 @@ def run() -> None:
             prompt = build_prompt(
                 anotacao.get("texto_pensamento") or "", avaliacao, qualidade_lance
             )
-            revisao = gerar_revisao(gemini_client, prompt, logger)
+            revisao = gerar_revisao(
+                gemini_client, prompt, logger, avaliacao.linha_principal
+            )
             inserir_revisao(client, anotacao, qualidade_lance, avaliacao, revisao)
             revisadas_ok += 1
         except Exception as error:

@@ -1,0 +1,64 @@
+<section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8" aria-labelledby="perguntas-heading">
+  <div class="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <p class="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#dea34c]">Reflexão retroativa</p>
+      <h2 id="perguntas-heading" class="text-2xl font-semibold text-[#f4f0e6] sm:text-3xl">Perguntas pendentes</h2>
+    </div>
+    @if (!loading() && perguntas().length > 0) {
+      <p class="text-sm text-[#8fa5a7]">{{ perguntas().length }} perguntas aguardando resposta</p>
+    }
+  </div>
+
+  @if (loading()) {
+    <div class="flex min-h-32 items-center justify-center rounded-lg border border-[#304247] bg-[#10191d] text-[#b9c7c8]" role="status">
+      <span class="mr-3 h-3 w-3 animate-pulse rounded-full bg-[#dea34c]"></span>
+      Carregando perguntas pendentes...
+    </div>
+  } @else {
+    @if (error()) {
+      <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
+        {{ error() }}
+      </div>
+    }
+
+    @if (perguntas().length === 0) {
+      <div class="rounded-lg border border-dashed border-[#40565c] bg-[#10191d] px-6 py-12 text-center text-[#b9c7c8]">
+        Nenhuma pergunta pendente no momento.
+      </div>
+    } @else {
+      <div class="grid gap-5">
+        @for (pergunta of perguntas(); track pergunta.id) {
+          <article class="rounded-lg border border-[#304247] bg-[#10191d] p-5 shadow-lg shadow-black/10 sm:p-7">
+            <p class="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-[#8fa5a7]">
+              Partida de {{ formatarData(pergunta.dataPartida) }}
+              @if (pergunta.corJogada) { <span> · jogando de {{ pergunta.corJogada }}</span> }
+              @if (pergunta.tipoEvento === 'EROSAO') {
+                <span> · lances {{ pergunta.numeroLance }}–{{ pergunta.numeroLanceFim }}</span>
+              } @else {
+                <span> · lance {{ pergunta.numeroLance }}</span>
+              }
+            </p>
+            <p class="mb-4 text-base leading-7 text-[#f4f0e6]">{{ pergunta.perguntaTexto }}</p>
+
+            <textarea
+              #campo
+              rows="3"
+              class="mb-3 w-full rounded-md border border-[#40565c] bg-[#162126] p-3 text-sm leading-6 text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
+              placeholder="Escreva o que você estava pensando..."
+              [disabled]="enviando().has(pergunta.id)"
+            ></textarea>
+
+            <button
+              type="button"
+              class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-4 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
+              [disabled]="enviando().has(pergunta.id)"
+              (click)="responder(pergunta, campo.value)"
+            >
+              {{ enviando().has(pergunta.id) ? 'Enviando...' : 'Responder' }}
+            </button>
+          </article>
+        }
+      </div>
+    }
+  }
+</section>

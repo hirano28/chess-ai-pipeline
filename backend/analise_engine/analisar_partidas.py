@@ -197,12 +197,17 @@ def perspective_score(score_cp: int, color: str) -> int:
     raise ValueError(f"Cor de jogada inválida: {color}")
 
 
-def evaluate_position(engine: Stockfish, board: chess.Board, color: str) -> int:
+def evaluate_position(
+    engine: Stockfish,
+    board: chess.Board,
+    color: str,
+    searchtime_ms: int = STOCKFISH_SEARCHTIME_MS,
+) -> int:
     """Avalia uma posição da perspectiva do jogador da pipeline."""
 
     engine.set_fen_position(board.fen())
     try:
-        evaluation = engine.get_evaluation(searchtime=STOCKFISH_SEARCHTIME_MS)
+        evaluation = engine.get_evaluation(searchtime=searchtime_ms)
     except TypeError:
         # Mantém compatibilidade com engines falsos usados nos testes unitários.
         evaluation = engine.get_evaluation()
