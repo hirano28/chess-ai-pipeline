@@ -270,6 +270,7 @@ def processar_revisao_avulsa(
         "feedback_texto": revisao.feedback_texto,
         "analise_mestre": revisao.analise_mestre,
         "top_candidatos": revisao.top_candidatos,
+        "checklist_rotina": revisao.checklist_rotina,
     }
 
 
@@ -438,6 +439,7 @@ def processar_revisao_sequencia(
                     "feedback_texto": revisao.feedback_texto,
                     "analise_mestre": revisao.analise_mestre,
                     "top_candidatos": revisao.top_candidatos,
+                    "checklist_rotina": revisao.checklist_rotina,
                 }
             )
         else:
@@ -476,6 +478,11 @@ def imprimir_resultado(resultado: dict[str, Any]) -> None:
     print(f"Qualidade do raciocínio: {resultado['qualidade_raciocinio']}")
     print(f"Feedback: {resultado['feedback_texto']}")
     print(f"Análise do mestre: {resultado['analise_mestre']}")
+    checklist = resultado.get("checklist_rotina") or {}
+    if checklist:
+        print("Checklist da rotina:")
+        for chave, valor in checklist.items():
+            print(f"  - {chave}: {valor}")
     print("=" * 60 + "\n")
 
 

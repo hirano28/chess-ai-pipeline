@@ -21,7 +21,7 @@ import chess
 import chess.pgn
 import google.genai as genai
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from stockfish import Stockfish
 from supabase import Client, create_client
 
@@ -44,6 +44,22 @@ SERVER_ERROR_BACKOFF_SECONDS = (5, 15, 45)
 # como opções próximas em qualidade (evita linguagem de "resposta única certa").
 CANDIDATOS_PROXIMOS_LIMIAR_CP = 30
 
+# Guia lido em runtime (não hardcode do texto): se o .md for editado, a rubrica
+# do prompt acompanha. As chaves do checklist são canônicas e estáveis (uma por
+# passo, na ordem 1..8), independentes da redação exata dos títulos do guia.
+GUIA_PATH = PROJECT_ROOT / "docs" / "GUIA_GUESS_THE_MOVE.md"
+CHECKLIST_KEYS: tuple[str, ...] = (
+    "pare_e_observe",
+    "varredura_checks_capturas_ameacas",
+    "perguntas_de_aagaard",
+    "candidatos_por_escrito",
+    "calculo_ate_posicao_quieta",
+    "comparacao_dos_candidatos",
+    "blundercheck",
+    "registro_por_escrito",
+)
+CHECKLIST_VALORES = ("SIM", "NAO", "INDETERMINADO")
+
 
 class RevisaoRaciocinio(BaseModel):
     """Schema estruturado da revisão de raciocínio gerada pelo agente."""
@@ -51,9 +67,28 @@ class RevisaoRaciocinio(BaseModel):
     qualidade_raciocinio: Literal["SOLIDO", "FALHO", "INDETERMINADO"]
     feedback_texto: str
     analise_mestre: str
+    # Rubrica: um valor SIM/NAO/INDETERMINADO por passo do guia (chaves canônicas).
+    checklist_rotina: dict[str, str]
     # Candidatos reais do motor (lance + avaliação); injetados após o parse,
     # não gerados pelo Gemini (por isso têm default e ficam fora do prompt-schema).
     top_candidatos: list[dict] = Field(default_factory=list)
+
+    @field_validator("checklist_rotina")
+    @classmethod
+    def _validar_checklist(cls, valor: dict[str, str]) -> dict[str, str]:
+        if set(valor) != set(CHECKLIST_KEYS):
+            raise ValueError(
+                "checklist_rotina deve ter exatamente as chaves "
+                f"{list(CHECKLIST_KEYS)}; recebido {sorted(valor)}"
+            )
+        invalidos = {k: v for k, v in valor.items() if v not in CHECKLIST_VALORES}
+        if invalidos:
+            raise ValueError(
+                "valores de checklist_rotina devem ser SIM/NAO/INDETERMINADO; "
+                f"inválidos: {invalidos}"
+            )
+        return valor
+
 
 
 @dataclass(frozen=True)
@@ -141,6 +176,55 @@ def _load_float(name: str, default: float) -> float:
         return float(raw)
     except ValueError as error:
         raise ValueError(f"{name} deve ser um número") from error
+
+
+# Cabeçalho de nível 2 do guia (qualquer "## ..."), usado para delimitar seções.
+_GUIA_HEADER_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+# Título numerado de um passo: "N. Título".
+_GUIA_PASSO_RE = re.compile(r"^(\d+)\.\s+(.+)$")
+
+
+def carregar_passos_guia(caminho: Path = GUIA_PATH) -> list[dict[str, Any]]:
+    """Lê o guia .md e extrai os passos numerados (## N. Título) com seus corpos.
+
+    Robusto a mudanças de redação: depende apenas da estrutura de cabeçalhos
+    "## N. Título". Cabeçalhos não numerados (ex.: "## Progressão sugerida") são
+    ignorados e servem apenas para delimitar o fim do corpo do passo anterior.
+    """
+
+    texto = caminho.read_text(encoding="utf-8")
+    headers = list(_GUIA_HEADER_RE.finditer(texto))
+    passos: list[dict[str, Any]] = []
+    for indice, header in enumerate(headers):
+        match = _GUIA_PASSO_RE.match(header.group(1).strip())
+        if not match:
+            continue
+        inicio = header.end()
+        fim = headers[indice + 1].start() if indice + 1 < len(headers) else len(texto)
+        corpo = texto[inicio:fim].strip().strip("-").strip()
+        passos.append(
+            {
+                "numero": int(match.group(1)),
+                "titulo": match.group(2).strip(),
+                "corpo": corpo,
+            }
+        )
+    return passos
+
+
+def carregar_checklist_guia(caminho: Path = GUIA_PATH) -> list[dict[str, Any]]:
+    """Pareia cada passo do guia (na ordem 1..8) com sua chave canônica do checklist."""
+
+    passos = sorted(carregar_passos_guia(caminho), key=lambda p: p["numero"])
+    if len(passos) != len(CHECKLIST_KEYS):
+        raise ValueError(
+            f"O guia deve ter exatamente {len(CHECKLIST_KEYS)} passos numerados; "
+            f"encontrados {len(passos)}."
+        )
+    return [
+        {"chave": chave, **passo}
+        for chave, passo in zip(CHECKLIST_KEYS, passos)
+    ]
 
 
 def fetch_anotacoes(client: Client, logger: logging.Logger) -> list[dict[str, Any]]:
@@ -393,8 +477,13 @@ def build_prompt(
     avaliacao: AvaliacaoLance,
     qualidade_lance: str,
     contexto_sequencia: str | None = None,
+    passos_guia: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Monta o prompt de revisão do raciocínio para o Gemini."""
+    """Monta o prompt de revisão do raciocínio para o Gemini.
+
+    passos_guia (chave + titulo + corpo por passo) é lido do guia .md por padrão;
+    injetável nos testes para não depender do arquivo em disco.
+    """
 
     linha_principal_texto = (
         " ".join(avaliacao.linha_principal)
@@ -427,6 +516,17 @@ def build_prompt(
         "resposta do adversário deveria ter mudado o plano."
         if contexto_sequencia
         else ""
+    )
+
+    checklist_guia = (
+        passos_guia if passos_guia is not None else carregar_checklist_guia()
+    )
+    rubrica_texto = "\n\n".join(
+        f"{passo['numero']}. [{passo['chave']}] {passo['titulo']}\n{passo['corpo']}"
+        for passo in checklist_guia
+    )
+    schema_checklist = ",\n    ".join(
+        f'"{passo["chave"]}": "SIM|NAO|INDETERMINADO"' for passo in checklist_guia
     )
 
     return f"""Você é um treinador de xadrez revisando o RACIOCÍNIO de um jogador, não apenas o resultado.
@@ -467,12 +567,24 @@ sequência. Baseie sua explicação EXCLUSIVAMENTE na linha fornecida pelo motor
 invente avaliação própria. Explique o plano por trás dela em linguagem natural,
 como um treinador explicaria a um aluno.
 
+RUBRICA DE ROTINA — avalie o texto do jogador contra estes 8 passos do guia:
+{rubrica_texto}
+
+Para cada um dos 8 passos acima, avalie se há evidência no texto do jogador de que
+ele foi seguido (SIM), claramente não foi (NAO), ou não é possível determinar pelo
+texto (INDETERMINADO). Seja rigoroso — só marque SIM se houver evidência textual
+clara, não presuma. Preencha checklist_rotina com EXATAMENTE as 8 chaves indicadas
+entre colchetes acima, cada valor sendo "SIM", "NAO" ou "INDETERMINADO".
+
 Responda ESTRITAMENTE com um único JSON válido, sem texto antes ou depois e sem
 markdown fences, compatível com este schema:
 {{
   "qualidade_raciocinio": "SOLIDO|FALHO|INDETERMINADO",
   "feedback_texto": "string",
-  "analise_mestre": "string"
+  "analise_mestre": "string",
+  "checklist_rotina": {{
+    {schema_checklist}
+  }}
 }}
 """
 

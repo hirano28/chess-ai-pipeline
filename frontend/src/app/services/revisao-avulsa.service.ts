@@ -19,6 +19,7 @@ export interface AvaliacaoSequenciaItem {
   feedback_texto: string;
   analise_mestre: string;
   top_candidatos: CandidatoMotor[];
+  checklist_rotina: Record<string, string>;
 }
 
 export interface ResultadoRevisaoAvulsa {

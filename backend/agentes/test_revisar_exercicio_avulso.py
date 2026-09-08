@@ -18,7 +18,7 @@ from backend.agentes.revisar_exercicio_avulso import (
     processar_revisao_avulsa,
     processar_revisao_sequencia,
 )
-from backend.agentes.revisar_pensamento import Settings
+from backend.agentes.revisar_pensamento import CHECKLIST_KEYS, Settings
 
 
 class _FakeEngineConcorrente:
@@ -65,9 +65,11 @@ class _FakeResponse:
 
 class _FakeModels:
     def generate_content(self, model: str, contents: str) -> _FakeResponse:
+        checklist = ", ".join(f'"{chave}": "INDETERMINADO"' for chave in CHECKLIST_KEYS)
         return _FakeResponse(
             '{"qualidade_raciocinio": "SOLIDO", "feedback_texto": "ok", '
-            '"analise_mestre": "Plano solido baseado na linha do motor."}'
+            '"analise_mestre": "Plano solido baseado na linha do motor.", '
+            f'"checklist_rotina": {{{checklist}}}}}'
         )
 
 

@@ -158,4 +158,38 @@ export class LaboratorioRaciocinioComponent {
         return 'border-[#40565c] bg-[#10191d] text-[#b9c7c8]';
     }
   }
+
+  /** Rótulos legíveis e ordem canônica dos 8 passos da rubrica (chaves estáveis). */
+  readonly checklistPassos: { chave: string; rotulo: string }[] = [
+    { chave: 'pare_e_observe', rotulo: 'Parou e observou antes de calcular' },
+    { chave: 'varredura_checks_capturas_ameacas', rotulo: 'Varredura de checks, capturas e ameaças' },
+    { chave: 'perguntas_de_aagaard', rotulo: 'Respondeu as 3 perguntas de Aagaard' },
+    { chave: 'candidatos_por_escrito', rotulo: 'Escreveu ao menos 3 candidatos' },
+    { chave: 'calculo_ate_posicao_quieta', rotulo: 'Calculou cada candidato até posição quieta' },
+    { chave: 'comparacao_dos_candidatos', rotulo: 'Comparou os candidatos entre si' },
+    { chave: 'blundercheck', rotulo: 'Fez o blundercheck final' },
+    { chave: 'registro_por_escrito', rotulo: 'Registrou o raciocínio por escrito' }
+  ];
+
+  iconeChecklist(valor: string | undefined): string {
+    switch (valor) {
+      case 'SIM':
+        return '✓';
+      case 'NAO':
+        return '✗';
+      default:
+        return '?';
+    }
+  }
+
+  corIconeChecklist(valor: string | undefined): string {
+    switch (valor) {
+      case 'SIM':
+        return 'text-[#8fd6a6]';
+      case 'NAO':
+        return 'text-[#e79a90]';
+      default:
+        return 'text-[#8fa5a7]';
+    }
+  }
 }

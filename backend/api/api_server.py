@@ -82,6 +82,7 @@ class AvaliacaoSequenciaItem(BaseModel):
     feedback_texto: str
     analise_mestre: str
     top_candidatos: list[dict] = Field(default_factory=list)
+    checklist_rotina: dict[str, str] = Field(default_factory=dict)
 
 
 class RevisarAvulsoResponse(BaseModel):

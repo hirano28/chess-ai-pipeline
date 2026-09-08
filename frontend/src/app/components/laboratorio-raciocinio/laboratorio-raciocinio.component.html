@@ -157,6 +157,22 @@
 
               <p class="mb-2 text-base leading-7 text-[#d7dede]">{{ item.feedback_texto }}</p>
               <p class="text-sm leading-6 text-[#b9c7c8]"><span class="text-[#8fa5a7]">Análise do mestre:</span> {{ item.analise_mestre }}</p>
+
+              @if (item.checklist_rotina) {
+                <div class="mt-4 rounded-md border border-[#304247] bg-[#162126] p-4">
+                  <p class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">Rotina seguida</p>
+                  <ul class="flex flex-col gap-2">
+                    @for (passo of checklistPassos; track passo.chave) {
+                      <li class="flex items-start gap-2 text-sm text-[#d7dede]">
+                        <span class="mt-0.5 font-bold" [class]="corIconeChecklist(item.checklist_rotina[passo.chave])">
+                          {{ iconeChecklist(item.checklist_rotina[passo.chave]) }}
+                        </span>
+                        <span>{{ passo.rotulo }}</span>
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
             </div>
           }
         </div>

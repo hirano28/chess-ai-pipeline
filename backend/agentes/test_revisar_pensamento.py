@@ -2,21 +2,30 @@
 
 import json
 import logging
+import tempfile
 import unittest
+from pathlib import Path
 
 from pydantic import ValidationError
 
 from backend.agentes.revisar_pensamento import (
+    CHECKLIST_KEYS,
     AvaliacaoLance,
     RevisaoRaciocinio,
     build_prompt,
     candidatos_proximos,
+    carregar_checklist_guia,
+    carregar_passos_guia,
     extrair_lances_san,
     fallback_analise_mestre,
     fallback_top_candidatos,
     gerar_revisao,
     lances_faltantes,
 )
+
+
+def _checklist_valido() -> dict[str, str]:
+    return {chave: "INDETERMINADO" for chave in CHECKLIST_KEYS}
 
 
 class BuildPromptLinhaPrincipalTest(unittest.TestCase):
@@ -96,13 +105,18 @@ class BuildPromptLinhaPrincipalTest(unittest.TestCase):
 class RevisaoRaciocinioSchemaTest(unittest.TestCase):
     def test_exige_analise_mestre(self) -> None:
         with self.assertRaises(ValidationError):
-            RevisaoRaciocinio(qualidade_raciocinio="SOLIDO", feedback_texto="ok")
+            RevisaoRaciocinio(
+                qualidade_raciocinio="SOLIDO",
+                feedback_texto="ok",
+                checklist_rotina=_checklist_valido(),
+            )
 
-    def test_aceita_os_tres_campos(self) -> None:
+    def test_aceita_os_campos_obrigatorios(self) -> None:
         revisao = RevisaoRaciocinio(
             qualidade_raciocinio="FALHO",
             feedback_texto="Considere reforçar o cálculo de variantes forçadas.",
             analise_mestre="Um jogador forte jogaria Rb1 para dobrar na coluna aberta.",
+            checklist_rotina=_checklist_valido(),
         )
 
         self.assertEqual(revisao.qualidade_raciocinio, "FALHO")
@@ -110,15 +124,125 @@ class RevisaoRaciocinioSchemaTest(unittest.TestCase):
         # top_candidatos é opcional (default vazio): Gemini não o gera.
         self.assertEqual(revisao.top_candidatos, [])
 
+    def test_checklist_exige_as_oito_chaves(self) -> None:
+        incompleto = {chave: "SIM" for chave in list(CHECKLIST_KEYS)[:-1]}
+        with self.assertRaises(ValidationError):
+            RevisaoRaciocinio(
+                qualidade_raciocinio="SOLIDO",
+                feedback_texto="ok",
+                analise_mestre="ok",
+                checklist_rotina=incompleto,
+            )
+
+    def test_checklist_rejeita_chave_estranha(self) -> None:
+        estranho = _checklist_valido()
+        estranho.pop("blundercheck")
+        estranho["passo_inexistente"] = "SIM"
+        with self.assertRaises(ValidationError):
+            RevisaoRaciocinio(
+                qualidade_raciocinio="SOLIDO",
+                feedback_texto="ok",
+                analise_mestre="ok",
+                checklist_rotina=estranho,
+            )
+
+    def test_checklist_rejeita_valor_invalido(self) -> None:
+        invalido = _checklist_valido()
+        invalido["blundercheck"] = "TALVEZ"
+        with self.assertRaises(ValidationError):
+            RevisaoRaciocinio(
+                qualidade_raciocinio="SOLIDO",
+                feedback_texto="ok",
+                analise_mestre="ok",
+                checklist_rotina=invalido,
+            )
+
+    def test_exige_analise_mestre_antigo(self) -> None:
+        with self.assertRaises(ValidationError):
+            RevisaoRaciocinio(qualidade_raciocinio="SOLIDO", feedback_texto="ok")
+
     def test_aceita_top_candidatos(self) -> None:
         revisao = RevisaoRaciocinio(
             qualidade_raciocinio="SOLIDO",
             feedback_texto="ok",
             analise_mestre="ok",
+            checklist_rotina=_checklist_valido(),
             top_candidatos=[{"lance": "Rb1", "avaliacao": "+120"}],
         )
 
         self.assertEqual(revisao.top_candidatos[0]["lance"], "Rb1")
+
+
+class CarregarGuiaTest(unittest.TestCase):
+    def test_extrai_oito_passos_do_guia_real(self) -> None:
+        passos = carregar_passos_guia()
+
+        self.assertEqual(len(passos), 8)
+        self.assertEqual([p["numero"] for p in passos], list(range(1, 9)))
+        # Títulos-chave presentes (independente da redação exata).
+        titulos = " ".join(p["titulo"].lower() for p in passos)
+        self.assertIn("varredura", titulos)
+        self.assertIn("blundercheck", titulos)
+
+    def test_parsing_robusto_a_mudanca_de_redacao(self) -> None:
+        conteudo = (
+            "# Guia\n\nIntro qualquer.\n\n---\n\n"
+            "## 1. Primeiro passo reescrito\nCorpo A.\n\n"
+            "## 2. Segundo passo diferente\nCorpo B.\n\n"
+            "## 3. Terceiro\nCorpo C.\n\n"
+            "## 4. Quarto\nCorpo D.\n\n"
+            "## 5. Quinto\nCorpo E.\n\n"
+            "## 6. Sexto\nCorpo F.\n\n"
+            "## 7. Sétimo\nCorpo G.\n\n"
+            "## 8. Oitavo\nCorpo H.\n\n"
+            "---\n\n## Progressão sugerida\nNão é um passo numerado.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            caminho = Path(tmp) / "guia.md"
+            caminho.write_text(conteudo, encoding="utf-8")
+
+            passos = carregar_passos_guia(caminho)
+
+        self.assertEqual(len(passos), 8)
+        self.assertEqual(passos[0]["titulo"], "Primeiro passo reescrito")
+        self.assertEqual(passos[7]["titulo"], "Oitavo")
+        # A seção "## Progressão sugerida" (sem número) não entra e não vaza no
+        # corpo do passo 8.
+        self.assertNotIn("Progressão", passos[7]["corpo"])
+
+    def test_checklist_pareia_chaves_canonicas_com_passos(self) -> None:
+        checklist = carregar_checklist_guia()
+
+        self.assertEqual([c["chave"] for c in checklist], list(CHECKLIST_KEYS))
+        self.assertEqual(len(checklist), 8)
+
+    def test_guia_com_numero_errado_de_passos_levanta_erro(self) -> None:
+        conteudo = "## 1. Um\nA.\n\n## 2. Dois\nB.\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            caminho = Path(tmp) / "guia.md"
+            caminho.write_text(conteudo, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                carregar_checklist_guia(caminho)
+
+
+class BuildPromptChecklistTest(unittest.TestCase):
+    def test_prompt_inclui_rubrica_e_chaves(self) -> None:
+        avaliacao = AvaliacaoLance(
+            lance_jogado="Nd5",
+            melhor_lance="g3",
+            queda_win_percent=5.5,
+            linha_principal=["g3", "Kd8"],
+            top_candidatos=[{"lance": "g3", "avaliacao": "-254"}],
+        )
+
+        prompt = build_prompt("Centralizei o cavalo.", avaliacao, "SUBOTIMO")
+
+        self.assertIn("RUBRICA DE ROTINA", prompt)
+        self.assertIn("checklist_rotina", prompt)
+        self.assertIn("só marque SIM se houver evidência textual", prompt)
+        for chave in CHECKLIST_KEYS:
+            self.assertIn(chave, prompt)
+
 
 
 class CandidatosProximosTest(unittest.TestCase):
@@ -175,6 +299,7 @@ def _revisao_json(
             "qualidade_raciocinio": "SOLIDO",
             "feedback_texto": feedback_texto,
             "analise_mestre": analise_mestre,
+            "checklist_rotina": _checklist_valido(),
         }
     )
 
