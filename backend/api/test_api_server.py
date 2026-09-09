@@ -58,6 +58,11 @@ class ApiKeyAuthTest(unittest.TestCase):
         self.assertNotIn("gemini_client", api_server._state)
         self.assertNotIn("supabase_client", api_server._state)
 
+    def test_health_retorna_200_sem_necessidade_de_chave(self) -> None:
+        resposta = self.client.get("/health")
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json(), {"status": "ok"})
+
     def test_endpoint_salvar_tambem_exige_chave(self) -> None:
         resposta = self.client.post(
             "/revisar-avulso/salvar",

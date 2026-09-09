@@ -305,3 +305,9 @@ def guia_passos() -> dict[str, list[dict[str, Any]]]:
             for passo in passos
         ]
     }
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    """Endpoint de verificação de saúde da aplicação para balanceadores e CI/CD."""
+    return {"status": "ok"}
