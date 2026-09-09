@@ -6,16 +6,33 @@ rotas sem entrar nesse bloco e populamos `_state["api_keys"]` manualmente,
 garantindo que nenhuma credencial real é necessária.
 """
 
+import json
+import logging
 import os
+import threading
 import unittest
+from typing import Any
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from backend.agentes.revisar_pensamento import Settings
 from backend.api import api_server
 
 CHAVE_CORRETA = "chave-secreta-de-teste"
+
+
+def _fake_settings() -> Settings:
+    return Settings(
+        supabase_url="https://example.test",
+        supabase_service_role_key="chave",
+        stockfish_path="/usr/games/stockfish",
+        stockfish_depth=16,
+        gemini_api_key="chave-gemini",
+        limiar_lance_bom=5.0,
+        limiar_lance_ruim=15.0,
+    )
 
 
 class ApiKeyAuthTest(unittest.TestCase):
@@ -81,6 +98,21 @@ class ApiKeyAuthTest(unittest.TestCase):
 
         self.assertEqual(resposta.status_code, 401)
         self.assertNotIn("supabase_client", api_server._state)
+
+    def test_explicar_posicao_sem_header_recebe_401(self) -> None:
+        resposta = self.client.post(
+            "/explicar-posicao",
+            json={"posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"},
+        )
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_explicar_posicao_chave_errada_recebe_401(self) -> None:
+        resposta = self.client.post(
+            "/explicar-posicao",
+            json={"posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"},
+            headers={"X-API-Key": "chave-errada"},
+        )
+        self.assertEqual(resposta.status_code, 401)
 
     def test_header_correto_passa_do_gate_de_autenticacao(self) -> None:
         # FEN/lance válidos passam pela resolução de posição; sem "engine" em
@@ -210,6 +242,129 @@ class ResolverApiKeysTest(unittest.TestCase):
 
             with self.assertRaises(RuntimeError):
                 api_server._resolver_api_keys()
+
+
+class ExplicarPosicaoEndpointTest(unittest.TestCase):
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+
+        class _FakeEngine:
+            def set_fen_position(self, fen: str) -> None:
+                pass
+
+            def get_evaluation(
+                self, searchtime: int | None = None
+            ) -> dict[str, Any]:
+                return {"type": "cp", "value": 350}
+
+            def get_top_moves(
+                self, n: int, verbose: bool = False
+            ) -> list[dict[str, Any]]:
+                return [
+                    {
+                        "PVMoves": "d2d4 d7d5 c2c4",
+                        "Move": "d2d4",
+                        "Centipawn": 350,
+                    }
+                ]
+
+        class _FakeResponse:
+            def __init__(self, text: str) -> None:
+                self.text = text
+
+        class _FakeGemini:
+            class models:
+                @staticmethod
+                def generate_content(model: str, contents: str) -> _FakeResponse:
+                    return _FakeResponse(
+                        json.dumps(
+                            {
+                                "veredito": "Brancas têm vantagem decisiva (+3.50).",
+                                "ameaca_concreta": "Ameaça d4 abrindo o centro.",
+                                "o_que_parece_bom_mas_falha": "d5 falha após c4.",
+                                "plano_conversao": "Avançar peões centrais.",
+                                "resumo_didatico": "Domínio central sem contra-jogo.",
+                            }
+                        )
+                    )
+
+        api_server._state["engine"] = _FakeEngine()
+        api_server._state["gemini_client"] = _FakeGemini()
+        api_server._state["settings"] = _fake_settings()
+        api_server._state["logger"] = logging.getLogger("test_api")
+        api_server._state["engine_lock"] = threading.Lock()
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_posicao_invalida_retorna_400(self) -> None:
+        resposta = self.client.post(
+            "/explicar-posicao",
+            json={"posicao": "string-totalmente-invalida"},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 400)
+
+    def test_lado_invalido_retorna_400(self) -> None:
+        resposta = self.client.post(
+            "/explicar-posicao",
+            json={
+                "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                "lado": "AZUL",
+            },
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 400)
+
+    def test_explicar_posicao_com_fen_retorna_200_e_schema_completo(self) -> None:
+        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        resposta = self.client.post(
+            "/explicar-posicao",
+            json={"posicao": fen, "lado": "BRANCAS"},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 200)
+        dados = resposta.json()
+        self.assertEqual(dados["fen"], fen)
+        self.assertEqual(dados["lado_a_jogar"], "BRANCAS")
+        self.assertEqual(dados["lado_analisado"], "BRANCAS")
+        self.assertIn("avaliacao", dados)
+        self.assertEqual(dados["avaliacao"]["score_cp"], 350)
+        self.assertIn("linhas_taticas", dados)
+        self.assertIn("elementos_posicionais", dados)
+        self.assertIn("explicacao", dados)
+        self.assertIn("veredito", dados["explicacao"])
+        self.assertIn("ameaca_concreta", dados["explicacao"])
+
+    def test_explicar_posicao_com_pgn_retorna_200(self) -> None:
+        pgn = "1. e4 e5 2. Nf3 Nc6"
+        resposta = self.client.post(
+            "/explicar-posicao",
+            json={"posicao": pgn},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 200)
+        dados = resposta.json()
+        self.assertIn(
+            "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R", dados["fen"]
+        )
+
+    def test_engine_ocupado_retorna_503(self) -> None:
+        with patch(
+            "backend.agentes.explicador_posicao._acquire_engine_lock",
+            side_effect=api_server.EngineIndisponivelError("Servidor ocupado"),
+        ):
+            resposta = self.client.post(
+                "/explicar-posicao",
+                json={
+                    "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+                },
+                headers={"X-API-Key": CHAVE_CORRETA},
+            )
+            self.assertEqual(resposta.status_code, 503)
+            self.assertIn("Servidor ocupado", resposta.json()["detail"])
 
 
 if __name__ == "__main__":

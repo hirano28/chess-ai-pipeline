@@ -25,6 +25,10 @@ from stockfish import Stockfish
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
+from backend.agentes.explicador_posicao import (  # noqa: E402
+    ExplicacaoPosicao,
+    explicar_posicao,
+)
 from backend.agentes.revisar_exercicio_avulso import (  # noqa: E402
     EngineIndisponivelError,
     configure_console_logger,
@@ -116,6 +120,52 @@ class SalvarAvulsoRequest(BaseModel):
     top_candidatos: list[dict] = Field(default_factory=list)
     fen: str
     texto_pensamento: str
+
+
+class ExplicarPosicaoRequest(BaseModel):
+    """Payload para requisição de explicação didática da posição."""
+
+    posicao: str
+    lado: str | None = None
+
+
+class AvaliacaoObjetiva(BaseModel):
+    """Avaliação quantitativa do Stockfish e probabilidades de vitória."""
+
+    score_cp: int
+    mate: int | None = None
+    win_percent: float
+    lado_vencedor: str
+    descricao: str
+
+
+class LinhaTaticaItem(BaseModel):
+    """Uma linha candidata do motor com avaliação e sequência em SAN."""
+
+    lance: str
+    avaliacao: str
+    pv_san: list[str] = Field(default_factory=list)
+
+
+class RefutacaoDefesaItem(BaseModel):
+    """A melhor defesa adversária e a respectiva linha de refutação."""
+
+    defesa: str
+    refutacao_linha: list[str] = Field(default_factory=list)
+    detalhes: str
+
+
+class ExplicarPosicaoResponse(BaseModel):
+    """Resposta estruturada do explicador de posição."""
+
+    fen: str
+    lado_a_jogar: str
+    lado_analisado: str
+    avaliacao: AvaliacaoObjetiva
+    linhas_taticas: list[LinhaTaticaItem] = Field(default_factory=list)
+    refutacao_defesa: RefutacaoDefesaItem | None = None
+    elementos_posicionais: dict[str, Any]
+    explicacao: ExplicacaoPosicao
 
 
 def _parse_api_keys(raw: str) -> dict[str, str]:
@@ -288,6 +338,38 @@ def revisar_avulso_salvar(payload: SalvarAvulsoRequest) -> dict[str, str]:
         ) from error
 
     return {"status": "salvo"}
+
+
+@app.post(
+    "/explicar-posicao",
+    response_model=ExplicarPosicaoResponse,
+    dependencies=[Depends(verificar_api_key)],
+)
+def explicar_posicao_endpoint(
+    payload: ExplicarPosicaoRequest,
+) -> ExplicarPosicaoResponse:
+    """Analisa uma posição (FEN ou PGN) e explica didaticamente o porquê de ser vencedora/perdida."""
+    try:
+        resultado = explicar_posicao(
+            _state["engine"],
+            _state["gemini_client"],
+            _state["settings"],
+            _state["logger"],
+            payload.posicao,
+            lado=payload.lado,
+            engine_lock=_state.get("engine_lock"),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except EngineIndisponivelError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falha ao processar explicação da posição: {error}",
+        ) from error
+
+    return ExplicarPosicaoResponse(**resultado)
 
 
 @app.get("/guia-passos")

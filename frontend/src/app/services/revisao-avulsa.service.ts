@@ -47,6 +47,89 @@ export interface SalvarAvulsaResult {
   chaveInvalida?: boolean;
 }
 
+export interface AvaliacaoObjetiva {
+  score_cp: number;
+  mate: number | null;
+  win_percent: number;
+  lado_vencedor: string;
+  descricao: string;
+}
+
+export interface LinhaTaticaItem {
+  lance: string;
+  avaliacao: string;
+  pv_san: string[];
+}
+
+export interface RefutacaoDefesaItem {
+  defesa: string;
+  refutacao_linha: string[];
+  detalhes: string;
+}
+
+export interface MaterialInfo {
+  pontos_brancas: number;
+  pontos_pretas: number;
+  saldo_brancas: number;
+  descricao: string;
+  par_bispos_brancas: boolean;
+  par_bispos_pretas: boolean;
+}
+
+export interface SegurancaReiInfo {
+  casa: string;
+  em_xeque: boolean;
+  casas_vizinhas_atacadas: number;
+  roque_disponivel: boolean;
+  resumo: string;
+}
+
+export interface ElementosPosicionais {
+  material: MaterialInfo;
+  pecas_indefesas: {
+    BRANCAS: string[];
+    PRETAS: string[];
+  };
+  pecas_cravadas: {
+    BRANCAS: string[];
+    PRETAS: string[];
+  };
+  seguranca_rei: {
+    BRANCAS?: SegurancaReiInfo;
+    PRETAS?: SegurancaReiInfo;
+  };
+  ameacas_imediatas: {
+    cheques: string[];
+    capturas: string[];
+  };
+}
+
+export interface ExplicacaoPosicaoData {
+  veredito: string;
+  ameaca_concreta: string;
+  o_que_parece_bom_mas_falha: string;
+  plano_conversao: string;
+  resumo_didatico: string;
+}
+
+export interface ResultadoExplicadorPosicao {
+  fen: string;
+  lado_a_jogar: string;
+  lado_analisado: string;
+  avaliacao: AvaliacaoObjetiva;
+  linhas_taticas: LinhaTaticaItem[];
+  refutacao_defesa?: RefutacaoDefesaItem | null;
+  elementos_posicionais: ElementosPosicionais;
+  explicacao: ExplicacaoPosicaoData;
+}
+
+export interface ExplicarPosicaoResult {
+  success: boolean;
+  resultado?: ResultadoExplicadorPosicao;
+  error?: string;
+  chaveInvalida?: boolean;
+}
+
 const MENSAGEM_SERVIDOR_OFFLINE =
   'Não foi possível conectar ao servidor local. Confirme que ele está rodando ' +
   '(uvicorn backend.api.api_server:app --port 8000).';
@@ -68,6 +151,32 @@ export class RevisaoAvulsaService {
         this.http.post<ResultadoRevisaoAvulsa>(
           `${environment.apiLocalUrl}/revisar-avulso`,
           { posicao, lances, pensamento },
+          { headers: this.headersComChave() }
+        )
+      );
+      return { success: true, resultado };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        this.authLocalService.clearKey();
+        return { success: false, error: MENSAGEM_CHAVE_INVALIDA, chaveInvalida: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  async explicarPosicao(
+    posicao: string,
+    lado?: string | null
+  ): Promise<ExplicarPosicaoResult> {
+    try {
+      const payload: { posicao: string; lado?: string } = { posicao };
+      if (lado && lado.trim()) {
+        payload.lado = lado.trim();
+      }
+      const resultado = await firstValueFrom(
+        this.http.post<ResultadoExplicadorPosicao>(
+          `${environment.apiLocalUrl}/explicar-posicao`,
+          payload,
           { headers: this.headersComChave() }
         )
       );

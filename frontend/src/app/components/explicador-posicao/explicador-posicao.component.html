@@ -1,0 +1,336 @@
+<main class="min-h-screen bg-[#10191d] px-5 py-10 text-[#f4f0e6] sm:px-8 lg:px-12">
+  <section class="mx-auto flex w-full max-w-4xl flex-col gap-8">
+    <header class="max-w-3xl">
+      <p class="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-[#dea34c]">
+        Diagnóstico Conceitual
+      </p>
+      <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">Explicador de Posição</h1>
+      <p class="mt-4 text-base leading-7 text-[#b9c7c8]">
+        Ficou perdido segundo a engine e não entendeu o porquê? Cole a posição (FEN ou PGN) e receba uma explicação
+        humana, conceitual e didática com o veredito claro, a ameaça concreta, as falsas defesas refutadas e o plano de conversão.
+      </p>
+    </header>
+
+    @if (!chaveConfigurada()) {
+      <section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8">
+        <h2 class="mb-2 text-lg font-semibold">Chave de acesso</h2>
+        <p class="mb-5 text-sm leading-6 text-[#b9c7c8]">
+          O explicador de posição utiliza o servidor de análise com Stockfish e Gemini, que exige uma chave de API autorizada.
+        </p>
+
+        @if (erroChave()) {
+          <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
+            {{ erroChave() }}
+          </div>
+        }
+
+        <div class="mb-5">
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+            Chave de acesso
+          </label>
+          <input
+            type="password"
+            class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
+            placeholder="Cole a chave de API"
+            [value]="chaveInput()"
+            (input)="chaveInput.set($any($event.target).value)"
+            (keydown.enter)="salvarChave()"
+          />
+        </div>
+
+        <button
+          type="button"
+          class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-not-allowed disabled:opacity-60"
+          [disabled]="!chaveFormularioValido"
+          (click)="salvarChave()"
+        >
+          Salvar chave
+        </button>
+      </section>
+    } @else {
+      <section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8">
+        <div class="mb-5">
+          <div class="mb-2 flex items-center justify-between">
+            <label class="block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+              Posição (FEN ou PGN)
+            </label>
+            <button
+              type="button"
+              class="text-xs font-semibold text-[#dea34c] hover:underline"
+              (click)="carregarExemplo()"
+            >
+              Carregar exemplo clássico
+            </button>
+          </div>
+          <textarea
+            rows="3"
+            class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 font-mono text-sm leading-6 text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
+            placeholder="Ex: r1bq1rk1/ppp2ppp/2np4/2b1p1N1/2B1P3/3P4/PPP2PPP/R1BQK2R w KQ - 0 8  ou  1. e4 e5 2. Nf3 Nc6"
+            [value]="posicao()"
+            [disabled]="carregando()"
+            (input)="posicao.set($any($event.target).value)"
+          ></textarea>
+        </div>
+
+        <div class="mb-6">
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+            Perspectiva da explicação (Opcional)
+          </label>
+          <div class="flex flex-wrap gap-3">
+            <button
+              type="button"
+              class="rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition-colors"
+              [class]="lado() === 'TODOS' ? 'border-[#dea34c] bg-[#dea34c] text-[#162126]' : 'border-[#40565c] bg-[#10191d] text-[#b9c7c8] hover:border-[#dea34c]'"
+              (click)="lado.set('TODOS')"
+            >
+              Automático (Vez de jogar)
+            </button>
+            <button
+              type="button"
+              class="rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition-colors"
+              [class]="lado() === 'BRANCAS' ? 'border-[#dea34c] bg-[#dea34c] text-[#162126]' : 'border-[#40565c] bg-[#10191d] text-[#b9c7c8] hover:border-[#dea34c]'"
+              (click)="lado.set('BRANCAS')"
+            >
+              Jogando de Brancas
+            </button>
+            <button
+              type="button"
+              class="rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-[0.1em] transition-colors"
+              [class]="lado() === 'PRETAS' ? 'border-[#dea34c] bg-[#dea34c] text-[#162126]' : 'border-[#40565c] bg-[#10191d] text-[#b9c7c8] hover:border-[#dea34c]'"
+              (click)="lado.set('PRETAS')"
+            >
+              Jogando de Pretas
+            </button>
+          </div>
+        </div>
+
+        @if (erro()) {
+          <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
+            {{ erro() }}
+          </div>
+        }
+
+        @if (!resultado()) {
+          <button
+            type="button"
+            class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-6 py-2.5 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
+            [disabled]="!formularioValido || carregando()"
+            (click)="analisar()"
+          >
+            {{ carregando() ? 'Analisando com Stockfish e Gemini...' : 'Explicar Posição' }}
+          </button>
+        } @else {
+          <!-- PAINEL DE RESULTADOS -->
+          <div class="flex flex-col gap-6">
+            <!-- Header da Posição Analisada -->
+            <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5">
+              <div class="mb-4 flex flex-wrap items-center gap-3">
+                <span
+                  class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
+                  [class]="corBadgeVencedor(resultado()!.avaliacao.lado_vencedor)"
+                >
+                  Vencedor: {{ resultado()!.avaliacao.lado_vencedor }}
+                </span>
+                <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#dea34c]">
+                  {{ resultado()!.avaliacao.descricao }}
+                </span>
+                <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#b9c7c8]">
+                  Vez: {{ resultado()!.lado_a_jogar }}
+                </span>
+                <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#8fd6a6]">
+                  Win%: {{ resultado()!.avaliacao.win_percent }}%
+                </span>
+              </div>
+              <p class="font-mono text-xs text-[#8fa5a7] break-all">
+                <span class="text-[#dea34c]">FEN:</span> {{ resultado()!.fen }}
+              </p>
+            </div>
+
+            <!-- AS 4 SEÇÕES DIDÁTICAS CONCEITUAIS + RESUMO -->
+            <div class="grid gap-5 sm:grid-cols-2">
+              <!-- Veredito Claro -->
+              <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5">
+                <div class="mb-2 flex items-center gap-2">
+                  <span class="text-lg">🏆</span>
+                  <h3 class="text-xs font-semibold uppercase tracking-[0.18em] text-[#dea34c]">
+                    Veredito Claro
+                  </h3>
+                </div>
+                <p class="text-sm leading-6 text-[#d7dede]">
+                  {{ resultado()!.explicacao.veredito }}
+                </p>
+              </div>
+
+              <!-- Ameaça Concreta -->
+              <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5">
+                <div class="mb-2 flex items-center gap-2">
+                  <span class="text-lg">⚡</span>
+                  <h3 class="text-xs font-semibold uppercase tracking-[0.18em] text-[#e79a90]">
+                    Ameaça Concreta
+                  </h3>
+                </div>
+                <p class="text-sm leading-6 text-[#d7dede]">
+                  {{ resultado()!.explicacao.ameaca_concreta }}
+                </p>
+              </div>
+
+              <!-- O que parece bom mas falha -->
+              <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5">
+                <div class="mb-2 flex items-center gap-2">
+                  <span class="text-lg">🛡️</span>
+                  <h3 class="text-xs font-semibold uppercase tracking-[0.18em] text-[#e8cf7a]">
+                    O Que Parece Bom, Mas Falha
+                  </h3>
+                </div>
+                <p class="text-sm leading-6 text-[#d7dede]">
+                  {{ resultado()!.explicacao.o_que_parece_bom_mas_falha }}
+                </p>
+              </div>
+
+              <!-- Plano de Conversão -->
+              <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5">
+                <div class="mb-2 flex items-center gap-2">
+                  <span class="text-lg">🎯</span>
+                  <h3 class="text-xs font-semibold uppercase tracking-[0.18em] text-[#8fd6a6]">
+                    Plano de Conversão
+                  </h3>
+                </div>
+                <p class="text-sm leading-6 text-[#d7dede]">
+                  {{ resultado()!.explicacao.plano_conversao }}
+                </p>
+              </div>
+            </div>
+
+            <!-- Resumo Didático em Destaque -->
+            <div class="rounded-lg border border-[#3a4d33] bg-[#141d13] p-5 sm:p-6">
+              <div class="mb-2 flex items-center gap-2">
+                <span class="text-lg">💡</span>
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#8fbf6f]">
+                  Síntese Didática
+                </p>
+              </div>
+              <p class="text-base leading-7 text-[#f4f0e6]">
+                {{ resultado()!.explicacao.resumo_didatico }}
+              </p>
+            </div>
+
+            <!-- Refutação da Melhor Defesa -->
+            @if (resultado()!.refutacao_defesa) {
+              <div class="rounded-lg border border-[#7a3a34] bg-[#221715] p-5">
+                <h3 class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#e79a90]">
+                  Refutação da Defesa
+                </h3>
+                <p class="mb-3 text-sm leading-6 text-[#d7dede]">
+                  {{ resultado()!.refutacao_defesa!.detalhes }}
+                </p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs text-[#8fa5a7]">Sequência crítica:</span>
+                  @for (lance of resultado()!.refutacao_defesa!.refutacao_linha; track $index) {
+                    <span class="rounded bg-[#10191d] px-2.5 py-1 font-mono text-xs font-semibold text-[#dea34c]">
+                      {{ lance }}
+                    </span>
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- Linhas Táticas do Motor (Stockfish) -->
+            @if (resultado()!.linhas_taticas.length > 0) {
+              <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5">
+                <h3 class="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+                  Melhores Linhas do Motor (Stockfish)
+                </h3>
+                <div class="flex flex-col gap-3">
+                  @for (linha of resultado()!.linhas_taticas; track $index) {
+                    <div class="flex flex-col gap-2 rounded border border-[#40565c] bg-[#162126] p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div class="flex items-center gap-3">
+                        <span class="rounded bg-[#10191d] px-2.5 py-1 font-mono text-xs font-bold text-[#dea34c]">
+                          {{ linha.lance }}
+                        </span>
+                        <span class="text-xs font-semibold text-[#8fa5a7]">
+                          {{ linha.avaliacao }}
+                        </span>
+                      </div>
+                      <div class="flex flex-wrap gap-1.5 font-mono text-xs text-[#b9c7c8]">
+                        @for (pvm of linha.pv_san; track $index) {
+                          <span>{{ pvm }}</span>
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- Elementos Posicionais (python-chess) -->
+            <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5">
+              <h3 class="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+                Inspeção de Elementos Posicionais (python-chess)
+              </h3>
+              <div class="grid gap-4 text-xs text-[#b9c7c8] sm:grid-cols-2">
+                <!-- Balanço de Material -->
+                <div class="rounded border border-[#40565c] bg-[#162126] p-3">
+                  <p class="mb-1 font-semibold text-[#dea34c]">Balanço de Material</p>
+                  <p>{{ resultado()!.elementos_posicionais.material.descricao }}</p>
+                  <p class="mt-1 text-[#8fa5a7]">
+                    Brancas: {{ resultado()!.elementos_posicionais.material.pontos_brancas }} pts |
+                    Pretas: {{ resultado()!.elementos_posicionais.material.pontos_pretas }} pts
+                  </p>
+                </div>
+
+                <!-- Segurança do Rei -->
+                <div class="rounded border border-[#40565c] bg-[#162126] p-3">
+                  <p class="mb-1 font-semibold text-[#dea34c]">Segurança dos Reis</p>
+                  <p>Brancas: {{ resultado()!.elementos_posicionais.seguranca_rei.BRANCAS?.resumo }}</p>
+                  <p>Pretas: {{ resultado()!.elementos_posicionais.seguranca_rei.PRETAS?.resumo }}</p>
+                </div>
+
+                <!-- Peças Cravadas -->
+                <div class="rounded border border-[#40565c] bg-[#162126] p-3">
+                  <p class="mb-1 font-semibold text-[#dea34c]">Peças Cravadas</p>
+                  @if (resultado()!.elementos_posicionais.pecas_cravadas.BRANCAS.length === 0 && resultado()!.elementos_posicionais.pecas_cravadas.PRETAS.length === 0) {
+                    <p class="text-[#8fa5a7]">Nenhuma peça cravada ao rei.</p>
+                  } @else {
+                    @for (c of resultado()!.elementos_posicionais.pecas_cravadas.BRANCAS; track $index) {
+                      <p>⚪ {{ c }}</p>
+                    }
+                    @for (c of resultado()!.elementos_posicionais.pecas_cravadas.PRETAS; track $index) {
+                      <p>⚫ {{ c }}</p>
+                    }
+                  }
+                </div>
+
+                <!-- Peças Indefesas / Atacadas -->
+                <div class="rounded border border-[#40565c] bg-[#162126] p-3">
+                  <p class="mb-1 font-semibold text-[#dea34c]">Peças Indefesas / Atacadas</p>
+                  @if (resultado()!.elementos_posicionais.pecas_indefesas.BRANCAS.length === 0 && resultado()!.elementos_posicionais.pecas_indefesas.PRETAS.length === 0) {
+                    <p class="text-[#8fa5a7]">Todas as peças devidamente coordenadas.</p>
+                  } @else {
+                    @for (ind of resultado()!.elementos_posicionais.pecas_indefesas.BRANCAS; track $index) {
+                      <p>⚪ {{ ind }}</p>
+                    }
+                    @for (ind of resultado()!.elementos_posicionais.pecas_indefesas.PRETAS; track $index) {
+                      <p>⚫ {{ ind }}</p>
+                    }
+                  }
+                </div>
+              </div>
+            </div>
+
+            <!-- Botão para Nova Análise -->
+            <div class="mt-4 flex">
+              <button
+                type="button"
+                class="inline-flex min-h-10 items-center justify-center rounded-md border border-[#40565c] px-5 py-2 text-sm font-semibold text-[#b9c7c8] transition-colors hover:border-[#dea34c] hover:text-[#f4f0e6]"
+                (click)="novaAnalise()"
+              >
+                Analisar outra posição
+              </button>
+            </div>
+          </div>
+        }
+      </section>
+    }
+  </section>
+</main>
+
