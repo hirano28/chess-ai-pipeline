@@ -4,4 +4,5 @@ backend/logs/
 backend/rag/livros_pdf/
 backend/rag/.ocr_cache/
 node_modules/
+frontend/
 .env

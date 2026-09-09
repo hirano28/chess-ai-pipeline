@@ -11,12 +11,13 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import chess
 import google.genai as genai
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from stockfish import Stockfish
@@ -36,6 +37,7 @@ from backend.agentes.revisar_pensamento import (  # noqa: E402
     carregar_passos_guia,
     load_settings,
 )
+from backend.common.progress import log_and_print  # noqa: E402
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
 
 DEFAULT_ALLOWED_ORIGINS = (
@@ -116,6 +118,54 @@ class SalvarAvulsoRequest(BaseModel):
     texto_pensamento: str
 
 
+def _parse_api_keys(raw: str) -> dict[str, str]:
+    """Converte "nome1:chave1,nome2:chave2" em {chave: nome}.
+
+    O "nome" é só um rótulo para identificar quem fez a requisição nos logs -
+    não precisa ser secreto.
+    """
+
+    api_keys: dict[str, str] = {}
+    for entrada in raw.split(","):
+        entrada = entrada.strip()
+        if not entrada:
+            continue
+        nome, separador, chave = entrada.partition(":")
+        nome = nome.strip()
+        chave = chave.strip()
+        if not separador or not nome or not chave:
+            raise RuntimeError(
+                f"Entrada inválida em API_SECRET_KEYS: {entrada!r} "
+                '(formato esperado "nome:chave").'
+            )
+        api_keys[chave] = nome
+    return api_keys
+
+
+def _resolver_api_keys() -> dict[str, str]:
+    """Lê API_SECRET_KEYS do ambiente, com fallback para API_SECRET_KEY (singular).
+
+    Se API_SECRET_KEYS não estiver definida mas a variável antiga API_SECRET_KEY
+    estiver, ela é tratada como uma única entrada "eu:valor" - mantendo
+    configurações existentes funcionando sem migração manual.
+    """
+
+    api_secret_keys_raw = os.getenv("API_SECRET_KEYS")
+    if api_secret_keys_raw:
+        api_keys = _parse_api_keys(api_secret_keys_raw)
+    else:
+        api_secret_key_legado = os.getenv("API_SECRET_KEY")
+        api_keys = {api_secret_key_legado: "eu"} if api_secret_key_legado else {}
+
+    if not api_keys:
+        raise RuntimeError(
+            "Variável de ambiente API_SECRET_KEYS (formato "
+            '"nome1:chave1,nome2:chave2") ou, para compatibilidade, API_SECRET_KEY, '
+            "é obrigatória para subir o servidor."
+        )
+    return api_keys
+
+
 @app.on_event("startup")
 def iniciar_recursos() -> None:
     """Inicializa Stockfish, Gemini e Supabase uma única vez para todo o servidor."""
@@ -135,12 +185,7 @@ def iniciar_recursos() -> None:
     # Serializa o acesso ao engine compartilhado entre requisições concorrentes.
     _state["engine_lock"] = threading.Lock()
 
-    api_secret_key = os.getenv("API_SECRET_KEY")
-    if not api_secret_key:
-        raise RuntimeError(
-            "Variável de ambiente API_SECRET_KEY é obrigatória para subir o servidor."
-        )
-    _state["api_secret_key"] = api_secret_key
+    _state["api_keys"] = _resolver_api_keys()
 
 
 @app.on_event("shutdown")
@@ -155,16 +200,32 @@ def encerrar_recursos() -> None:
             pass
 
 
-def verificar_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+def verificar_api_key(
+    request: Request, x_api_key: str | None = Header(default=None, alias="X-API-Key")
+) -> str:
     """Valida X-API-Key ANTES de qualquer rota executar (Stockfish/Gemini/Supabase).
 
     Como dependency do FastAPI, roda antes do corpo da função da rota, garantindo
     que requisições não autorizadas não consomem tempo de engine nem cota de API.
+    Aceita qualquer chave presente em api_keys; guarda o nome correspondente em
+    request.state e registra um log simples de quem fez a requisição autorizada.
     """
 
-    api_secret_key = _state.get("api_secret_key")
-    if not api_secret_key or x_api_key != api_secret_key:
+    api_keys: dict[str, str] = _state.get("api_keys", {})
+    nome = api_keys.get(x_api_key) if x_api_key else None
+    if nome is None:
         raise HTTPException(status_code=401, detail="Chave de API ausente ou inválida.")
+
+    request.state.api_key_nome = nome
+    timestamp = datetime.now(timezone.utc).isoformat()
+    mensagem = f"Requisição autorizada para '{nome}' em {timestamp}"
+    logger = _state.get("logger")
+    if logger is not None:
+        log_and_print(logger, mensagem)
+    else:
+        print(mensagem)
+
+    return nome
 
 
 @app.post(

@@ -1,0 +1,119 @@
+name: Deploy Backend Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docs/GUIA_GUESS_THE_MOVE.md"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+env:
+  GCP_PROJECT_ID: "gen-lang-client-0828609060"
+  GCP_REGION: "us-east1"
+  SERVICE_NAME: "laboratorio-xadrez"
+  IMAGE_NAME: "us-east1-docker.pkg.dev/gen-lang-client-0828609060/cloud-run-source-deploy/laboratorio-xadrez"
+
+jobs:
+  test-and-deploy:
+    name: Testar e Deployar no Cloud Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Instalar dependencias Python
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Instalar Stockfish para testes
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends stockfish
+
+      - name: Executar testes unitarios do backend
+        run: |
+          python -m unittest \
+            backend.agentes.test_agente1_linter \
+            backend.agentes.test_agente3_prescritor \
+            backend.agentes.test_gerar_perguntas_pendentes \
+            backend.agentes.test_revisar_exercicio_avulso \
+            backend.agentes.test_revisar_pensamento \
+            backend.analise_engine.test_analisar_partidas \
+            backend.api.test_api_server \
+            backend.common.test_chess_math
+
+      - name: Autenticar no Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configurar Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Autenticar Docker no Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: us-east1-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build e Push da imagem Docker
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy da nova revisao no Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --quiet
+
+      - name: Validar saude da aplicacao (Health Check)
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region "${{ env.GCP_REGION }}" --format="value(status.url)")
+          echo "Testando endpoint de saude: $SERVICE_URL/health"
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health")
+          if [ "$STATUS_CODE" -ne 200 ]; then
+            echo "Health check falhou com status code: $STATUS_CODE" >&2
+            exit 1
+          fi
+          echo "Deploy realizado com sucesso! Servico ativo em: $SERVICE_URL"
+          echo "SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
+
+      - name: Registrar resultado no resumo do job
+        if: always()
+        run: |
+          {
+            echo "## Resultado do Deploy do Backend"
+            echo
+            echo "- **Status:** ${{ job.status }}"
+            echo "- **Commit:** \`${{ github.sha }}\`"
+            echo "- **Imagem:** \`${{ env.IMAGE_NAME }}:${{ github.sha }}\`"
+            if [ -n "$SERVICE_URL" ]; then
+              echo "- **URL do Servico:** $SERVICE_URL"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
