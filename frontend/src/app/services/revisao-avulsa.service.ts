@@ -130,6 +130,40 @@ export interface ExplicarPosicaoResult {
   chaveInvalida?: boolean;
 }
 
+export interface PontoCriticoPartida {
+  numero_lance: number;
+  tipo_evento: string;
+  tags_falha: string[];
+}
+
+export interface ResumoPartidaData {
+  narrativa: string;
+  pontos_criticos: PontoCriticoPartida[];
+  momento_chave_estrategico: string | null;
+}
+
+export interface StatusPartidaResponse {
+  partida_id: string;
+  external_id?: string | null;
+  status: 'pendente' | 'processando' | 'concluido' | 'falhou';
+  resumo: ResumoPartidaData | null;
+}
+
+export interface SubmeterPartidaResult {
+  success: boolean;
+  partidaId?: string;
+  externalId?: string;
+  error?: string;
+  chaveInvalida?: boolean;
+}
+
+export interface ConsultarStatusPartidaResult {
+  success: boolean;
+  dados?: StatusPartidaResponse;
+  error?: string;
+  chaveInvalida?: boolean;
+}
+
 const MENSAGEM_SERVIDOR_OFFLINE =
   'Não foi possível conectar ao servidor local. Confirme que ele está rodando ' +
   '(uvicorn backend.api.api_server:app --port 8000).';
@@ -181,6 +215,56 @@ export class RevisaoAvulsaService {
         )
       );
       return { success: true, resultado };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        this.authLocalService.clearKey();
+        return { success: false, error: MENSAGEM_CHAVE_INVALIDA, chaveInvalida: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  async submeterPartidaPgn(
+    pgn: string,
+    cor?: string | null
+  ): Promise<SubmeterPartidaResult> {
+    try {
+      const payload: { pgn: string; cor?: string | null } = { pgn };
+      if (cor && cor.trim() && cor !== 'AUTO') {
+        payload.cor = cor.trim();
+      }
+      const resposta = await firstValueFrom(
+        this.http.post<{ partida_id: string; external_id: string }>(
+          `${environment.apiLocalUrl}/analisar-pgn`,
+          payload,
+          { headers: this.headersComChave() }
+        )
+      );
+      return {
+        success: true,
+        partidaId: resposta.partida_id,
+        externalId: resposta.external_id
+      };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        this.authLocalService.clearKey();
+        return { success: false, error: MENSAGEM_CHAVE_INVALIDA, chaveInvalida: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  async consultarStatusPartida(
+    partidaId: string
+  ): Promise<ConsultarStatusPartidaResult> {
+    try {
+      const dados = await firstValueFrom(
+        this.http.get<StatusPartidaResponse>(
+          `${environment.apiLocalUrl}/partidas/${partidaId}/resumo`,
+          { headers: this.headersComChave() }
+        )
+      );
+      return { success: true, dados };
     } catch (cause: unknown) {
       if (this.isUnauthorized(cause)) {
         this.authLocalService.clearKey();

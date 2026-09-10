@@ -500,6 +500,75 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
 
         mock_update.assert_called_with(mock_client, "partida_falha", "falhou")
 
+    def test_obter_resumo_sem_api_key_recebe_401(self) -> None:
+        resposta = self.client.get("/partidas/partida_123/resumo")
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_obter_resumo_partida_inexistente_recebe_404(self) -> None:
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = []
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/partidas/partida_inexistente/resumo",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 404)
+        self.assertIn("não encontrada", resposta.json()["detail"])
+
+    def test_obter_resumo_partida_processando_retorna_resumo_nulo(self) -> None:
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [{"id": "p1", "external_id": "ext1", "status_processamento": "processando"}]
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/partidas/p1/resumo",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 200)
+        dados = resposta.json()
+        self.assertEqual(dados["partida_id"], "p1")
+        self.assertEqual(dados["status"], "processando")
+        self.assertIsNone(dados["resumo"])
+
+    def test_obter_resumo_partida_concluida_retorna_resumo_completo(self) -> None:
+        mock_client = MagicMock()
+
+        def table_side_effect(table_name: str):
+            mock_table = MagicMock()
+            if table_name == "partidas":
+                resp = MagicMock()
+                resp.data = [{"id": "p2", "external_id": "ext2", "status_processamento": "concluido"}]
+                mock_table.select.return_value.eq.return_value.execute.return_value = resp
+            elif table_name == "resumo_partida":
+                resp = MagicMock()
+                resp.data = [{
+                    "narrativa": "A partida começou com uma Siciliana...",
+                    "pontos_criticos": [{"numero_lance": 15, "tipo_evento": "PICO", "tags_falha": ["perda_de_material"]}],
+                    "momento_chave_estrategico": "Lance 15 foi decisivo."
+                }]
+                mock_table.select.return_value.eq.return_value.execute.return_value = resp
+            return mock_table
+
+        mock_client.table.side_effect = table_side_effect
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/partidas/p2/resumo",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 200)
+        dados = resposta.json()
+        self.assertEqual(dados["partida_id"], "p2")
+        self.assertEqual(dados["status"], "concluido")
+        self.assertIsNotNone(dados["resumo"])
+        self.assertIn("Siciliana", dados["resumo"]["narrativa"])
+        self.assertEqual(len(dados["resumo"]["pontos_criticos"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

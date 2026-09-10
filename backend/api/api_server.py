@@ -196,6 +196,15 @@ class AnalisarPgnResponse(BaseModel):
     external_id: str
 
 
+class ResumoPartidaResponse(BaseModel):
+    """Resposta com o status do processamento e os dados da narrativa se concluído."""
+
+    partida_id: str
+    external_id: str | None = None
+    status: str
+    resumo: dict[str, Any] | None = None
+
+
 def _parse_api_keys(raw: str) -> dict[str, str]:
     """Converte "nome1:chave1,nome2:chave2" em {chave: nome}.
 
@@ -474,6 +483,58 @@ def analisar_pgn_endpoint(
     background_tasks.add_task(_executar_analise_pgn_background, partida_id)
 
     return AnalisarPgnResponse(partida_id=partida_id, external_id=external_id)
+
+
+@app.get(
+    "/partidas/{partida_id}/resumo",
+    response_model=ResumoPartidaResponse,
+    dependencies=[Depends(verificar_api_key)],
+)
+def obter_resumo_partida_endpoint(partida_id: str) -> ResumoPartidaResponse:
+    """Retorna o status atual de processamento e a narrativa da partida se disponível."""
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resp_partida = (
+            client.table("partidas")
+            .select("id, external_id, status_processamento")
+            .eq("id", partida_id)
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar partida: {error}"
+        ) from error
+
+    if not resp_partida.data:
+        raise HTTPException(status_code=404, detail="Partida não encontrada.")
+
+    row_partida = resp_partida.data[0]
+    status_proc = row_partida.get("status_processamento", "pendente")
+    external_id = row_partida.get("external_id")
+
+    resumo_dados: dict[str, Any] | None = None
+    if status_proc == "concluido":
+        try:
+            resp_resumo = (
+                client.table("resumo_partida")
+                .select("narrativa, pontos_criticos, momento_chave_estrategico")
+                .eq("partida_id", partida_id)
+                .execute()
+            )
+            if resp_resumo.data:
+                resumo_dados = resp_resumo.data[0]
+        except Exception:
+            pass
+
+    return ResumoPartidaResponse(
+        partida_id=partida_id,
+        external_id=external_id,
+        status=status_proc,
+        resumo=resumo_dados,
+    )
 
 
 @app.get("/guia-passos")

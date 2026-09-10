@@ -1,0 +1,338 @@
+<div class="mx-auto max-w-5xl space-y-8 px-4 py-8 text-[#f4f0e6]">
+
+  <!-- Configuração da Chave de API (se ausente) -->
+  <section
+    *ngIf="!chaveConfigurada()"
+    class="rounded-xl border border-[#dea34c]/40 bg-[#1e2722] p-6 shadow-lg shadow-black/20"
+  >
+    <div class="flex items-start gap-4">
+      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#dea34c]/10 text-xl text-[#dea34c]">
+        🔑
+      </div>
+      <div class="flex-1">
+        <h2 class="text-lg font-semibold text-[#f4f0e6]">Chave de API Necessária</h2>
+        <p class="mt-1 text-sm text-[#b9c7c8]">
+          Para analisar partidas completas com Stockfish e Gemini, configure sua chave de acesso.
+        </p>
+        <div class="mt-4 flex flex-col gap-3 sm:flex-row">
+          <input
+            type="password"
+            placeholder="Cole sua chave aqui..."
+            [value]="chaveInput()"
+            (input)="chaveInput.set($any($event.target).value)"
+            class="flex-1 rounded-lg border border-[#304247] bg-[#10191d] px-4 py-2 text-sm text-[#f4f0e6] placeholder-[#53686e] focus:border-[#dea34c] focus:outline-none"
+          />
+          <button
+            type="button"
+            (click)="salvarChave()"
+            [disabled]="!chaveFormularioValido"
+            class="rounded-lg bg-[#dea34c] px-6 py-2 text-sm font-semibold text-[#10191d] transition-colors hover:bg-[#dea34c]/90 disabled:opacity-40"
+          >
+            Salvar Chave
+          </button>
+        </div>
+        <p *ngIf="erroChave()" class="mt-2 text-xs font-medium text-[#e79a90]">
+          {{ erroChave() }}
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Cabeçalho Principal -->
+  <header class="border-b border-[#304247] pb-6">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-3">
+          <span class="rounded bg-[#dea34c]/10 px-2.5 py-1 text-xs font-semibold text-[#dea34c]">
+            PIPELINE COMPLETA
+          </span>
+          <span class="text-xs text-[#7b8f95]">Stockfish + Gemini</span>
+        </div>
+        <h1 class="mt-2 text-2xl font-bold tracking-tight text-[#f4f0e6] sm:text-3xl">
+          Analisador de Partida
+        </h1>
+        <p class="mt-1 text-sm text-[#b9c7c8]">
+          Cole o PGN de uma partida inteira para receber uma narrativa profunda com picos de erro, janelas de erosão e diagnóstico estratégico.
+        </p>
+      </div>
+
+      <button
+        *ngIf="estado() === 'CONCLUIDO' || estado() === 'FALHOU'"
+        type="button"
+        (click)="novaAnalise()"
+        class="rounded-lg border border-[#304247] bg-[#152228] px-4 py-2 text-sm font-medium text-[#f4f0e6] transition-colors hover:border-[#dea34c] hover:text-[#dea34c]"
+      >
+        + Nova Partida
+      </button>
+    </div>
+  </header>
+
+  <!-- Mensagem de Erro Geral -->
+  <div
+    *ngIf="erro() && estado() !== 'PROCESSANDO'"
+    class="rounded-lg border border-[#e79a90]/40 bg-[#331a17] p-4 text-sm text-[#e79a90]"
+  >
+    <div class="flex items-center gap-3">
+      <span>⚠️</span>
+      <span class="flex-1 font-medium">{{ erro() }}</span>
+      <button
+        type="button"
+        (click)="erro.set(null)"
+        class="text-xs opacity-70 hover:opacity-100"
+      >
+        ✕
+      </button>
+    </div>
+  </div>
+
+  <!-- ESTADO: Formulário de Entrada (INICIAL / ENVIANDO) -->
+  <section *ngIf="estado() === 'INICIAL' || estado() === 'ENVIANDO'" class="space-y-6">
+    <div class="rounded-xl border border-[#304247] bg-[#152228] p-6 shadow-sm">
+      <div class="flex items-center justify-between pb-3">
+        <label for="pgnInput" class="text-sm font-semibold text-[#f4f0e6]">
+          PGN da Partida
+        </label>
+        <button
+          type="button"
+          (click)="carregarExemplo()"
+          class="text-xs text-[#dea34c] underline hover:text-[#dea34c]/80"
+        >
+          Carregar partida de exemplo
+        </button>
+      </div>
+
+      <textarea
+        id="pgnInput"
+        rows="9"
+        placeholder="Cole aqui o PGN completo com cabeçalhos e lances (ex: 1. e4 c5 2. Nf3 d6...)"
+        [value]="pgn()"
+        (input)="pgn.set($any($event.target).value)"
+        class="w-full rounded-lg border border-[#304247] bg-[#10191d] p-3.5 font-mono text-xs text-[#f4f0e6] placeholder-[#53686e] focus:border-[#dea34c] focus:outline-none"
+      ></textarea>
+
+      <!-- Seleção de Cor e Botão de Ação -->
+      <div class="mt-6 flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <span class="text-xs font-medium text-[#7b8f95]">Você jogou de:</span>
+          <div class="mt-1.5 flex gap-2">
+            <button
+              type="button"
+              (click)="cor.set('AUTO')"
+              [class]="
+                cor() === 'AUTO'
+                  ? 'border-[#dea34c] bg-[#dea34c]/10 text-[#dea34c]'
+                  : 'border-[#304247] bg-[#10191d] text-[#b9c7c8]'
+              "
+              class="rounded-md border px-3 py-1.5 text-xs font-medium transition-colors"
+            >
+              Automático (detectar)
+            </button>
+            <button
+              type="button"
+              (click)="cor.set('BRANCAS')"
+              [class]="
+                cor() === 'BRANCAS'
+                  ? 'border-[#dea34c] bg-[#dea34c]/10 text-[#dea34c]'
+                  : 'border-[#304247] bg-[#10191d] text-[#b9c7c8]'
+              "
+              class="rounded-md border px-3 py-1.5 text-xs font-medium transition-colors"
+            >
+              Brancas ♔
+            </button>
+            <button
+              type="button"
+              (click)="cor.set('PRETAS')"
+              [class]="
+                cor() === 'PRETAS'
+                  ? 'border-[#dea34c] bg-[#dea34c]/10 text-[#dea34c]'
+                  : 'border-[#304247] bg-[#10191d] text-[#b9c7c8]'
+              "
+              class="rounded-md border px-3 py-1.5 text-xs font-medium transition-colors"
+            >
+              Pretas ♚
+            </button>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          (click)="analisar()"
+          [disabled]="!formularioValido || estado() === 'ENVIANDO'"
+          class="flex items-center justify-center gap-2 rounded-lg bg-[#dea34c] px-6 py-2.5 text-sm font-semibold text-[#10191d] transition-colors hover:bg-[#dea34c]/90 disabled:opacity-40"
+        >
+          <span *ngIf="estado() === 'ENVIANDO'" class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#10191d] border-t-transparent"></span>
+          <span>{{ estado() === 'ENVIANDO' ? 'Iniciando Pipeline...' : 'Analisar Partida com IA' }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Guia de Como Funciona o Pipeline -->
+    <div class="grid grid-cols-1 gap-4 text-xs sm:grid-cols-3">
+      <div class="rounded-lg border border-[#304247]/60 bg-[#10191d] p-4">
+        <div class="font-semibold text-[#dea34c]">1. Stockfish Local</div>
+        <p class="mt-1 text-[#7b8f95]">
+          Avaliação posição a posição em Win% para isolar erros de pico (&gt;100cp) e janelas de erosão estratégica.
+        </p>
+      </div>
+      <div class="rounded-lg border border-[#304247]/60 bg-[#10191d] p-4">
+        <div class="font-semibold text-[#dea34c]">2. Diagnóstico Gemini</div>
+        <p class="mt-1 text-[#7b8f95]">
+          Classificação do tipo de erro em 16 categorias controladas e detecção de apuro de tempo real.
+        </p>
+      </div>
+      <div class="rounded-lg border border-[#304247]/60 bg-[#10191d] p-4">
+        <div class="font-semibold text-[#dea34c]">3. Síntese Narrativa</div>
+        <p class="mt-1 text-[#7b8f95]">
+          Geração da história completa da partida com validação anti-alucinação dos lances citados.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ESTADO: Em Processamento Assíncrono -->
+  <section
+    *ngIf="estado() === 'PROCESSANDO'"
+    class="rounded-xl border border-[#304247] bg-[#152228] p-8 text-center shadow-lg"
+  >
+    <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#dea34c]/10 text-2xl text-[#dea34c]">
+      <span class="animate-pulse">♟️</span>
+    </div>
+
+    <h2 class="mt-4 text-xl font-bold text-[#f4f0e6]">
+      Análise Profunda em Andamento
+    </h2>
+
+    <p class="mx-auto mt-2 max-w-md text-sm text-[#b9c7c8]">
+      O motor Stockfish está calculando os momentos críticos e o Gemini sintetizará o diagnóstico narrativo.
+    </p>
+
+    <!-- Tempo decorrido -->
+    <div class="mt-4 inline-flex items-center gap-2 rounded-full border border-[#304247] bg-[#10191d] px-4 py-1 text-xs text-[#dea34c]">
+      <span class="h-2 w-2 animate-ping rounded-full bg-[#dea34c]"></span>
+      <span>Tempo decorrido: {{ formatarTempo(segundosProcessamento()) }}</span>
+    </div>
+
+    <!-- Etapas Ilustradas -->
+    <div class="mx-auto mt-8 max-w-lg space-y-3 text-left text-xs">
+      <div class="flex items-center gap-3 rounded-lg border border-[#304247] bg-[#10191d] p-3 text-[#f4f0e6]">
+        <span class="text-base">⏳</span>
+        <div class="flex-1">
+          <div class="font-semibold text-[#dea34c]">Stockfish & Detecção de Lances Críticos</div>
+          <div class="text-[11px] text-[#7b8f95]">Avaliando posições, picos táticos e erosão posicional</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 rounded-lg border border-[#304247] bg-[#10191d] p-3 text-[#f4f0e6]">
+        <span class="text-base">🔍</span>
+        <div class="flex-1">
+          <div class="font-semibold text-[#b9c7c8]">Diagnósticos de Causa Raiz</div>
+          <div class="text-[11px] text-[#7b8f95]">Classificando tags_falha e tipo de erro (Processo vs Conteúdo)</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 rounded-lg border border-[#304247] bg-[#10191d] p-3 text-[#f4f0e6]">
+        <span class="text-base">📝</span>
+        <div class="flex-1">
+          <div class="font-semibold text-[#b9c7c8]">Síntese Narrativa & Anti-alucinação</div>
+          <div class="text-[11px] text-[#7b8f95]">Construindo a história da partida e o momento-chave</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="mt-6 text-xs text-[#7b8f95]">
+      A análise completa leva cerca de 1 a 2 minutos. Esta página atualiza automaticamente quando terminar.
+    </p>
+  </section>
+
+  <!-- ESTADO: Concluído -->
+  <section *ngIf="estado() === 'CONCLUIDO' && resumo()" class="space-y-6">
+
+    <!-- Card Destaque: Momento-Chave Estratégico -->
+    <div
+      *ngIf="resumo()?.momento_chave_estrategico"
+      class="rounded-xl border border-[#dea34c]/50 bg-gradient-to-r from-[#2a2415] to-[#1a1f1d] p-6 shadow-md"
+    >
+      <div class="flex items-start gap-3">
+        <span class="text-2xl">🔑</span>
+        <div>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-[#dea34c]">
+            Momento-Chave Estratégico
+          </h3>
+          <p class="mt-1.5 text-base font-medium leading-relaxed text-[#f4f0e6]">
+            {{ resumo()?.momento_chave_estrategico }}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Narrativa da Partida -->
+    <div class="rounded-xl border border-[#304247] bg-[#152228] p-6 shadow-sm sm:p-8">
+      <div class="mb-4 flex items-center justify-between border-b border-[#304247] pb-4">
+        <h2 class="text-lg font-bold text-[#f4f0e6]">
+          História da Partida
+        </h2>
+        <span class="text-xs text-[#7b8f95]">Síntese Gemini</span>
+      </div>
+
+      <div class="prose prose-invert max-w-none space-y-4 text-sm leading-relaxed text-[#dbe6e7]">
+        <p
+          *ngFor="let paragrafo of resumo()?.narrativa?.split('\n\n')"
+          class="text-justify"
+        >
+          {{ paragrafo }}
+        </p>
+      </div>
+    </div>
+
+    <!-- Pontos Críticos -->
+    <div *ngIf="resumo()?.pontos_criticos && (resumo()?.pontos_criticos)!.length > 0" class="space-y-4">
+      <h3 class="text-base font-bold text-[#f4f0e6]">
+        Pontos Críticos Identificados ({{ (resumo()?.pontos_criticos)!.length }})
+      </h3>
+
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          *ngFor="let pc of resumo()?.pontos_criticos"
+          class="rounded-lg border border-[#304247] bg-[#10191d] p-4 transition-colors hover:border-[#dea34c]/40"
+        >
+          <div class="flex items-center justify-between">
+            <span
+              [class]="
+                pc.tipo_evento === 'PICO'
+                  ? 'border-[#7a3a34] bg-[#331a17] text-[#e79a90]'
+                  : 'border-[#7a6a2a] bg-[#332c14] text-[#e8cf7a]'
+              "
+              class="rounded border px-2 py-0.5 text-[10px] font-bold uppercase"
+            >
+              {{ pc.tipo_evento === 'PICO' ? '💥 Pico de Erro' : '📉 Janela de Erosão' }}
+            </span>
+            <span class="font-mono text-xs text-[#7b8f95]">
+              Lance {{ pc.numero_lance }}
+            </span>
+          </div>
+
+          <div class="mt-3 flex flex-wrap gap-1.5">
+            <span
+              *ngFor="let tag of pc.tags_falha"
+              class="rounded bg-[#1a2b32] px-2 py-0.5 text-[11px] font-medium text-[#b9c7c8]"
+            >
+              {{ formatarTag(tag) }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ações Finais -->
+    <div class="flex justify-center pt-4">
+      <button
+        type="button"
+        (click)="novaAnalise()"
+        class="rounded-lg bg-[#dea34c] px-6 py-2.5 text-sm font-semibold text-[#10191d] transition-colors hover:bg-[#dea34c]/90"
+      >
+        Analisar Outra Partida
+      </button>
+    </div>
+
+  </section>
+
+</div>
+

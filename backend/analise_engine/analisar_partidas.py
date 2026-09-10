@@ -461,8 +461,13 @@ def processar_partida_com_timeout(
 ) -> ProcessResult:
     """Analisa uma partida com limites independentes de init e execução."""
 
-    result_queue: multiprocessing.Queue = multiprocessing.Queue()
-    process = multiprocessing.get_context("spawn").Process(
+    # Process e Queue precisam vir do MESMO contexto explícito: misturar o
+    # multiprocessing.Queue() padrão (fork, no Linux) com um Process "spawn"
+    # gera "SemLock created in a fork context is being shared with a process
+    # in a spawn context" quando chamado de dentro do event loop do Uvicorn.
+    ctx = multiprocessing.get_context("spawn")
+    result_queue: multiprocessing.Queue = ctx.Queue()
+    process = ctx.Process(
         target=_processar_partida_em_processo,
         args=(partida, settings.stockfish_path, settings.stockfish_depth, result_queue),
     )
