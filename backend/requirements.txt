@@ -14,3 +14,4 @@ pdf2image
 Pillow
 fastapi
 uvicorn
+python-multipart

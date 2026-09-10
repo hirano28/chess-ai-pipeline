@@ -18,8 +18,18 @@ from typing import Any
 
 import chess
 import google.genai as genai
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
+from google.genai import types
 from pydantic import BaseModel, Field
 from stockfish import Stockfish
 
@@ -62,6 +72,22 @@ from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E40
 DEFAULT_ALLOWED_ORIGINS = (
     "http://localhost:4200",
     "https://chess-ai-pipeline.vercel.app",
+)
+
+RECONHECER_POSICAO_MODEL = "gemini-flash-latest"
+RECONHECER_POSICAO_MAX_BYTES = 10 * 1024 * 1024  # 10MB
+RECONHECER_POSICAO_CONTENT_TYPES = {"image/jpeg", "image/jpg", "image/png"}
+RECONHECER_POSICAO_PROMPT = (
+    "Esta é uma foto de um diagrama de posição de xadrez, possivelmente de um "
+    "livro impresso. Identifique a posição exata das peças e retorne APENAS o "
+    "FEN correspondente (Forsyth-Edwards Notation), sem nenhum texto adicional. "
+    "Se não conseguir identificar quem joga (brancas ou pretas), assuma que é o "
+    "lado indicado por qualquer seta ou anotação visual no diagrama; se não "
+    "houver indicação, assuma brancas a jogar."
+)
+RECONHECER_POSICAO_ERRO_FEN_INVALIDO = (
+    "Não foi possível reconhecer uma posição válida nesta imagem. Tente uma "
+    "foto mais nítida, bem enquadrada, ou digite o FEN manualmente."
 )
 ALLOWED_ORIGINS = [
     origin.strip()
@@ -206,6 +232,12 @@ class ResumoPartidaResponse(BaseModel):
     resumo: dict[str, Any] | None = None
 
 
+class ReconhecerPosicaoResponse(BaseModel):
+    """Resposta com o FEN reconhecido a partir da foto de um diagrama."""
+
+    fen: str
+
+
 class PartidaRecenteItem(BaseModel):
     """Item resumido do histórico de análises de partidas."""
 
@@ -229,6 +261,17 @@ def extrair_jogadores_pgn(pgn_text: str | None) -> str:
     w_name = w_match.group(1).strip() if w_match else "Brancas"
     b_name = b_match.group(1).strip() if b_match else "Pretas"
     return f"{w_name} vs {b_name}"
+
+
+def _limpar_fen_bruto(texto: str) -> str:
+    """Remove fences markdown e rótulos residuais que o Gemini possa incluir
+    apesar da instrução de responder só com o FEN."""
+
+    limpo = texto.strip()
+    limpo = re.sub(r"^```(?:\w+)?\s*", "", limpo)
+    limpo = re.sub(r"\s*```$", "", limpo)
+    limpo = re.sub(r"(?i)^fen\s*[:=]\s*", "", limpo.strip())
+    return limpo.strip()
 
 
 def _parse_api_keys(raw: str) -> dict[str, str]:
@@ -433,6 +476,58 @@ def explicar_posicao_endpoint(
         ) from error
 
     return ExplicarPosicaoResponse(**resultado)
+
+
+@app.post(
+    "/reconhecer-posicao",
+    response_model=ReconhecerPosicaoResponse,
+    dependencies=[Depends(verificar_api_key)],
+)
+def reconhecer_posicao_endpoint(
+    imagem: UploadFile = File(...),
+) -> ReconhecerPosicaoResponse:
+    """Reconhece uma posição de xadrez a partir de uma foto de diagrama (Gemini visão)."""
+
+    content_type = (imagem.content_type or "").lower()
+    if content_type not in RECONHECER_POSICAO_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Envie um arquivo de imagem em JPG ou PNG.",
+        )
+
+    dados = imagem.file.read()
+    if not dados:
+        raise HTTPException(status_code=400, detail="Arquivo de imagem vazio.")
+    if len(dados) > RECONHECER_POSICAO_MAX_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Imagem excede o tamanho máximo permitido de "
+                f"{RECONHECER_POSICAO_MAX_BYTES // (1024 * 1024)}MB."
+            ),
+        )
+
+    try:
+        imagem_part = types.Part.from_bytes(data=dados, mime_type=content_type)
+        response = _state["gemini_client"].models.generate_content(
+            model=RECONHECER_POSICAO_MODEL,
+            contents=[RECONHECER_POSICAO_PROMPT, imagem_part],
+        )
+        fen_bruto = response.text or ""
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar o Gemini: {error}"
+        ) from error
+
+    fen = _limpar_fen_bruto(fen_bruto)
+    try:
+        chess.Board(fen)
+    except Exception:
+        raise HTTPException(
+            status_code=422, detail=RECONHECER_POSICAO_ERRO_FEN_INVALIDO
+        )
+
+    return ReconhecerPosicaoResponse(fen=fen)
 
 
 def _executar_analise_pgn_background(partida_id: str) -> None:

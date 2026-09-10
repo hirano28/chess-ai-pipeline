@@ -367,6 +367,117 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
             self.assertIn("Servidor ocupado", resposta.json()["detail"])
 
 
+class ReconhecerPosicaoEndpointTest(unittest.TestCase):
+    """Testes do endpoint POST /reconhecer-posicao (reconhecimento via Gemini visão).
+
+    O conteúdo binário enviado como "imagem" não precisa ser um PNG/JPG real:
+    o content-type explícito no upload já é suficiente para exercitar a
+    validação, e as chamadas ao Gemini são sempre mockadas nestes testes.
+    """
+
+    IMAGEM_FAKE = b"bytes-de-imagem-fake-para-teste"
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _mock_gemini(self, texto_resposta: str) -> MagicMock:
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = texto_resposta
+        mock_client.models.generate_content.return_value = mock_response
+        return mock_client
+
+    def test_sem_api_key_recebe_401(self) -> None:
+        resposta = self.client.post(
+            "/reconhecer-posicao",
+            files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
+        )
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_arquivo_que_nao_e_imagem_recebe_400(self) -> None:
+        resposta = self.client.post(
+            "/reconhecer-posicao",
+            files={
+                "imagem": ("documento.pdf", b"%PDF-1.4 conteudo falso", "application/pdf")
+            },
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 400)
+
+    def test_arquivo_vazio_recebe_400(self) -> None:
+        resposta = self.client.post(
+            "/reconhecer-posicao",
+            files={"imagem": ("foto.png", b"", "image/png")},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 400)
+
+    def test_imagem_maior_que_limite_recebe_400(self) -> None:
+        dados_grandes = b"\x00" * (api_server.RECONHECER_POSICAO_MAX_BYTES + 1)
+        resposta = self.client.post(
+            "/reconhecer-posicao",
+            files={"imagem": ("foto.png", dados_grandes, "image/png")},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 400)
+
+    def test_fen_invalido_do_gemini_recebe_422(self) -> None:
+        api_server._state["gemini_client"] = self._mock_gemini("isso não é um FEN válido")
+
+        resposta = self.client.post(
+            "/reconhecer-posicao",
+            files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 422)
+        self.assertIn("Não foi possível reconhecer", resposta.json()["detail"])
+
+    def test_fen_valido_retorna_200(self) -> None:
+        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        api_server._state["gemini_client"] = self._mock_gemini(fen)
+
+        resposta = self.client.post(
+            "/reconhecer-posicao",
+            files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json(), {"fen": fen})
+
+    def test_fen_com_fence_markdown_e_limpo_antes_de_validar(self) -> None:
+        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        api_server._state["gemini_client"] = self._mock_gemini(f"```\n{fen}\n```")
+
+        resposta = self.client.post(
+            "/reconhecer-posicao",
+            files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["fen"], fen)
+
+    def test_falha_ao_consultar_gemini_retorna_500(self) -> None:
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = RuntimeError("indisponível")
+        api_server._state["gemini_client"] = mock_client
+
+        resposta = self.client.post(
+            "/reconhecer-posicao",
+            files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 500)
+
+
 class AnalisarPgnEndpointTest(unittest.TestCase):
     """Testes do endpoint assíncrono POST /analisar-pgn."""
 

@@ -41,6 +41,13 @@ export interface RevisarAvulsaResult {
   chaveInvalida?: boolean;
 }
 
+export interface ReconhecerPosicaoResult {
+  success: boolean;
+  fen?: string;
+  error?: string;
+  chaveInvalida?: boolean;
+}
+
 export interface SalvarAvulsaResult {
   success: boolean;
   error?: string;
@@ -208,6 +215,28 @@ export class RevisaoAvulsaService {
         )
       );
       return { success: true, resultado };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        this.authLocalService.clearKey();
+        return { success: false, error: MENSAGEM_CHAVE_INVALIDA, chaveInvalida: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  /** Envia a foto de um diagrama para reconhecimento de posição via Gemini (visão). */
+  async reconhecerPosicao(imagem: File): Promise<ReconhecerPosicaoResult> {
+    try {
+      const formData = new FormData();
+      formData.append('imagem', imagem, imagem.name);
+      const resposta = await firstValueFrom(
+        this.http.post<{ fen: string }>(
+          `${environment.apiLocalUrl}/reconhecer-posicao`,
+          formData,
+          { headers: this.headersComChave() }
+        )
+      );
+      return { success: true, fen: resposta.fen };
     } catch (cause: unknown) {
       if (this.isUnauthorized(cause)) {
         this.authLocalService.clearKey();

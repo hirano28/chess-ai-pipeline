@@ -51,6 +51,38 @@
     } @else {
     <section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8">
       <div class="mb-5">
+        <input
+          #inputImagemPosicao
+          type="file"
+          accept="image/*"
+          class="hidden"
+          [disabled]="carregando() || reconhecendoImagem()"
+          (change)="onImagemSelecionada($event)"
+        />
+        <button
+          type="button"
+          class="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[#40565c] px-4 py-2 text-sm font-semibold text-[#b9c7c8] transition-colors hover:border-[#dea34c] hover:text-[#dea34c] disabled:cursor-wait disabled:opacity-60"
+          [disabled]="carregando() || reconhecendoImagem()"
+          (click)="inputImagemPosicao.click()"
+        >
+          {{ reconhecendoImagem() ? '📷 Reconhecendo posição...' : '📷 Reconhecer posição de uma foto' }}
+        </button>
+
+        @if (erroReconhecimento()) {
+          <p class="mt-2 rounded-md border border-[#765044] bg-[#2a211f] px-4 py-3 text-xs leading-5 text-[#e7c4b3]" role="alert">
+            {{ erroReconhecimento() }}
+          </p>
+        }
+
+        @if (avisoConferirPosicao()) {
+          <p class="mt-2 flex items-start gap-2 rounded-md border border-[#7a6a2a] bg-[#332c14] px-4 py-3 text-xs font-semibold leading-5 text-[#e8cf7a]" role="alert">
+            <span aria-hidden="true">⚠️</span>
+            <span>Confira se a posição reconhecida bate com a foto antes de analisar.</span>
+          </p>
+        }
+      </div>
+
+      <div class="mb-5">
         <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
           Posição (FEN ou PGN)
         </label>
@@ -59,7 +91,7 @@
           class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm leading-6 text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
           placeholder="Ex: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1  ou  1. e4 e5 2. Nf3"
           [value]="posicao()"
-          [disabled]="carregando()"
+          [disabled]="carregando() || reconhecendoImagem()"
           (input)="posicao.set($any($event.target).value)"
         ></textarea>
       </div>

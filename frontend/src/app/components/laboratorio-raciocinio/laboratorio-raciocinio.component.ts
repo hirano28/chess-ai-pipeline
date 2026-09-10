@@ -20,6 +20,10 @@ export class LaboratorioRaciocinioComponent implements OnInit {
   readonly erro = signal<string | null>(null);
   readonly resultado = signal<ResultadoRevisaoAvulsa | null>(null);
 
+  readonly reconhecendoImagem = signal(false);
+  readonly erroReconhecimento = signal<string | null>(null);
+  readonly avisoConferirPosicao = signal(false);
+
   readonly salvando = signal(false);
   readonly salvo = signal(false);
 
@@ -78,6 +82,39 @@ export class LaboratorioRaciocinioComponent implements OnInit {
       .filter((l) => l.length > 0);
   }
 
+  /** Envia a foto de um diagrama para /reconhecer-posicao e preenche o campo posição. */
+  async onImagemSelecionada(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const arquivo = input.files?.[0];
+    if (!arquivo) {
+      return;
+    }
+
+    this.reconhecendoImagem.set(true);
+    this.erroReconhecimento.set(null);
+    this.avisoConferirPosicao.set(false);
+
+    try {
+      const resposta = await this.revisaoAvulsaService.reconhecerPosicao(arquivo);
+      if (resposta.chaveInvalida) {
+        this.tratarChaveInvalida();
+        return;
+      }
+      if (!resposta.success || !resposta.fen) {
+        throw new Error(resposta.error ?? 'Não foi possível reconhecer a posição nesta imagem.');
+      }
+      this.posicao.set(resposta.fen);
+      this.avisoConferirPosicao.set(true);
+    } catch (cause: unknown) {
+      const message = cause instanceof Error ? cause.message : 'Erro desconhecido';
+      this.erroReconhecimento.set(message);
+    } finally {
+      this.reconhecendoImagem.set(false);
+      // Permite selecionar o mesmo arquivo de novo (ex: tentar outra vez após erro).
+      input.value = '';
+    }
+  }
+
   async analisar(): Promise<void> {
     if (!this.formularioValido || this.carregando()) {
       return;
@@ -87,6 +124,7 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     this.erro.set(null);
     this.resultado.set(null);
     this.salvo.set(false);
+    this.avisoConferirPosicao.set(false);
 
     try {
       const resposta = await this.revisaoAvulsaService.revisar(
@@ -149,6 +187,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     this.resultado.set(null);
     this.erro.set(null);
     this.salvo.set(false);
+    this.erroReconhecimento.set(null);
+    this.avisoConferirPosicao.set(false);
   }
 
   corBadgeQualidadeLance(qualidade: string): string {
