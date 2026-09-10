@@ -93,8 +93,11 @@ jobs:
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
             --region "${{ env.GCP_REGION }}" \
+            --memory 2Gi \
+            --cpu 2 \
             --no-cpu-throttling \
             --quiet
+
 
       - name: Validar saude da aplicacao (Health Check)
         run: |
