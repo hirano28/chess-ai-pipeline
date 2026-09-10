@@ -125,6 +125,9 @@ class AvaliacaoSequenciaItem(BaseModel):
 
     indice_na_sequencia: int
     lance_jogado: str
+    # Mesmo lance em notação portuguesa (C/T/D/R/B), como foi efetivamente
+    # entendido — deixa visível ao usuário como lemos 'R' (Rei) vs 'T' (Torre).
+    lance_interpretado: str = ""
     melhor_lance: str | None
     queda_win_percent: float
     qualidade_lance: str
@@ -140,10 +143,12 @@ class RevisarAvulsoResponse(BaseModel):
 
     'avaliacoes' tem um item por lance DO JOGADOR (para um lance único, 1 item).
     'lances' lista todos os lances aplicados (jogador + adversário), em SAN.
+    'lance_interpretado' é o 1º lance do jogador em português, como foi entendido.
     """
 
     fen: str
     lances: list[str]
+    lance_interpretado: str = ""
     avaliacoes: list[AvaliacaoSequenciaItem]
     resumo_geral: str | None = None
 

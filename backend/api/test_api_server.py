@@ -293,6 +293,71 @@ class ResolverFenEndpointTest(unittest.TestCase):
         self.assertEqual(resposta.status_code, 400)
 
 
+class RevisarAvulsoLanceInterpretadoTest(unittest.TestCase):
+    """A interpretação PT/EN do lance precisa chegar íntegra ao dashboard."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        api_server._state["engine"] = MagicMock()
+        api_server._state["gemini_client"] = MagicMock()
+        api_server._state["settings"] = _fake_settings()
+        api_server._state["logger"] = logging.getLogger("test_api_server")
+        api_server._state["engine_lock"] = threading.Lock()
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_resposta_expoe_lance_interpretado_em_portugues(self) -> None:
+        # O usuário digitou 'Cf3'; a pipeline resolve para o SAN 'Nf3' e devolve
+        # a leitura em português junto, para ele conferir o que entendemos.
+        resultado = {
+            "fen": chess_fen_inicial(),
+            "lances": ["Nf3"],
+            "lance_interpretado": "Cf3",
+            "avaliacoes": [
+                {
+                    "indice_na_sequencia": 1,
+                    "lance_jogado": "Nf3",
+                    "lance_interpretado": "Cf3",
+                    "melhor_lance": "e4",
+                    "queda_win_percent": 1.5,
+                    "qualidade_lance": "BOM",
+                    "qualidade_raciocinio": "SOLIDO",
+                    "feedback_texto": "ok",
+                    "analise_mestre": "ok",
+                    "top_candidatos": [],
+                    "checklist_rotina": {},
+                }
+            ],
+            "resumo_geral": None,
+        }
+
+        with patch.object(
+            api_server, "processar_revisao_sequencia", return_value=resultado
+        ):
+            resposta = self.client.post(
+                "/revisar-avulso",
+                json={
+                    "posicao": chess_fen_inicial(),
+                    "lance": "Cf3",
+                    "pensamento": "Desenvolvo o cavalo.",
+                },
+                headers={"X-API-Key": CHAVE_CORRETA},
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        corpo = resposta.json()
+        self.assertEqual(corpo["lance_interpretado"], "Cf3")
+        self.assertEqual(corpo["avaliacoes"][0]["lance_interpretado"], "Cf3")
+        self.assertEqual(corpo["avaliacoes"][0]["lance_jogado"], "Nf3")
+
+
+def chess_fen_inicial() -> str:
+    return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+
 class ExplicarPosicaoEndpointTest(unittest.TestCase):
     def setUp(self) -> None:
         api_server._state.clear()

@@ -105,7 +105,7 @@
         <input
           type="text"
           class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
-          placeholder="Um lance (Nxe5) ou uma sequência (Nd5, Qc6, Bxe6)"
+          placeholder="Um lance (Cxe5) ou uma sequência (Cd5, Dc6, Bxe6)"
           [value]="lance()"
           [disabled]="carregando()"
           (input)="lance.set($any($event.target).value)"
@@ -113,6 +113,8 @@
         <p class="mt-2 text-xs leading-5 text-[#8fa5a7]">
           Em uma sequência, o 1º lance é seu, o 2º é a resposta do adversário, o 3º é
           seu de novo, e assim por diante — só os seus lances são avaliados.
+          Aceita notação em português (C, T, D, R, B) ou em inglês (N, R, Q, K, B);
+          o resultado mostra como cada lance foi interpretado.
         </p>
       </div>
 
@@ -192,6 +194,17 @@
                   Raciocínio: {{ item.qualidade_raciocinio }}
                 </span>
               </div>
+
+              @if (item.lance_interpretado) {
+                <p class="mb-4 rounded-md border border-[#40565c] bg-[#162126] px-4 py-2.5 text-sm text-[#b9c7c8]">
+                  <span class="text-[#8fa5a7]">Lance interpretado:</span>&ngsp;<span
+                    class="font-semibold text-[#d7dede]"
+                    >{{ item.lance_interpretado }}</span
+                  >&ngsp;@if (descricaoLanceInterpretado(item.lance_interpretado); as descricao) {
+                    <span class="text-[#8fa5a7]">({{ descricao }})</span>
+                  }
+                </p>
+              }
 
               <div class="mb-4 grid gap-3 text-sm sm:grid-cols-3">
                 <p><span class="text-[#8fa5a7]">Lance jogado:</span> <span class="font-semibold">{{ item.lance_jogado }}</span></p>

@@ -11,6 +11,15 @@ import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-previe
 
 const DEBOUNCE_PREVIEW_FEN_MS = 600;
 
+/** Nome por extensão da inicial em português, para o texto de conferência. */
+const NOME_DA_PECA_PT: Record<string, string> = {
+  C: 'Cavalo',
+  T: 'Torre',
+  D: 'Dama',
+  R: 'Rei',
+  B: 'Bispo'
+};
+
 @Component({
   selector: 'app-laboratorio-raciocinio',
   standalone: true,
@@ -234,6 +243,45 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     this.erroReconhecimento.set(null);
     this.avisoConferirPosicao.set(false);
     this.fenPreview.set('');
+  }
+
+  /**
+   * Descreve por extenso o lance interpretado (ex: 'Cd5' -> 'Cavalo para d5'),
+   * para o usuário confirmar de bate-pronto que entendemos a peça certa - o que
+   * importa sobretudo no 'R' (Rei em português, Torre em inglês).
+   * Devolve '' quando não dá para descrever com segurança.
+   */
+  descricaoLanceInterpretado(lancePt: string | undefined): string {
+    const lance = (lancePt ?? '').trim();
+    if (!lance) {
+      return '';
+    }
+    if (/^O-O-O[+#]?$/.test(lance)) {
+      return 'Roque longo';
+    }
+    if (/^O-O[+#]?$/.test(lance)) {
+      return 'Roque curto';
+    }
+
+    const semSufixo = lance.replace(/[+#]$/, '');
+    const promocao = semSufixo.match(/=([CTDRB])$/);
+    const corpo = promocao ? semSufixo.slice(0, -2) : semSufixo;
+
+    const destino = corpo.match(/([a-h][1-8])$/);
+    if (!destino) {
+      return '';
+    }
+
+    const casa = destino[1];
+    const captura = corpo.includes('x');
+    const peca = NOME_DA_PECA_PT[corpo[0]] ?? 'Peão';
+
+    if (promocao) {
+      const promovidaPara = NOME_DA_PECA_PT[promocao[1]] ?? promocao[1];
+      const acao = captura ? 'captura em' : 'vai a';
+      return `${peca} ${acao} ${casa} e promove a ${promovidaPara}`;
+    }
+    return captura ? `${peca} captura em ${casa}` : `${peca} para ${casa}`;
   }
 
   corBadgeQualidadeLance(qualidade: string): string {

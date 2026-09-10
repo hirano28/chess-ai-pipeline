@@ -17,6 +17,8 @@ export interface GuiaPasso {
 export interface AvaliacaoSequenciaItem {
   indice_na_sequencia: number;
   lance_jogado: string;
+  /** Mesmo lance em notação portuguesa (C/T/D/R/B), como o backend o entendeu. */
+  lance_interpretado: string;
   melhor_lance: string | null;
   queda_win_percent: number;
   qualidade_lance: string;
@@ -30,6 +32,8 @@ export interface AvaliacaoSequenciaItem {
 export interface ResultadoRevisaoAvulsa {
   fen: string;
   lances: string[];
+  /** 1º lance do jogador em notação portuguesa, como foi entendido. */
+  lance_interpretado: string;
   avaliacoes: AvaliacaoSequenciaItem[];
   resumo_geral: string | null;
 }

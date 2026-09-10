@@ -17,6 +17,8 @@ from backend.agentes.revisar_exercicio_avulso import (
     normalizar_lances,
     processar_revisao_avulsa,
     processar_revisao_sequencia,
+    resolver_lance_usuario,
+    resolver_sequencia_usuario,
 )
 from backend.agentes.revisar_pensamento import CHECKLIST_KEYS, Settings
 
@@ -237,6 +239,105 @@ class DescreverContextoSequenciaTest(unittest.TestCase):
         self.assertIn("Bxe6", contexto)
 
 
+class ResolverLanceUsuarioTest(unittest.TestCase):
+    # Rei branco em e1 e torre branca em d1, com d2 livre e não atacada: 'Rd2'
+    # é legal tanto como Rei (leitura PT) quanto como Torre (leitura EN).
+    FEN_R_AMBIGUO = "7k/8/8/8/8/8/8/3RK3 w - - 0 1"
+    # Mesma torre, mas o rei em h1 não alcança d2: só a leitura EN é legal.
+    FEN_R_SO_TORRE = "7k/8/8/8/8/8/8/3R3K w - - 0 1"
+
+    def test_lance_em_portugues_e_interpretado_como_pt(self) -> None:
+        board = chess.Board()
+        board.push_san("e4")
+        board.push_san("e5")
+
+        resolvido = resolver_lance_usuario(board, "Cf3")
+
+        self.assertEqual(resolvido.interpretacao, "PT")
+        self.assertEqual(resolvido.san, "Nf3")
+        self.assertEqual(resolvido.lance_interpretado, "Cf3")
+
+    def test_lance_de_peao_funciona_sem_traducao(self) -> None:
+        resolvido = resolver_lance_usuario(chess.Board(), "e4")
+
+        self.assertEqual(resolvido.san, "e4")
+        self.assertEqual(resolvido.lance_interpretado, "e4")
+
+    def test_fallback_para_ingles_quando_portugues_e_ilegal(self) -> None:
+        # 'Rd2' lido como português vira 'Kd2' (Rei), ilegal nesta posição;
+        # o fallback tenta o texto original e acha a torre d1-d2.
+        board = chess.Board(self.FEN_R_SO_TORRE)
+
+        resolvido = resolver_lance_usuario(board, "Rd2")
+
+        self.assertEqual(resolvido.interpretacao, "EN")
+        self.assertEqual(resolvido.san, "Rd2")
+        self.assertEqual(resolvido.lance_interpretado, "Td2")
+
+    def test_fallback_para_ingles_com_letra_de_cavalo(self) -> None:
+        board = chess.Board()
+
+        # 'Nf3' traduzido de PT continua 'Nf3' (N não é letra de peça em PT),
+        # então segue funcionando para quem digita em inglês.
+        resolvido = resolver_lance_usuario(board, "Nf3")
+
+        self.assertEqual(resolvido.san, "Nf3")
+        self.assertEqual(resolvido.lance_interpretado, "Cf3")
+
+    def test_ambiguidade_rei_x_torre_prioriza_portugues(self) -> None:
+        board = chess.Board(self.FEN_R_AMBIGUO)
+        # Pré-condição do caso construído: as duas leituras são legais aqui.
+        self.assertIsNotNone(board.parse_san("Kd2"))
+        self.assertIsNotNone(board.parse_san("Rd2"))
+
+        resolvido = resolver_lance_usuario(board, "Rd2")
+
+        self.assertEqual(resolvido.interpretacao, "PT")
+        self.assertEqual(resolvido.san, "Kd2", "esperava o lance de REI (leitura PT)")
+        self.assertEqual(resolvido.lance_interpretado, "Rd2")
+
+    def test_promocao_em_portugues(self) -> None:
+        board = chess.Board("8/4P2k/8/8/8/8/8/4K3 w - - 0 1")
+
+        resolvido = resolver_lance_usuario(board, "e8=D")
+
+        self.assertEqual(resolvido.san, "e8=Q")
+        self.assertEqual(resolvido.lance_interpretado, "e8=D")
+
+    def test_lance_invalido_nos_dois_idiomas_propaga_erro(self) -> None:
+        with self.assertRaises(ValueError) as contexto:
+            resolver_lance_usuario(chess.Board(), "Zz9")
+
+        # O erro propagado é o do texto ORIGINAL, para o usuário reconhecer
+        # o que digitou (e não a versão traduzida internamente).
+        self.assertIn("Zz9", str(contexto.exception))
+
+    def test_lance_ilegal_reporta_o_texto_digitado(self) -> None:
+        with self.assertRaises(ValueError) as contexto:
+            resolver_lance_usuario(chess.Board(), "Cd5")
+
+        self.assertIn("Cd5", str(contexto.exception))
+
+
+class ResolverSequenciaUsuarioTest(unittest.TestCase):
+    def test_resolve_linha_em_portugues_sem_alterar_o_tabuleiro(self) -> None:
+        board = chess.Board()
+
+        resolvidos = resolver_sequencia_usuario(board, ["e4", "e5", "Cf3"])
+
+        self.assertEqual([item.san for item in resolvidos], ["e4", "e5", "Nf3"])
+        self.assertEqual(
+            [item.lance_interpretado for item in resolvidos], ["e4", "e5", "Cf3"]
+        )
+        self.assertEqual(board.fen(), chess.Board().fen())
+
+    def test_erro_menciona_a_posicao_na_sequencia(self) -> None:
+        with self.assertRaises(ValueError) as contexto:
+            resolver_sequencia_usuario(chess.Board(), ["e4", "e5", "Zz9"])
+
+        self.assertIn("posição 3", str(contexto.exception))
+
+
 class ProcessarRevisaoSequenciaTest(unittest.TestCase):
     def test_avalia_apenas_lances_do_jogador(self) -> None:
         resultado = processar_revisao_sequencia(
@@ -272,6 +373,24 @@ class ProcessarRevisaoSequenciaTest(unittest.TestCase):
 
         self.assertEqual(len(resultado["avaliacoes"]), 1)
         self.assertIsNone(resultado["resumo_geral"])
+
+    def test_aceita_notacao_em_portugues_e_devolve_interpretacao(self) -> None:
+        resultado = processar_revisao_sequencia(
+            _FakeEngineSequencia(),
+            _FakeGeminiClient(),
+            _fake_settings(),
+            _fake_logger(),
+            chess.Board().fen(),
+            ["e4", "e5", "Cf3"],
+            "Abro o centro e desenvolvo o cavalo.",
+        )
+
+        # Internamente tudo vira SAN em inglês...
+        self.assertEqual(resultado["lances"], ["e4", "e5", "Nf3"])
+        self.assertEqual(resultado["avaliacoes"][1]["lance_jogado"], "Nf3")
+        # ...mas a interpretação devolvida ao usuário fica em português.
+        self.assertEqual(resultado["avaliacoes"][1]["lance_interpretado"], "Cf3")
+        self.assertEqual(resultado["lance_interpretado"], "e4")
 
     def test_lance_ilegal_na_sequencia_levanta_erro(self) -> None:
         with self.assertRaises(ValueError):

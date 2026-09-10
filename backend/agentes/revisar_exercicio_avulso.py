@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -43,6 +44,10 @@ from backend.agentes.revisar_pensamento import (  # noqa: E402
 )
 from backend.analise_engine.analisar_partidas import evaluate_position  # noqa: E402
 from backend.common.chess_math import centipawns_para_win_percent  # noqa: E402
+from backend.common.notacao_pt import (  # noqa: E402
+    traduzir_lance_pt_para_san,
+    traduzir_san_para_lance_pt,
+)
 from backend.common.progress import configurar_encoding_utf8  # noqa: E402
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
 
@@ -96,6 +101,76 @@ def configure_console_logger() -> logging.Logger:
     return logger
 
 
+@dataclass(frozen=True)
+class LanceResolvido:
+    """Um lance do usuário já resolvido para um move legal na posição.
+
+    'interpretacao' diz sob qual idioma o texto digitado fez sentido ('PT' ou
+    'EN'); 'san' é o SAN canônico (inglês) e 'lance_interpretado' é o mesmo
+    lance de volta em português, para mostrar ao usuário o que entendemos.
+    """
+
+    move: chess.Move
+    san: str
+    interpretacao: str
+    lance_interpretado: str
+
+
+def resolver_lance_usuario(board: chess.Board, lance_texto: str) -> LanceResolvido:
+    """Resolve o lance digitado tentando português primeiro e inglês como fallback.
+
+    A ordem importa nos casos ambíguos: 'R' é Rei em português e Torre em inglês,
+    e o usuário escreve em português, então a leitura em PT tem prioridade quando
+    as duas são legais na posição. Se a leitura em PT for ilegal, tentamos o texto
+    ORIGINAL sem tradução (já estava em inglês). Falhando as duas, propagamos o
+    erro referente ao que o usuário realmente digitou, encadeado com a tentativa
+    em português.
+    """
+
+    traduzido = traduzir_lance_pt_para_san(lance_texto)
+    try:
+        move = board.parse_san(traduzido)
+        interpretacao = "PT"
+    except ValueError as erro_pt:
+        try:
+            move = board.parse_san(lance_texto)
+        except ValueError as erro_en:
+            raise erro_en from erro_pt
+        interpretacao = "EN"
+
+    san = board.san(move)
+    return LanceResolvido(
+        move=move,
+        san=san,
+        interpretacao=interpretacao,
+        lance_interpretado=traduzir_san_para_lance_pt(san),
+    )
+
+
+def resolver_sequencia_usuario(
+    board: chess.Board, lances_texto: list[str]
+) -> list[LanceResolvido]:
+    """Resolve uma linha inteira de lances sem alterar o tabuleiro recebido.
+
+    Cada lance é resolvido na posição em que ocorre (ver resolver_lance_usuario),
+    então o mesmo texto pode ser lido como PT em um ponto e como EN em outro.
+    """
+
+    scratch = board.copy()
+    resolvidos: list[LanceResolvido] = []
+    for indice, lance_texto in enumerate(lances_texto):
+        try:
+            resolvido = resolver_lance_usuario(scratch, lance_texto)
+        except ValueError as error:
+            raise ValueError(
+                f"Lance inválido na sequência: '{lance_texto}' "
+                f"(posição {indice + 1}). {error}"
+            ) from error
+        scratch.push(resolvido.move)
+        resolvidos.append(resolvido)
+    return resolvidos
+
+
 def ler_fen() -> chess.Board:
     """Pede a FEN da posição até que seja válida."""
 
@@ -111,9 +186,9 @@ def ler_lance(board: chess.Board) -> chess.Move:
     """Pede o lance em SAN até que seja legal na posição."""
 
     while True:
-        lance_texto = input("Lance jogado (SAN, ex: Nxe5 ou Rxc3+): ").strip()
+        lance_texto = input("Lance jogado (SAN, ex: Cxe5 ou Txc3+): ").strip()
         try:
-            return board.parse_san(lance_texto)
+            return resolver_lance_usuario(board, lance_texto).move
         except ValueError as error:
             print(f"Lance inválido: {error}. Tente novamente.\n")
 
@@ -127,13 +202,11 @@ def ler_lances(board: chess.Board) -> list[str]:
     while True:
         entrada = input(
             "Seus lances (SAN, um ou vários; alternando com o adversário, "
-            "ex: Nd5, Qc6, Bxe6): "
+            "ex: Cd5, Dc6, Bxe6): "
         ).strip()
         try:
             lances = normalizar_lances(None, entrada)
-            scratch = board.copy()
-            for lance in lances:
-                scratch.push(scratch.parse_san(lance))
+            resolver_sequencia_usuario(board, lances)
             return lances
         except ValueError as error:
             print(f"Sequência inválida: {error}. Tente novamente.\n")
@@ -249,9 +322,9 @@ def processar_revisao_avulsa(
     """
 
     board = chess.Board(fen)
-    move = board.parse_san(lance_san)
+    resolvido = resolver_lance_usuario(board, lance_san)
 
-    avaliacao = avaliar_lance_avulso(engine, board, move, engine_lock)
+    avaliacao = avaliar_lance_avulso(engine, board, resolvido.move, engine_lock)
     qualidade_lance = classificar_qualidade_lance(
         avaliacao.queda_win_percent, settings.limiar_lance_bom, settings.limiar_lance_ruim
     )
@@ -267,6 +340,7 @@ def processar_revisao_avulsa(
 
     return {
         "lance_jogado": avaliacao.lance_jogado,
+        "lance_interpretado": resolvido.lance_interpretado,
         "melhor_lance": avaliacao.melhor_lance,
         "queda_win_percent": avaliacao.queda_win_percent,
         "qualidade_lance": qualidade_lance,
@@ -395,20 +469,17 @@ def processar_revisao_sequencia(
     """
 
     board = chess.Board(fen)
-    lances_reais: list[str] = []
+    # Resolve a linha inteira antes de gastar motor/Gemini: assim uma sequência
+    # com lance inválido no meio falha de imediato e o contexto passado ao prompt
+    # já usa o SAN canônico (inglês), e não o texto cru digitado em português.
+    resolvidos = resolver_sequencia_usuario(board, lances_san)
+    lances_reais = [item.san for item in resolvidos]
+
     avaliacoes: list[dict[str, Any]] = []
     numero_lance_jogador = 0
 
-    for indice, lance_san in enumerate(lances_san):
-        try:
-            move = board.parse_san(lance_san)
-        except ValueError as error:
-            raise ValueError(
-                f"Lance inválido na sequência: '{lance_san}' "
-                f"(posição {indice + 1}). {error}"
-            ) from error
-
-        san_real = board.san(move)
+    for indice, resolvido in enumerate(resolvidos):
+        move = board.parse_san(resolvido.san)
         eh_do_jogador = indice % 2 == 0
 
         if eh_do_jogador:
@@ -420,7 +491,7 @@ def processar_revisao_sequencia(
                 settings.limiar_lance_ruim,
             )
             contexto = _descrever_contexto_sequencia(
-                lances_san, indice, numero_lance_jogador
+                lances_reais, indice, numero_lance_jogador
             )
             prompt = build_prompt(
                 texto_pensamento, avaliacao, qualidade_lance, contexto
@@ -437,6 +508,7 @@ def processar_revisao_sequencia(
                 {
                     "indice_na_sequencia": indice + 1,
                     "lance_jogado": avaliacao.lance_jogado,
+                    "lance_interpretado": resolvido.lance_interpretado,
                     "melhor_lance": avaliacao.melhor_lance,
                     "queda_win_percent": avaliacao.queda_win_percent,
                     "qualidade_lance": qualidade_lance,
@@ -452,8 +524,6 @@ def processar_revisao_sequencia(
             # (operação de tabuleiro pura, sem acesso ao engine).
             board.push(move)
 
-        lances_reais.append(san_real)
-
     resumo_geral = gerar_resumo_sequencia(
         gemini_client, logger, texto_pensamento, avaliacoes
     )
@@ -461,6 +531,9 @@ def processar_revisao_sequencia(
     return {
         "fen": fen,
         "lances": lances_reais,
+        # O lance principal do exercício (1º lance do jogador), em português,
+        # exatamente como foi entendido — é o que o dashboard destaca.
+        "lance_interpretado": resolvidos[0].lance_interpretado,
         "avaliacoes": avaliacoes,
         "resumo_geral": resumo_geral,
     }
@@ -471,6 +544,9 @@ def imprimir_resultado(resultado: dict[str, Any]) -> None:
 
     print("\n" + "=" * 60)
     print(f"Lance jogado:            {resultado['lance_jogado']}")
+    lance_interpretado = resultado.get("lance_interpretado")
+    if lance_interpretado:
+        print(f"Lance interpretado (PT): {lance_interpretado}")
     print(f"Melhor lance (motor):    {resultado['melhor_lance']}")
     top_candidatos = resultado.get("top_candidatos") or []
     if top_candidatos:
