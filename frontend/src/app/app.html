@@ -1,9 +1,34 @@
 <nav class="border-b border-[#304247] bg-[#10191d] px-5 py-3 sm:px-8 lg:px-12">
   <div class="mx-auto flex w-full max-w-5xl items-center gap-6 text-sm">
-    <a routerLink="/" class="font-semibold text-[#f4f0e6] hover:text-[#dea34c]">Meu Hexágono</a>
-    <a routerLink="/laboratorio" class="text-[#b9c7c8] hover:text-[#dea34c]">Laboratório de Raciocínio</a>
-    <a routerLink="/explicador" class="text-[#b9c7c8] hover:text-[#dea34c]">Explicador de Posição</a>
-    <a routerLink="/analisador" class="text-[#b9c7c8] hover:text-[#dea34c]">Analisador de Partida</a>
+    <a
+      routerLink="/"
+      routerLinkActive="font-semibold text-[#dea34c] border-b-2 border-[#dea34c] pb-0.5"
+      [routerLinkActiveOptions]="{ exact: true }"
+      class="text-[#b9c7c8] transition-colors hover:text-[#dea34c]"
+    >
+      Meu Hexágono
+    </a>
+    <a
+      routerLink="/laboratorio"
+      routerLinkActive="font-semibold text-[#dea34c] border-b-2 border-[#dea34c] pb-0.5"
+      class="text-[#b9c7c8] transition-colors hover:text-[#dea34c]"
+    >
+      Laboratório de Raciocínio
+    </a>
+    <a
+      routerLink="/explicador"
+      routerLinkActive="font-semibold text-[#dea34c] border-b-2 border-[#dea34c] pb-0.5"
+      class="text-[#b9c7c8] transition-colors hover:text-[#dea34c]"
+    >
+      Explicador de Posição
+    </a>
+    <a
+      routerLink="/analisador"
+      routerLinkActive="font-semibold text-[#dea34c] border-b-2 border-[#dea34c] pb-0.5"
+      class="text-[#b9c7c8] transition-colors hover:text-[#dea34c]"
+    >
+      Analisador de Partida
+    </a>
   </div>
 </nav>
 <router-outlet />
