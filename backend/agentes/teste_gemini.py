@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import traceback
 from pathlib import Path
 
@@ -11,6 +12,10 @@ from dotenv import load_dotenv
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+from backend.common.progress import configurar_encoding_utf8  # noqa: E402
+
+configurar_encoding_utf8()
 
 
 def main() -> None:

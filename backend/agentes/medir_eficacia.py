@@ -17,7 +17,9 @@ from supabase import Client, create_client
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from backend.agentes.agente2_analista import HEXAGON_CATEGORIES  # noqa: E402
-from backend.common.progress import log_and_print  # noqa: E402
+from backend.common.progress import configurar_encoding_utf8, log_and_print  # noqa: E402
+
+configurar_encoding_utf8()
 
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "medir_eficacia.log"
 WINDOW_DAYS = 15

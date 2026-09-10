@@ -48,7 +48,10 @@ jobs:
           python -m unittest \
             backend.agentes.test_agente1_linter \
             backend.agentes.test_agente3_prescritor \
+            backend.agentes.test_analisar_pgn_avulso \
+            backend.agentes.test_explicador_posicao \
             backend.agentes.test_gerar_perguntas_pendentes \
+            backend.agentes.test_gerar_resumo_partida \
             backend.agentes.test_revisar_exercicio_avulso \
             backend.agentes.test_revisar_pensamento \
             backend.analise_engine.test_analisar_partidas \

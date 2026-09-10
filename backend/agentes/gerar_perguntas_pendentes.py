@@ -16,7 +16,13 @@ from supabase import Client, create_client
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
-from backend.common.progress import format_progress, log_and_print  # noqa: E402
+from backend.common.progress import (  # noqa: E402
+    configurar_encoding_utf8,
+    format_progress,
+    log_and_print,
+)
+
+configurar_encoding_utf8()
 
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "gerar_perguntas_pendentes.log"
 PAGE_SIZE = 1000

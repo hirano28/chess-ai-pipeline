@@ -33,7 +33,13 @@ from backend.analise_engine.analisar_partidas import (  # noqa: E402
     evaluate_position,
 )
 from backend.common.chess_math import centipawns_para_win_percent  # noqa: E402
-from backend.common.progress import format_progress, log_and_print  # noqa: E402
+from backend.common.progress import (  # noqa: E402
+    configurar_encoding_utf8,
+    format_progress,
+    log_and_print,
+)
+
+configurar_encoding_utf8()
 
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "revisar_pensamento.log"
 MODEL_NAME = "gemini-flash-latest"

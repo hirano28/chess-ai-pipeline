@@ -43,7 +43,10 @@ from backend.agentes.revisar_pensamento import (  # noqa: E402
 )
 from backend.analise_engine.analisar_partidas import evaluate_position  # noqa: E402
 from backend.common.chess_math import centipawns_para_win_percent  # noqa: E402
+from backend.common.progress import configurar_encoding_utf8  # noqa: E402
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
+
+configurar_encoding_utf8()
 
 # Ferramenta de uso pontual (1 posição por vez): pode pagar uma busca bem mais
 # profunda que o STOCKFISH_SEARCHTIME_MS usado no processamento em lote.

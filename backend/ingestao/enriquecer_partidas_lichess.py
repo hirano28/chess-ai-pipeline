@@ -28,12 +28,18 @@ from supabase import Client
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
-from backend.common.progress import format_progress, log_and_print  # noqa: E402
+from backend.common.progress import (  # noqa: E402
+    configurar_encoding_utf8,
+    format_progress,
+    log_and_print,
+)
 from backend.ingestao.common_ingestao import (  # noqa: E402
     configure_logging,
     create_supabase_client,
     with_retry,
 )
+
+configurar_encoding_utf8()
 
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "enriquecer_lichess.log"
 GAME_EXPORT_URL = (

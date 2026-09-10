@@ -20,7 +20,11 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
-from backend.common.progress import format_progress, log_and_print  # noqa: E402
+from backend.common.progress import (  # noqa: E402
+    configurar_encoding_utf8,
+    format_progress,
+    log_and_print,
+)
 from backend.ingestao.common_ingestao import (  # noqa: E402
     already_exists,
     configure_logging,
@@ -28,6 +32,9 @@ from backend.ingestao.common_ingestao import (  # noqa: E402
     insert_game,
     with_retry,
 )
+
+configurar_encoding_utf8()
+
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "ingestao.log"
 LICHESS_GAMES_URL = "https://lichess.org/api/games/user/{username}"
 

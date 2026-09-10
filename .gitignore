@@ -10,3 +10,4 @@ node_modules/
 env.yaml
 .vscode/
 frontend/dist/
+backend/partidas_pgn/

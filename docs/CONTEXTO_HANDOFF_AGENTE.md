@@ -59,6 +59,7 @@ Scripts Python em `backend/`, sem servidor HTTP — são executados via linha de
 | `perguntas_pendentes` | lance_id, pergunta_texto, status | Perguntas geradas para lances sem anotação (só em partidas já anotadas) |
 | `revisoes_pensamento` | qualidade_lance, qualidade_raciocinio, top_candidatos, checklist_rotina | Revisão IA do raciocínio em partidas reais |
 | `revisao_exercicio_avulso` | fen, lance_jogado, melhor_lance, qualidade_lance, qualidade_raciocinio | Mesma revisão, para exercícios avulsos (Laboratório) |
+| `resumo_partida` | partida_id, narrativa, pontos_criticos (jsonb), momento_chave_estrategico | Resumo narrativo consolidado da partida inteira |
 | `puzzle_atividade` | puzzle_id, acertou, temas[], rating_puzzle | Histórico de puzzles do Lichess |
 
 **Vocabulário controlado de 16 tags** (`tags_falha`): calculo_tatico_deficiente, seguranca_do_rei, perda_de_iniciativa, erro_tecnico_de_final, fraqueza_estrutural_de_peoes, negligencia_profilatica, gestao_de_tempo_ruim, abertura_de_linhas_desfavoravel, simplificacao_prematura, avaliacao_posicional_incorreta, troca_desfavoravel, falta_de_coordenacao_de_pecas, ataque_prematuro, passividade_excessiva, visao_em_tunel, perda_de_material. **Não crie tags novas sem necessidade real comprovada** — já verificamos que o vocabulário atual cobre bem os casos reais.
@@ -76,6 +77,11 @@ Scripts Python em `backend/`, sem servidor HTTP — são executados via linha de
 - ✅ Loop adaptativo (`medir_eficacia.py`) — criado e testado, mas **ainda sem nenhum caso real processado** (nenhuma sessão de treino foi concluída de verdade ainda).
 - ✅ Laboratório de Raciocínio completo: aceita FEN/PGN, lance único ou sequência, mostra top 3 candidatos do motor com explicação comparativa validada (anti-alucinação), classifica qualidade do lance e do raciocínio, e avalia aderência à rotina de 8 passos do guia.
 - ✅ Publicado em produção (Vercel + Cloud Run) e compartilhado com alguns amigos via chaves de API individuais.
+- ✅ Deploy contínuo automático: Cloud Run (backend) via GitHub Actions + Vercel (frontend).
+- ✅ Explicador de Posição: backend com Stockfish Win% e Gemini anti-alucinação + frontend Angular em `/explicador`.
+- ✅ Resumo Narrativo de Partida: `gerar_resumo_partida.py` e tabela `resumo_partida`.
+- ✅ Orquestrador de PGN Avulso: `analisar_pgn_avulso.py` rodando o pipeline ponta a ponta (Stockfish -> Diagnóstico -> Resumo) para uma única partida e exibindo no terminal.
+- ✅ Suíte de 172 testes unitários passando.
 
 ## 6. Pendências conhecidas (não esqueça)
 

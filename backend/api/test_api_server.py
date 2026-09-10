@@ -12,7 +12,7 @@ import os
 import threading
 import unittest
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 from starlette.requests import Request
@@ -367,5 +367,125 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
             self.assertIn("Servidor ocupado", resposta.json()["detail"])
 
 
+class AnalisarPgnEndpointTest(unittest.TestCase):
+    """Testes do endpoint assíncrono POST /analisar-pgn."""
+
+    PGN_TESTE = """[Event "Test Game"]
+[White "hirano28"]
+[Black "opponent123"]
+[Result "1-0"]
+
+1. e4 e5 2. Nf3 Nc6 1-0"""
+
+    PGN_SEM_USERNAMES = """[Event "Test Game"]
+[White "jogador_a"]
+[Black "jogador_b"]
+[Result "1/2-1/2"]
+
+1. e4 e5 2. Nf3 Nc6 1/2-1/2"""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        api_server._state["supabase_client"] = MagicMock()
+        api_server._state["gemini_client"] = MagicMock()
+        api_server._state["engine_lock"] = threading.Lock()
+        api_server._state["logger"] = logging.getLogger("test_analisar_pgn")
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_sem_header_recebe_401(self) -> None:
+        resposta = self.client.post(
+            "/analisar-pgn",
+            json={"pgn": self.PGN_TESTE},
+        )
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_pgn_vazio_recebe_400(self) -> None:
+        resposta = self.client.post(
+            "/analisar-pgn",
+            json={"pgn": "   "},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 400)
+        self.assertIn("PGN não fornecido", resposta.json()["detail"])
+
+    def test_pgn_invalido_recebe_400(self) -> None:
+        resposta = self.client.post(
+            "/analisar-pgn",
+            json={"pgn": "isso aqui nao e xadrez"},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 400)
+
+    @patch("backend.agentes.analisar_pgn_avulso.inferir_cor_jogador", return_value=None)
+    def test_sem_cor_e_sem_inferencia_recebe_422(self, mock_inferir) -> None:
+        resposta = self.client.post(
+            "/analisar-pgn",
+            json={"pgn": self.PGN_SEM_USERNAMES, "cor": None},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 422)
+        self.assertIn("informe a cor explicitamente", resposta.json()["detail"])
+
+    @patch("backend.api.api_server.inserir_partida", return_value="partida_999")
+    @patch("backend.api.api_server.executar_pipeline_partida")
+    def test_retorna_202_imediatamente_e_agenda_background_task(
+        self, mock_executar_pipeline, mock_inserir
+    ) -> None:
+        resposta = self.client.post(
+            "/analisar-pgn",
+            json={"pgn": self.PGN_TESTE, "cor": "BRANCAS"},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 202)
+        dados = resposta.json()
+        self.assertEqual(dados["partida_id"], "partida_999")
+        self.assertTrue(dados["external_id"].startswith("manual_"))
+
+        # Confirma que a tarefa de segundo plano rodou após a resposta
+        mock_executar_pipeline.assert_called_once()
+        _, kwargs = mock_executar_pipeline.call_args
+        self.assertEqual(kwargs["partida_id"], "partida_999")
+        self.assertIsNotNone(kwargs["engine_lock"])
+
+    @patch("backend.api.api_server.inserir_partida", return_value="partida_888")
+    @patch("backend.agentes.analisar_pgn_avulso.inferir_cor_jogador", return_value="BRANCAS")
+    @patch("backend.api.api_server.executar_pipeline_partida")
+    def test_infere_cor_automaticamente_se_cor_for_null(
+        self, mock_executar_pipeline, mock_inferir, mock_inserir
+    ) -> None:
+        resposta = self.client.post(
+            "/analisar-pgn",
+            json={"pgn": self.PGN_TESTE, "cor": None},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 202)
+        dados = resposta.json()
+        self.assertEqual(dados["partida_id"], "partida_888")
+        mock_inserir.assert_called_once()
+        # Argumento cor passado para inserir_partida deve ser "BRANCAS"
+        args, _ = mock_inserir.call_args
+        self.assertEqual(args[3], "BRANCAS")
+
+    @patch("backend.api.api_server.update_status")
+    @patch("backend.api.api_server.load_analysis_settings")
+    @patch("backend.api.api_server.load_linter_settings")
+    @patch("backend.api.api_server.executar_pipeline_partida")
+    def test_background_task_falha_marca_partida_como_falhou(
+        self, mock_executar_pipeline, mock_linter_settings, mock_analysis_settings, mock_update
+    ) -> None:
+        mock_executar_pipeline.side_effect = RuntimeError("Erro inesperado no pipeline")
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+
+        api_server._executar_analise_pgn_background("partida_falha")
+
+        mock_update.assert_called_with(mock_client, "partida_falha", "falhou")
+
+
 if __name__ == "__main__":
     unittest.main()
+

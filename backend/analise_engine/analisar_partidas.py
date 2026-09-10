@@ -24,7 +24,14 @@ from supabase import Client, create_client
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from backend.common.chess_math import centipawns_para_win_percent  # noqa: E402
-from backend.common.progress import format_progress, log_and_print  # noqa: E402
+from backend.common.progress import (  # noqa: E402
+    configurar_encoding_utf8,
+    format_progress,
+    log_and_print,
+)
+
+configurar_encoding_utf8()
+
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "analise_engine.log"
 PAGE_SIZE = 1000
 CRITICAL_SWING_CP = 100

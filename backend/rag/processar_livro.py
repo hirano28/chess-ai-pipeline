@@ -28,10 +28,14 @@ from supabase import Client, create_client
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from backend.common.progress import (  # noqa: E402
+    configurar_encoding_utf8,
     format_duration,
     format_progress,
     log_and_print,
 )
+
+configurar_encoding_utf8()
+
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "processar_livro.log"
 EMBEDDING_MODEL = "gemini-embedding-001"
 CHUNK_TARGET_WORDS = 500

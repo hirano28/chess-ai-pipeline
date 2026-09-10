@@ -17,7 +17,7 @@ from typing import Any
 
 import chess
 import google.genai as genai
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from stockfish import Stockfish
@@ -25,6 +25,16 @@ from stockfish import Stockfish
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
+from backend.agentes.agente1_linter import (  # noqa: E402
+    load_settings as load_linter_settings,
+)
+from backend.agentes.analisar_pgn_avulso import (  # noqa: E402
+    executar_pipeline_partida,
+    gerar_external_id,
+    inserir_partida,
+    parse_pgn,
+    resolver_cor,
+)
 from backend.agentes.explicador_posicao import (  # noqa: E402
     ExplicacaoPosicao,
     explicar_posicao,
@@ -40,6 +50,10 @@ from backend.agentes.revisar_exercicio_avulso import (  # noqa: E402
 from backend.agentes.revisar_pensamento import (  # noqa: E402
     carregar_passos_guia,
     load_settings,
+)
+from backend.analise_engine.analisar_partidas import (  # noqa: E402
+    load_settings as load_analysis_settings,
+    update_status,
 )
 from backend.common.progress import log_and_print  # noqa: E402
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
@@ -166,6 +180,20 @@ class ExplicarPosicaoResponse(BaseModel):
     refutacao_defesa: RefutacaoDefesaItem | None = None
     elementos_posicionais: dict[str, Any]
     explicacao: ExplicacaoPosicao
+
+
+class AnalisarPgnRequest(BaseModel):
+    """Payload para requisição de análise completa de uma partida PGN avulsa."""
+
+    pgn: str
+    cor: str | None = None
+
+
+class AnalisarPgnResponse(BaseModel):
+    """Resposta imediata com status 202 aceito para processamento em segundo plano."""
+
+    partida_id: str
+    external_id: str
 
 
 def _parse_api_keys(raw: str) -> dict[str, str]:
@@ -370,6 +398,82 @@ def explicar_posicao_endpoint(
         ) from error
 
     return ExplicarPosicaoResponse(**resultado)
+
+
+def _executar_analise_pgn_background(partida_id: str) -> None:
+    """Executa o pipeline completo (Stockfish -> Diagnóstico -> Resumo) em segundo plano."""
+    client = _state.get("supabase_client")
+    logger = _state.get("logger")
+    try:
+        gemini_client = _state.get("gemini_client")
+        analysis_settings = load_analysis_settings()
+        linter_settings = load_linter_settings()
+        engine_lock = _state.get("engine_lock")
+
+        executar_pipeline_partida(
+            client=client,
+            partida_id=partida_id,
+            gemini_client=gemini_client,
+            analysis_settings=analysis_settings,
+            linter_settings=linter_settings,
+            logger=logger,
+            engine_lock=engine_lock,
+        )
+    except Exception as error:
+        if logger:
+            logger.error(
+                "Falha na tarefa em segundo plano para partida %s: %s",
+                partida_id,
+                error,
+            )
+        if client:
+            try:
+                update_status(client, partida_id, "falhou")
+            except Exception:
+                pass
+
+
+@app.post(
+    "/analisar-pgn",
+    status_code=202,
+    response_model=AnalisarPgnResponse,
+    dependencies=[Depends(verificar_api_key)],
+)
+def analisar_pgn_endpoint(
+    payload: AnalisarPgnRequest,
+    background_tasks: BackgroundTasks,
+) -> AnalisarPgnResponse:
+    """Recebe um PGN, insere a partida e agenda a análise completa em segundo plano.
+
+    Retorna 202 imediatamente com partida_id e external_id.
+    Se a cor for nula e não puder ser inferida pelos headers do PGN, retorna 422.
+    """
+    pgn_text = payload.pgn.strip() if payload.pgn else ""
+    if not pgn_text:
+        raise HTTPException(status_code=400, detail="PGN não fornecido.")
+
+    try:
+        game = parse_pgn(pgn_text)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    try:
+        cor = resolver_cor(game, payload.cor)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    external_id = gerar_external_id(pgn_text)
+    try:
+        client = _state["supabase_client"]
+        partida_id = inserir_partida(client, pgn_text, game, cor)
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao registrar partida: {error}"
+        ) from error
+
+    background_tasks.add_task(_executar_analise_pgn_background, partida_id)
+
+    return AnalisarPgnResponse(partida_id=partida_id, external_id=external_id)
 
 
 @app.get("/guia-passos")

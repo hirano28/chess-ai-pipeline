@@ -3,6 +3,27 @@
 from __future__ import annotations
 
 import logging
+import sys
+
+
+def configurar_encoding_utf8() -> None:
+    """Reconfigura stdout/stderr para UTF-8, evitando UnicodeEncodeError.
+
+    No console padrão do Windows (code page cp1252), print()/logging com
+    emojis quebram com UnicodeEncodeError. `TextIOWrapper.reconfigure` existe
+    em qualquer plataforma (Python 3.7+) e mutar o stream in-place mantém
+    válidas referências já capturadas por handlers (ex.: logging.StreamHandler
+    guarda sys.stderr no momento da criação). Em sistemas onde o stream já é
+    UTF-8 (Linux/GitHub Actions) ou não suporta reconfigure (ex.: stdout
+    capturado por um test runner), a chamada é inócua.
+    """
+
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
 
 
 def format_duration(seconds: float) -> str:
