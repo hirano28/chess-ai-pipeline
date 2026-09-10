@@ -390,7 +390,8 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         api_server._state["supabase_client"] = MagicMock()
         api_server._state["gemini_client"] = MagicMock()
         api_server._state["engine_lock"] = threading.Lock()
-        api_server._state["logger"] = logging.getLogger("test_analisar_pgn")
+        # Mock logger isola completamente a saída de testes de prints/logs
+        api_server._state["logger"] = MagicMock()
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -430,10 +431,12 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         self.assertEqual(resposta.status_code, 422)
         self.assertIn("informe a cor explicitamente", resposta.json()["detail"])
 
-    @patch("backend.api.api_server.inserir_partida", return_value="partida_999")
+    @patch("backend.api.api_server.load_analysis_settings")
+    @patch("backend.api.api_server.load_linter_settings")
     @patch("backend.api.api_server.executar_pipeline_partida")
+    @patch("backend.api.api_server.inserir_partida", return_value="partida_999")
     def test_retorna_202_imediatamente_e_agenda_background_task(
-        self, mock_executar_pipeline, mock_inserir
+        self, mock_inserir, mock_executar_pipeline, mock_linter, mock_analysis
     ) -> None:
         resposta = self.client.post(
             "/analisar-pgn",
@@ -451,11 +454,13 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         self.assertEqual(kwargs["partida_id"], "partida_999")
         self.assertIsNotNone(kwargs["engine_lock"])
 
-    @patch("backend.api.api_server.inserir_partida", return_value="partida_888")
-    @patch("backend.agentes.analisar_pgn_avulso.inferir_cor_jogador", return_value="BRANCAS")
+    @patch("backend.api.api_server.load_analysis_settings")
+    @patch("backend.api.api_server.load_linter_settings")
     @patch("backend.api.api_server.executar_pipeline_partida")
+    @patch("backend.agentes.analisar_pgn_avulso.inferir_cor_jogador", return_value="BRANCAS")
+    @patch("backend.api.api_server.inserir_partida", return_value="partida_888")
     def test_infere_cor_automaticamente_se_cor_for_null(
-        self, mock_executar_pipeline, mock_inferir, mock_inserir
+        self, mock_inserir, mock_inferir, mock_executar_pipeline, mock_linter, mock_analysis
     ) -> None:
         resposta = self.client.post(
             "/analisar-pgn",
@@ -470,6 +475,11 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         args, _ = mock_inserir.call_args
         self.assertEqual(args[3], "BRANCAS")
 
+        # Confirma que a tarefa de segundo plano foi agendada e executada
+        mock_executar_pipeline.assert_called_once()
+        _, kwargs = mock_executar_pipeline.call_args
+        self.assertEqual(kwargs["partida_id"], "partida_888")
+
     @patch("backend.api.api_server.update_status")
     @patch("backend.api.api_server.load_analysis_settings")
     @patch("backend.api.api_server.load_linter_settings")
@@ -477,7 +487,12 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
     def test_background_task_falha_marca_partida_como_falhou(
         self, mock_executar_pipeline, mock_linter_settings, mock_analysis_settings, mock_update
     ) -> None:
-        mock_executar_pipeline.side_effect = RuntimeError("Erro inesperado no pipeline")
+        """Verifica INTENCIONALMENTE o comportamento de falha graciosa da tarefa em background:
+
+        Se executar_pipeline_partida levantar exceção, a tarefa deve capturar o erro,
+        não derrubar o processo e atualizar o status da partida para 'falhou'.
+        """
+        mock_executar_pipeline.side_effect = RuntimeError("Erro simulado para testar falha graciosa")
         mock_client = MagicMock()
         api_server._state["supabase_client"] = mock_client
 
