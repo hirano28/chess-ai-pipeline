@@ -151,5 +151,87 @@ describe('AnalisadorPartidaComponent', () => {
   it('deve formatar a tag com espaços e maiúsculas', () => {
     expect(component.formatarTag('perda_de_material')).toBe('PERDA DE MATERIAL');
   });
+
+  it('deve carregar histórico de partidas recentes', async () => {
+    vi.spyOn(revisaoService, 'listarPartidasRecentes').mockResolvedValue({
+      success: true,
+      partidas: [
+        {
+          partida_id: 'p-1',
+          external_id: 'ext-1',
+          status: 'concluido',
+          cor_jogada: 'BRANCAS',
+          jogadores: 'hirano28 vs adversario'
+        }
+      ]
+    });
+
+    await component.carregarHistorico();
+
+    expect(component.historico().length).toBe(1);
+    expect(component.historico()[0].partida_id).toBe('p-1');
+    expect(component.historico()[0].jogadores).toBe('hirano28 vs adversario');
+  });
+
+  it('deve selecionar partida concluída do histórico e exibir resumo', async () => {
+    vi.spyOn(revisaoService, 'consultarStatusPartida').mockResolvedValue({
+      success: true,
+      dados: {
+        partida_id: 'p-pronta',
+        status: 'concluido',
+        resumo: resumoMock
+      }
+    });
+
+    await component.selecionarPartidaDoHistorico('p-pronta');
+
+    expect(component.partidaId()).toBe('p-pronta');
+    expect(component.estado()).toBe('CONCLUIDO');
+    expect(component.resumo()).toEqual(resumoMock);
+    expect(localStorage.getItem('chess_analisador_partida_ativa')).toBe('p-pronta');
+  });
+
+  it('deve selecionar partida em processamento e iniciar polling', async () => {
+    vi.spyOn(revisaoService, 'consultarStatusPartida').mockResolvedValue({
+      success: true,
+      dados: {
+        partida_id: 'p-rodando',
+        status: 'processando',
+        resumo: null
+      }
+    });
+
+    await component.selecionarPartidaDoHistorico('p-rodando');
+
+    expect(component.partidaId()).toBe('p-rodando');
+    expect(component.estado()).toBe('PROCESSANDO');
+    expect(component.resumo()).toBeNull();
+  });
+
+  it('deve reprocessar partida atual com sucesso', async () => {
+    component.partidaId.set('p-travada');
+    vi.spyOn(revisaoService, 'reprocessarPartida').mockResolvedValue({
+      success: true,
+      partidaId: 'p-travada'
+    });
+    vi.spyOn(revisaoService, 'consultarStatusPartida').mockResolvedValue({
+      success: true,
+      dados: {
+        partida_id: 'p-travada',
+        status: 'processando',
+        resumo: null
+      }
+    });
+
+    await component.reprocessarPartidaAtual();
+
+    expect(component.estado()).toBe('PROCESSANDO');
+  });
+
+  it('deve formatar data adequadamente', () => {
+    expect(component.formatarData('')).toBe('');
+    expect(component.formatarData('2026-09-10T01:58:29Z')).toBeTruthy();
+  });
 });
+
 

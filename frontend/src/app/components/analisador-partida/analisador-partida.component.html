@@ -10,7 +10,7 @@
         <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl text-[#f4f0e6]">
           Analisador de Partida
         </h1>
-        @if (estado() === 'CONCLUIDO' || estado() === 'FALHOU') {
+        @if (estado() === 'CONCLUIDO' || estado() === 'FALHOU' || estado() === 'PROCESSANDO') {
           <button
             type="button"
             (click)="novaAnalise()"
@@ -66,7 +66,7 @@
     }
 
     <!-- Mensagem de Erro Geral -->
-    @if (erro() && estado() !== 'PROCESSANDO') {
+    @if (erro() && estado() !== 'PROCESSANDO' && estado() !== 'FALHOU') {
       <div class="rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3] flex items-center justify-between gap-3" role="alert">
         <div class="flex items-center gap-3">
           <span class="text-base">⚠️</span>
@@ -228,9 +228,63 @@
           </div>
         </div>
 
-        <p class="mt-6 text-xs text-[#8fa5a7]">
-          A análise leva geralmente entre 1 e 2 minutos. O resultado será exibido automaticamente.
+        <!-- Dica de segurança / persistência -->
+        <div class="mx-auto mt-8 max-w-lg rounded-lg border border-[#304247] bg-[#10191d] p-4 text-left text-xs text-[#b9c7c8]">
+          <p class="font-semibold text-[#dea34c]">
+            💡 A análise roda em segundo plano no servidor
+          </p>
+          <p class="mt-1 text-[11px] leading-relaxed">
+            Você pode fechar esta aba ou recarregar a página com segurança. A análise está vinculada ao seu histórico e você poderá consultá-la ou retomá-la a qualquer momento.
+          </p>
+          <div class="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              (click)="estado.set('INICIAL')"
+              class="rounded border border-[#304247] bg-[#162126] px-3 py-1.5 text-xs font-semibold text-[#f4f0e6] transition-colors hover:border-[#dea34c]"
+            >
+              Voltar ao Início / Ver Histórico
+            </button>
+            <button
+              type="button"
+              (click)="reprocessarPartidaAtual()"
+              class="rounded border border-[#765044] bg-[#2a211f] px-3 py-1.5 text-xs font-semibold text-[#e7c4b3] transition-colors hover:border-[#dea34c]"
+            >
+              Reiniciar Análise
+            </button>
+          </div>
+        </div>
+
+      </section>
+    }
+
+    <!-- ESTADO: Falha -->
+    @if (estado() === 'FALHOU') {
+      <section class="rounded-lg border border-[#765044] bg-[#2a211f] p-8 text-center shadow-lg">
+        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#331a17] text-2xl text-[#e7c4b3]">
+          ❌
+        </div>
+        <h2 class="mt-4 text-xl font-semibold text-[#f4f0e6]">
+          Falha no Processamento da Partida
+        </h2>
+        <p class="mx-auto mt-2 max-w-md text-sm text-[#e7c4b3]">
+          {{ erro() || 'Não foi possível concluir a análise do motor ou síntese narrativa.' }}
         </p>
+        <div class="mt-6 flex justify-center gap-3">
+          <button
+            type="button"
+            (click)="reprocessarPartidaAtual()"
+            class="rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] hover:bg-[#efbd6d]"
+          >
+            Tentar Reprocessar Análise
+          </button>
+          <button
+            type="button"
+            (click)="novaAnalise()"
+            class="rounded-md border border-[#304247] bg-[#162126] px-5 py-2 text-sm font-semibold text-[#f4f0e6] hover:border-[#dea34c]"
+          >
+            Nova Partida
+          </button>
+        </div>
       </section>
     }
 
@@ -267,9 +321,7 @@
           </div>
 
           <div class="space-y-4 text-base leading-7 text-[#dbe6e7]">
-            @for (paragrafo of resumo()?.narrativa?.split('
-
-'); track $index) {
+            @for (paragrafo of resumo()?.narrativa?.split('\n\n'); track $index) {
               <p class="leading-relaxed">
                 {{ paragrafo }}
               </p>
@@ -313,7 +365,7 @@
         }
 
         <!-- Ações Finais -->
-        <div class="flex justify-center pt-4">
+        <div class="flex justify-center gap-4 pt-4">
           <button
             type="button"
             (click)="novaAnalise()"
@@ -323,6 +375,116 @@
           </button>
         </div>
 
+      </section>
+    }
+
+    <!-- SEÇÃO: Histórico de Análises Recentes -->
+    @if (chaveConfigurada()) {
+      <section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8 space-y-4">
+        <div class="flex items-center justify-between border-b border-[#304247] pb-3">
+          <div class="flex items-center gap-3">
+            <h2 class="text-base font-semibold text-[#f4f0e6]">
+              Histórico de Análises
+            </h2>
+            <span class="rounded bg-[#10191d] border border-[#304247] px-2 py-0.5 text-xs text-[#8fa5a7]">
+              {{ historico().length }} recentes
+            </span>
+          </div>
+          <button
+            type="button"
+            (click)="carregarHistorico()"
+            [disabled]="carregandoHistorico()"
+            class="inline-flex items-center gap-1.5 text-xs font-semibold text-[#dea34c] hover:underline disabled:opacity-50"
+          >
+            <span [class.animate-spin]="carregandoHistorico()">🔄</span>
+            <span>Atualizar lista</span>
+          </button>
+        </div>
+
+        @if (carregandoHistorico() && historico().length === 0) {
+          <div class="py-6 text-center text-xs text-[#8fa5a7]">
+            Carregando histórico de partidas...
+          </div>
+        } @else if (historico().length === 0) {
+          <div class="py-6 text-center text-xs text-[#8fa5a7]">
+            Nenhuma análise recente registrada. Cole um PGN acima para iniciar a primeira análise!
+          </div>
+        } @else {
+          <div class="divide-y divide-[#304247]/50">
+            @for (item of historico(); track item.partida_id) {
+              <div
+                class="group flex flex-col gap-3 py-3.5 sm:flex-row sm:items-center sm:justify-between transition-colors hover:bg-[#10191d]/60 px-3 rounded-md cursor-pointer border border-transparent hover:border-[#304247]"
+                (click)="selecionarPartidaDoHistorico(item.partida_id)"
+              >
+                <div class="flex items-start sm:items-center gap-3">
+                  <!-- Status Badge -->
+                  <span
+                    [class]="
+                      item.status === 'concluido'
+                        ? 'border-[#2e613b] bg-[#1b3323] text-[#7ae89c]'
+                        : item.status === 'processando'
+                        ? 'border-[#2b4c61] bg-[#1a2e3b] text-[#5bc0de]'
+                        : item.status === 'falhou'
+                        ? 'border-[#765044] bg-[#2a211f] text-[#e7c4b3]'
+                        : 'border-[#7a6a2a] bg-[#332c14] text-[#e8cf7a]'
+                    "
+                    class="inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                  >
+                    @if (item.status === 'concluido') {
+                      <span>✅ Concluída</span>
+                    } @else if (item.status === 'processando') {
+                      <span class="animate-pulse">⏳ Processando</span>
+                    } @else if (item.status === 'falhou') {
+                      <span>❌ Falhou</span>
+                    } @else {
+                      <span>⏱️ Na Fila</span>
+                    }
+                  </span>
+
+                  <!-- Título e Detalhes -->
+                  <div>
+                    <div class="text-sm font-semibold text-[#f4f0e6] group-hover:text-[#dea34c] transition-colors">
+                      {{ item.jogadores || 'Partida Manual' }}
+                    </div>
+                    <div class="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-[#8fa5a7]">
+                      @if (item.cor_jogada) {
+                        <span>Cor: {{ item.cor_jogada === 'BRANCAS' ? 'Brancas ♔' : 'Pretas ♚' }}</span>
+                        <span>•</span>
+                      }
+                      @if (item.eco_abertura) {
+                        <span>ECO: {{ item.eco_abertura }}</span>
+                        <span>•</span>
+                      }
+                      @if (item.resultado) {
+                        <span>{{ item.resultado }}</span>
+                        <span>•</span>
+                      }
+                      <span>{{ formatarData(item.created_at) }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Botão de Ação -->
+                <div class="self-end sm:self-center">
+                  <button
+                    type="button"
+                    class="rounded-md border border-[#304247] bg-[#10191d] px-3 py-1.5 text-xs font-semibold text-[#dea34c] transition-colors group-hover:border-[#dea34c] group-hover:bg-[#1f2e34]"
+                  >
+                    @if (item.status === 'concluido') {
+                      <span>Ver Análise →</span>
+                    } @else if (item.status === 'processando') {
+                      <span>Acompanhar ⏳</span>
+                    } @else if (item.status === 'falhou') {
+                      <span>Reprocessar 🔄</span>
+                    } @else {
+                      <span>Acompanhar ⏱️</span>
+                    }
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        }
       </section>
     }
 

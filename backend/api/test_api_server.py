@@ -569,7 +569,90 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         self.assertIn("Siciliana", dados["resumo"]["narrativa"])
         self.assertEqual(len(dados["resumo"]["pontos_criticos"]), 1)
 
+    def test_listar_partidas_recentes_sem_api_key_recebe_401(self) -> None:
+        resposta = self.client.get("/partidas/recentes")
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_listar_partidas_recentes_sucesso(self) -> None:
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [
+            {
+                "id": "p-1",
+                "external_id": "ext-1",
+                "status_processamento": "processando",
+                "cor_jogada": "BRANCAS",
+                "resultado": "VITORIA",
+                "eco_abertura": "B90",
+                "data_partida": "2024-06-15",
+                "created_at": "2026-09-10T01:58:29.165Z",
+                "pgn": '[White "hirano28"]\n[Black "oponente"]\n\n1. e4 c5',
+            }
+        ]
+        mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/partidas/recentes",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 200)
+        itens = resposta.json()
+        self.assertEqual(len(itens), 1)
+        self.assertEqual(itens[0]["partida_id"], "p-1")
+        self.assertEqual(itens[0]["status"], "processando")
+        self.assertEqual(itens[0]["jogadores"], "hirano28 vs oponente")
+        self.assertEqual(itens[0]["eco_abertura"], "B90")
+
+    def test_reprocessar_sem_api_key_recebe_401(self) -> None:
+        resposta = self.client.post("/partidas/p123/reprocessar")
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_reprocessar_partida_inexistente_recebe_404(self) -> None:
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = []
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post(
+            "/partidas/inexistente/reprocessar",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 404)
+
+    @patch("backend.api.api_server.update_status")
+    @patch("backend.api.api_server.executar_pipeline_partida")
+    @patch("backend.api.api_server.load_analysis_settings")
+    @patch("backend.api.api_server.load_linter_settings")
+    def test_reprocessar_partida_existente_agenda_background_task(
+        self,
+        mock_linter_settings: MagicMock,
+        mock_analysis_settings: MagicMock,
+        mock_executar: MagicMock,
+        mock_update: MagicMock,
+    ) -> None:
+        mock_analysis_settings.return_value = MagicMock()
+        mock_linter_settings.return_value = MagicMock()
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [{"id": "p-existente", "external_id": "ext-existente"}]
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post(
+            "/partidas/p-existente/reprocessar",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 202)
+        dados = resposta.json()
+        self.assertEqual(dados["partida_id"], "p-existente")
+        self.assertEqual(dados["external_id"], "ext-existente")
+        mock_update.assert_called_with(mock_client, "p-existente", "processando")
+        mock_executar.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

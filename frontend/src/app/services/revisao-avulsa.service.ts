@@ -164,6 +164,25 @@ export interface ConsultarStatusPartidaResult {
   chaveInvalida?: boolean;
 }
 
+export interface PartidaRecenteItem {
+  partida_id: string;
+  external_id?: string | null;
+  status: 'pendente' | 'processando' | 'concluido' | 'falhou';
+  cor_jogada?: string | null;
+  resultado?: string | null;
+  eco_abertura?: string | null;
+  data_partida?: string | null;
+  created_at?: string | null;
+  jogadores?: string | null;
+}
+
+export interface ListarPartidasRecentesResult {
+  success: boolean;
+  partidas?: PartidaRecenteItem[];
+  error?: string;
+  chaveInvalida?: boolean;
+}
+
 const MENSAGEM_SERVIDOR_OFFLINE =
   'Não foi possível conectar ao servidor local. Confirme que ele está rodando ' +
   '(uvicorn backend.api.api_server:app --port 8000).';
@@ -273,6 +292,48 @@ export class RevisaoAvulsaService {
       return { success: false, error: this.mensagemDeErro(cause) };
     }
   }
+
+  async listarPartidasRecentes(limite: number = 20): Promise<ListarPartidasRecentesResult> {
+    try {
+      const partidas = await firstValueFrom(
+        this.http.get<PartidaRecenteItem[]>(
+          `${environment.apiLocalUrl}/partidas/recentes?limite=${limite}`,
+          { headers: this.headersComChave() }
+        )
+      );
+      return { success: true, partidas };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        this.authLocalService.clearKey();
+        return { success: false, error: MENSAGEM_CHAVE_INVALIDA, chaveInvalida: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  async reprocessarPartida(partidaId: string): Promise<SubmeterPartidaResult> {
+    try {
+      const resposta = await firstValueFrom(
+        this.http.post<{ partida_id: string; external_id: string }>(
+          `${environment.apiLocalUrl}/partidas/${partidaId}/reprocessar`,
+          {},
+          { headers: this.headersComChave() }
+        )
+      );
+      return {
+        success: true,
+        partidaId: resposta.partida_id,
+        externalId: resposta.external_id
+      };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        this.authLocalService.clearKey();
+        return { success: false, error: MENSAGEM_CHAVE_INVALIDA, chaveInvalida: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
 
   async salvar(
     avaliacao: AvaliacaoSequenciaItem,

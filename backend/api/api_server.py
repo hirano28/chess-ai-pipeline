@@ -9,6 +9,7 @@ interativo foi alterado; ele continua funcionando standalone.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import threading
 from datetime import datetime, timezone
@@ -203,6 +204,31 @@ class ResumoPartidaResponse(BaseModel):
     external_id: str | None = None
     status: str
     resumo: dict[str, Any] | None = None
+
+
+class PartidaRecenteItem(BaseModel):
+    """Item resumido do histórico de análises de partidas."""
+
+    partida_id: str
+    external_id: str | None = None
+    status: str
+    cor_jogada: str | None = None
+    resultado: str | None = None
+    eco_abertura: str | None = None
+    data_partida: str | None = None
+    created_at: str | None = None
+    jogadores: str | None = None
+
+
+def extrair_jogadores_pgn(pgn_text: str | None) -> str:
+    """Extrai nomes dos jogadores do cabeçalho PGN (ex: 'White vs Black')."""
+    if not pgn_text:
+        return "Partida Manual"
+    w_match = re.search(r'\[White\s+"([^"]+)"\]', pgn_text)
+    b_match = re.search(r'\[Black\s+"([^"]+)"\]', pgn_text)
+    w_name = w_match.group(1).strip() if w_match else "Brancas"
+    b_name = b_match.group(1).strip() if b_match else "Pretas"
+    return f"{w_name} vs {b_name}"
 
 
 def _parse_api_keys(raw: str) -> dict[str, str]:
@@ -535,6 +561,98 @@ def obter_resumo_partida_endpoint(partida_id: str) -> ResumoPartidaResponse:
         status=status_proc,
         resumo=resumo_dados,
     )
+
+
+@app.get(
+    "/partidas/recentes",
+    response_model=list[PartidaRecenteItem],
+    dependencies=[Depends(verificar_api_key)],
+)
+def listar_partidas_recentes(limite: int = 20) -> list[PartidaRecenteItem]:
+    """Retorna o histórico de partidas analisadas manualmente."""
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resp = (
+            client.table("partidas")
+            .select(
+                "id, external_id, status_processamento, cor_jogada, resultado, "
+                "eco_abertura, data_partida, created_at, pgn"
+            )
+            .eq("plataforma", "MANUAL")
+            .order("created_at", desc=True)
+            .limit(min(limite, 50))
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar histórico de partidas: {error}"
+        ) from error
+
+    itens: list[PartidaRecenteItem] = []
+    for row in resp.data or []:
+        itens.append(
+            PartidaRecenteItem(
+                partida_id=row["id"],
+                external_id=row.get("external_id"),
+                status=row.get("status_processamento", "pendente"),
+                cor_jogada=row.get("cor_jogada"),
+                resultado=row.get("resultado"),
+                eco_abertura=row.get("eco_abertura"),
+                data_partida=row.get("data_partida"),
+                created_at=row.get("created_at"),
+                jogadores=extrair_jogadores_pgn(row.get("pgn")),
+            )
+        )
+    return itens
+
+
+@app.post(
+    "/partidas/{partida_id}/reprocessar",
+    status_code=202,
+    response_model=AnalisarPgnResponse,
+    dependencies=[Depends(verificar_api_key)],
+)
+def reprocessar_partida_endpoint(
+    partida_id: str,
+    background_tasks: BackgroundTasks,
+) -> AnalisarPgnResponse:
+    """Re-agenda a análise completa de uma partida já existente em segundo plano."""
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resp = (
+            client.table("partidas")
+            .select("id, external_id")
+            .eq("id", partida_id)
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar partida: {error}"
+        ) from error
+
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Partida não encontrada.")
+
+    row = resp.data[0]
+    external_id = row.get("external_id") or ""
+
+    try:
+        update_status(client, partida_id, "processando")
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao atualizar status da partida: {error}"
+        ) from error
+
+    background_tasks.add_task(_executar_analise_pgn_background, partida_id)
+
+    return AnalisarPgnResponse(partida_id=partida_id, external_id=external_id)
+
 
 
 @app.get("/guia-passos")
