@@ -48,6 +48,13 @@ export interface ReconhecerPosicaoResult {
   chaveInvalida?: boolean;
 }
 
+export interface ResolverFenResult {
+  success: boolean;
+  fen?: string;
+  error?: string;
+  chaveInvalida?: boolean;
+}
+
 export interface SalvarAvulsaResult {
   success: boolean;
   error?: string;
@@ -235,6 +242,28 @@ export class RevisaoAvulsaService {
           formData,
           { headers: this.headersComChave() }
         )
+      );
+      return { success: true, fen: resposta.fen };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        this.authLocalService.clearKey();
+        return { success: false, error: MENSAGEM_CHAVE_INVALIDA, chaveInvalida: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  /**
+   * Resolve FEN/PGN para o FEN final - só parsing local (GET /resolver-fen), sem
+   * Gemini nem Stockfish. Usado para a pré-visualização do tabuleiro em tempo real.
+   */
+  async resolverFen(posicao: string): Promise<ResolverFenResult> {
+    try {
+      const resposta = await firstValueFrom(
+        this.http.get<{ fen: string }>(`${environment.apiLocalUrl}/resolver-fen`, {
+          params: { posicao },
+          headers: this.headersComChave()
+        })
       );
       return { success: true, fen: resposta.fen };
     } catch (cause: unknown) {

@@ -163,6 +163,12 @@ class SalvarAvulsoRequest(BaseModel):
     texto_pensamento: str
 
 
+class ResolverFenResponse(BaseModel):
+    """Resposta com o FEN final resolvido a partir de uma FEN ou PGN."""
+
+    fen: str
+
+
 class ExplicarPosicaoRequest(BaseModel):
     """Payload para requisição de explicação didática da posição."""
 
@@ -420,6 +426,27 @@ def revisar_avulso(payload: RevisarAvulsoRequest) -> RevisarAvulsoResponse:
         ) from error
 
     return RevisarAvulsoResponse(**resultado)
+
+
+@app.get(
+    "/resolver-fen",
+    response_model=ResolverFenResponse,
+    dependencies=[Depends(verificar_api_key)],
+)
+def resolver_fen_endpoint(posicao: str) -> ResolverFenResponse:
+    """Converte uma FEN ou PGN em FEN final - só parsing local (sem Gemini/Stockfish).
+
+    Reaproveita resolver_posicao (mesma usada por /revisar-avulso) para que o
+    frontend possa pré-visualizar o tabuleiro enquanto o usuário digita, sem
+    o custo/latência de uma chamada real ao motor ou ao LLM.
+    """
+
+    try:
+        board = resolver_posicao(posicao)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return ResolverFenResponse(fen=board.fen())
 
 
 @app.post("/revisar-avulso/salvar", dependencies=[Depends(verificar_api_key)])

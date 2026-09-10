@@ -1,20 +1,30 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged, from, switchMap } from 'rxjs';
 import {
   GuiaPasso,
   ResultadoRevisaoAvulsa,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
 import { AuthLocalService } from '../../services/auth-local.service';
+import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-preview.component';
+
+const DEBOUNCE_PREVIEW_FEN_MS = 600;
 
 @Component({
   selector: 'app-laboratorio-raciocinio',
   standalone: true,
+  imports: [TabuleiroPreviewComponent],
   templateUrl: './laboratorio-raciocinio.component.html'
 })
 export class LaboratorioRaciocinioComponent implements OnInit {
   readonly posicao = signal('');
   readonly lance = signal('');
   readonly pensamento = signal('');
+
+  // Pré-visualização do tabuleiro: atualizada com debounce a partir de `posicao`,
+  // tanto por digitação manual quanto pelo preenchimento via reconhecimento de foto.
+  readonly fenPreview = signal('');
 
   readonly carregando = signal(false);
   readonly erro = signal<string | null>(null);
@@ -40,6 +50,40 @@ export class LaboratorioRaciocinioComponent implements OnInit {
 
   get chaveFormularioValido(): boolean {
     return this.chaveInput().trim().length > 0;
+  }
+
+  constructor() {
+    // Observa `posicao` (digitação manual OU preenchimento via foto - mesmo
+    // signal) e resolve o FEN final com debounce, só para alimentar o preview
+    // visual do tabuleiro. Nunca chama Gemini/Stockfish (GET /resolver-fen é
+    // parsing puro), então é seguro disparar a cada mudança "estabilizada".
+    toObservable(this.posicao)
+      .pipe(
+        debounceTime(DEBOUNCE_PREVIEW_FEN_MS),
+        distinctUntilChanged(),
+        switchMap((valor) => from(this.resolverFenParaPreview(valor))),
+        takeUntilDestroyed()
+      )
+      .subscribe();
+  }
+
+  private async resolverFenParaPreview(valor: string): Promise<void> {
+    const texto = valor.trim();
+    if (!texto) {
+      this.fenPreview.set('');
+      return;
+    }
+
+    const resposta = await this.revisaoAvulsaService.resolverFen(texto);
+    if (resposta.chaveInvalida) {
+      this.tratarChaveInvalida();
+      return;
+    }
+    if (resposta.success && resposta.fen) {
+      this.fenPreview.set(resposta.fen);
+    }
+    // Posição inválida/incompleta (ainda digitando): não mexe no preview -
+    // mantém o último tabuleiro válido em tela, sem mostrar erro nenhum.
   }
 
   async ngOnInit(): Promise<void> {
@@ -189,6 +233,7 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     this.salvo.set(false);
     this.erroReconhecimento.set(null);
     this.avisoConferirPosicao.set(false);
+    this.fenPreview.set('');
   }
 
   corBadgeQualidadeLance(qualidade: string): string {

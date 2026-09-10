@@ -244,6 +244,55 @@ class ResolverApiKeysTest(unittest.TestCase):
                 api_server._resolver_api_keys()
 
 
+class ResolverFenEndpointTest(unittest.TestCase):
+    """Testes do endpoint GET /resolver-fen (só parsing, sem Gemini/Stockfish)."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_sem_api_key_recebe_401(self) -> None:
+        resposta = self.client.get(
+            "/resolver-fen",
+            params={"posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"},
+        )
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_fen_direta_retorna_a_mesma_posicao(self) -> None:
+        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        resposta = self.client.get(
+            "/resolver-fen",
+            params={"posicao": fen},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json(), {"fen": fen})
+
+    def test_pgn_valido_retorna_fen_final(self) -> None:
+        resposta = self.client.get(
+            "/resolver-fen",
+            params={"posicao": "1. e4 e5 2. Nf3 Nc6"},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(
+            resposta.json()["fen"],
+            "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+        )
+
+    def test_posicao_invalida_recebe_400(self) -> None:
+        resposta = self.client.get(
+            "/resolver-fen",
+            params={"posicao": "isso nao e uma posicao valida"},
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 400)
+
+
 class ExplicarPosicaoEndpointTest(unittest.TestCase):
     def setUp(self) -> None:
         api_server._state.clear()

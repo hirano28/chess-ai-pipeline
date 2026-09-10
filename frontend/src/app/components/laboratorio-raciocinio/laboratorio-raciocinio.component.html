@@ -94,6 +94,8 @@
           [disabled]="carregando() || reconhecendoImagem()"
           (input)="posicao.set($any($event.target).value)"
         ></textarea>
+
+        <app-tabuleiro-preview class="mt-3 block" [fen]="fenPreview()" />
       </div>
 
       <div class="mb-5">

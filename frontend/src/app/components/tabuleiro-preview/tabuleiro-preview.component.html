@@ -1,0 +1,23 @@
+<div
+  class="mx-auto grid w-full max-w-[320px] grid-cols-8 overflow-hidden rounded-md border border-[#40565c]"
+>
+  @for (casa of casas; track $index) {
+    <div
+      class="flex aspect-square items-center justify-center p-0.5"
+      [class]="casa.clara ? 'bg-[#f0d9b5]' : 'bg-[#b58863]'"
+    >
+      @if (casa.peca) {
+        <img
+          [src]="piecesBaseUrl + '/' + casa.peca + '.svg'"
+          [alt]="casa.peca"
+          class="h-full w-full select-none"
+          draggable="false"
+        />
+      }
+    </div>
+  }
+</div>
+
+<p class="mx-auto mt-2 max-w-[320px] text-center text-[10px] leading-tight text-[#5b706d]">
+  Peças: conjunto cburnett, Colin M.L. Burnett (CC-BY-SA/GPL)
+</p>
