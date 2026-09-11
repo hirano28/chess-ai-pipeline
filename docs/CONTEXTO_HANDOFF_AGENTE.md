@@ -80,8 +80,11 @@ Scripts Python em `backend/`, sem servidor HTTP — são executados via linha de
 - ✅ Deploy contínuo automático: Cloud Run (backend) via GitHub Actions + Vercel (frontend).
 - ✅ Explicador de Posição: backend com Stockfish Win% e Gemini anti-alucinação + frontend Angular em `/explicador`.
 - ✅ Resumo Narrativo de Partida: `gerar_resumo_partida.py` e tabela `resumo_partida`.
-- ✅ Orquestrador de PGN Avulso: `analisar_pgn_avulso.py` rodando o pipeline ponta a ponta (Stockfish -> Diagnóstico -> Resumo) para uma única partida e exibindo no terminal.
-- ✅ Suíte de 172 testes unitários passando.
+- ✅ Orquestrador de PGN Avulso: `analisar_pgn_avulso.py` rodando o pipeline ponta a ponta (Stockfish -> Diagnóstico -> Resumo).
+- ✅ Endpoints de Análise de Partida: `POST /analisar-pgn` (assíncrono com BackgroundTasks), `GET /partidas/{partida_id}/resumo`, `GET /partidas/recentes` (histórico) e `POST /partidas/{partida_id}/reprocessar`.
+- ✅ Analisador de Partida no Frontend: tela `/analisador` com input de PGN, progresso em tempo real, card de histórico, persistência via `localStorage` (recuperação pós-F5), reprocessamento com 1 clique e exibição do momento-chave estratégico.
+- ✅ Infraestrutura Cloud Run: alocação de 2 GiB de memória e 2 vCPUs com `--no-cpu-throttling`, corrigindo OOM e congelamento de CPU durante a análise com Stockfish.
+- ✅ Suíte de testes: 219 testes unitários de backend + 27 testes unitários de frontend (Vitest) passando 100%.
 
 ## 6. Pendências conhecidas (não esqueça)
 
