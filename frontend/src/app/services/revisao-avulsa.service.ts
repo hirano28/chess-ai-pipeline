@@ -61,6 +61,28 @@ export interface ResolverFenResult {
 
 export interface SalvarAvulsaResult {
   success: boolean;
+  /** id da linha criada em revisao_exercicio_avulso; usado para marcar o exercício como "ativo" no histórico. */
+  id?: string;
+  error?: string;
+  chaveInvalida?: boolean;
+}
+
+export interface RevisaoAvulsaRecenteItem {
+  id: string;
+  fen: string;
+  lance_jogado: string;
+  melhor_lance: string | null;
+  queda_win_percent: number | null;
+  texto_pensamento: string | null;
+  qualidade_lance: string | null;
+  qualidade_raciocinio: string | null;
+  feedback_texto: string | null;
+  created_at: string | null;
+}
+
+export interface ListarRevisoesAvulsasRecentesResult {
+  success: boolean;
+  itens?: RevisaoAvulsaRecenteItem[];
   error?: string;
   chaveInvalida?: boolean;
 }
@@ -131,6 +153,8 @@ export interface ExplicacaoPosicaoData {
 }
 
 export interface ResultadoExplicadorPosicao {
+  /** id da linha criada em explicacoes_posicao; ausente se a persistência falhar no servidor. */
+  id?: string | null;
   fen: string;
   lado_a_jogar: string;
   lado_analisado: string;
@@ -144,6 +168,22 @@ export interface ResultadoExplicadorPosicao {
 export interface ExplicarPosicaoResult {
   success: boolean;
   resultado?: ResultadoExplicadorPosicao;
+  error?: string;
+  chaveInvalida?: boolean;
+}
+
+export interface ExplicacaoPosicaoRecenteItem {
+  id: string;
+  fen: string;
+  lado_analisado: string | null;
+  created_at: string | null;
+  /** Resposta completa (mesmo shape de ResultadoExplicadorPosicao) - dá pra restaurar sem outra chamada. */
+  resultado: ResultadoExplicadorPosicao;
+}
+
+export interface ListarExplicacoesRecentesResult {
+  success: boolean;
+  itens?: ExplicacaoPosicaoRecenteItem[];
   error?: string;
   chaveInvalida?: boolean;
 }
@@ -373,6 +413,46 @@ export class RevisaoAvulsaService {
     }
   }
 
+  /** Histórico de explicações de posição já geradas (mesmo padrão de listarPartidasRecentes). */
+  async listarExplicacoesRecentes(limite: number = 20): Promise<ListarExplicacoesRecentesResult> {
+    try {
+      const itens = await firstValueFrom(
+        this.http.get<ExplicacaoPosicaoRecenteItem[]>(
+          `${environment.apiLocalUrl}/explicacoes-posicao/recentes?limite=${limite}`,
+          { headers: this.headersComChave() }
+        )
+      );
+      return { success: true, itens };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        this.authLocalService.clearKey();
+        return { success: false, error: MENSAGEM_CHAVE_INVALIDA, chaveInvalida: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  /** Histórico de exercícios avulsos já salvos manualmente (mesmo padrão de listarPartidasRecentes). */
+  async listarRevisoesAvulsasRecentes(
+    limite: number = 20
+  ): Promise<ListarRevisoesAvulsasRecentesResult> {
+    try {
+      const itens = await firstValueFrom(
+        this.http.get<RevisaoAvulsaRecenteItem[]>(
+          `${environment.apiLocalUrl}/revisoes-avulsas/recentes?limite=${limite}`,
+          { headers: this.headersComChave() }
+        )
+      );
+      return { success: true, itens };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        this.authLocalService.clearKey();
+        return { success: false, error: MENSAGEM_CHAVE_INVALIDA, chaveInvalida: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
   async reprocessarPartida(partidaId: string): Promise<SubmeterPartidaResult> {
     try {
       const resposta = await firstValueFrom(
@@ -403,14 +483,14 @@ export class RevisaoAvulsaService {
     textoPensamento: string
   ): Promise<SalvarAvulsaResult> {
     try {
-      await firstValueFrom(
-        this.http.post(
+      const resposta = await firstValueFrom(
+        this.http.post<{ status: string; id?: string }>(
           `${environment.apiLocalUrl}/revisar-avulso/salvar`,
           { ...avaliacao, fen, texto_pensamento: textoPensamento },
           { headers: this.headersComChave() }
         )
       );
-      return { success: true };
+      return { success: true, id: resposta.id };
     } catch (cause: unknown) {
       if (this.isUnauthorized(cause)) {
         this.authLocalService.clearKey();

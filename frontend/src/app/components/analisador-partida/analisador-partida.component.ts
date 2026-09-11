@@ -1,4 +1,4 @@
-import { Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   PartidaRecenteItem,
@@ -6,6 +6,10 @@ import {
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
 import { AuthLocalService } from '../../services/auth-local.service';
+import {
+  HistoricoAnaliseComponent,
+  HistoricoAnaliseItem
+} from '../historico-analise/historico-analise.component';
 
 export const STORAGE_KEY_PARTIDA_ATIVA = 'chess_analisador_partida_ativa';
 
@@ -19,7 +23,7 @@ export type EstadoAnalise =
 @Component({
   selector: 'app-analisador-partida',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, HistoricoAnaliseComponent],
   templateUrl: './analisador-partida.component.html'
 })
 export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
@@ -36,6 +40,29 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
   // Histórico de análises
   readonly historico = signal<PartidaRecenteItem[]>([]);
   readonly carregandoHistorico = signal(false);
+
+  /** Mapeia PartidaRecenteItem -> HistoricoAnaliseItem para o componente genérico de histórico. */
+  readonly itensHistoricoComponent = computed<HistoricoAnaliseItem[]>(() =>
+    this.historico().map((item) => {
+      const detalhes: string[] = [];
+      if (item.cor_jogada) {
+        detalhes.push(`Cor: ${item.cor_jogada === 'BRANCAS' ? 'Brancas ♔' : 'Pretas ♚'}`);
+      }
+      if (item.eco_abertura) {
+        detalhes.push(`ECO: ${item.eco_abertura}`);
+      }
+      if (item.resultado) {
+        detalhes.push(item.resultado);
+      }
+      return {
+        id: item.partida_id,
+        titulo: item.jogadores || 'Partida Manual',
+        detalhes,
+        dataIso: item.created_at,
+        status: item.status
+      };
+    })
+  );
 
   private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
   private readonly authLocalService = inject(AuthLocalService);
@@ -322,21 +349,6 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
 
   formatarTag(tag: string): string {
     return tag.replace(/_/g, ' ').toUpperCase();
-  }
-
-  formatarData(iso?: string | null): string {
-    if (!iso) return '';
-    try {
-      const d = new Date(iso);
-      return d.toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return iso;
-    }
   }
 }
 

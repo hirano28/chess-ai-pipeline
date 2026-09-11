@@ -49,6 +49,7 @@ from backend.agentes.analisar_pgn_avulso import (  # noqa: E402
 from backend.agentes.explicador_posicao import (  # noqa: E402
     ExplicacaoPosicao,
     explicar_posicao,
+    salvar_explicacao_posicao,
 )
 from backend.agentes.revisar_exercicio_avulso import (  # noqa: E402
     EngineIndisponivelError,
@@ -168,6 +169,33 @@ class SalvarAvulsoRequest(BaseModel):
     texto_pensamento: str
 
 
+class SalvarAvulsoResponse(BaseModel):
+    """Confirmação de que o exercício foi salvo, com o id da linha criada."""
+
+    status: str
+    id: str | None = None
+
+
+class RevisaoAvulsaRecenteItem(BaseModel):
+    """Item do histórico de exercícios avulsos já salvos manualmente pelo usuário.
+
+    Espelha 1:1 as colunas persistidas por salvar_exercicio() em
+    revisao_exercicio_avulso - não há campos além destes porque o schema não
+    guarda top_candidatos/analise_mestre/checklist_rotina/lance_interpretado.
+    """
+
+    id: str
+    fen: str
+    lance_jogado: str
+    melhor_lance: str | None = None
+    queda_win_percent: float | None = None
+    texto_pensamento: str | None = None
+    qualidade_lance: str | None = None
+    qualidade_raciocinio: str | None = None
+    feedback_texto: str | None = None
+    created_at: str | None = None
+
+
 class ResolverFenResponse(BaseModel):
     """Resposta com o FEN final resolvido a partir de uma FEN ou PGN."""
 
@@ -210,6 +238,9 @@ class RefutacaoDefesaItem(BaseModel):
 class ExplicarPosicaoResponse(BaseModel):
     """Resposta estruturada do explicador de posição."""
 
+    # id da linha criada em explicacoes_posicao (None se a persistência falhar -
+    # a explicação em si ainda é devolvida normalmente, ver explicar_posicao_endpoint).
+    id: str | None = None
     fen: str
     lado_a_jogar: str
     lado_analisado: str
@@ -218,6 +249,22 @@ class ExplicarPosicaoResponse(BaseModel):
     refutacao_defesa: RefutacaoDefesaItem | None = None
     elementos_posicionais: dict[str, Any]
     explicacao: ExplicacaoPosicao
+
+
+class ExplicacaoPosicaoRecenteItem(BaseModel):
+    """Item do histórico de explicações de posição já geradas.
+
+    'resultado' embute a resposta completa (mesmo shape de
+    ExplicarPosicaoResponse), então restaurar um item do histórico no
+    frontend não precisa de uma segunda chamada "buscar por id" - a linha já
+    tem tudo o que a tela de resultado precisa para renderizar de novo.
+    """
+
+    id: str
+    fen: str
+    lado_analisado: str | None = None
+    created_at: str | None = None
+    resultado: dict[str, Any]
 
 
 class AnalisarPgnRequest(BaseModel):
@@ -454,8 +501,12 @@ def resolver_fen_endpoint(posicao: str) -> ResolverFenResponse:
     return ResolverFenResponse(fen=board.fen())
 
 
-@app.post("/revisar-avulso/salvar", dependencies=[Depends(verificar_api_key)])
-def revisar_avulso_salvar(payload: SalvarAvulsoRequest) -> dict[str, str]:
+@app.post(
+    "/revisar-avulso/salvar",
+    response_model=SalvarAvulsoResponse,
+    dependencies=[Depends(verificar_api_key)],
+)
+def revisar_avulso_salvar(payload: SalvarAvulsoRequest) -> SalvarAvulsoResponse:
     """Persiste um exercício já revisado em revisao_exercicio_avulso."""
 
     resultado = {
@@ -467,7 +518,7 @@ def revisar_avulso_salvar(payload: SalvarAvulsoRequest) -> dict[str, str]:
         "feedback_texto": payload.feedback_texto,
     }
     try:
-        salvar_exercicio(
+        novo_id = salvar_exercicio(
             _state["supabase_client"], payload.fen, payload.texto_pensamento, resultado
         )
     except Exception as error:
@@ -475,7 +526,39 @@ def revisar_avulso_salvar(payload: SalvarAvulsoRequest) -> dict[str, str]:
             status_code=500, detail=f"Falha ao salvar o exercício: {error}"
         ) from error
 
-    return {"status": "salvo"}
+    return SalvarAvulsoResponse(status="salvo", id=novo_id)
+
+
+@app.get(
+    "/revisoes-avulsas/recentes",
+    response_model=list[RevisaoAvulsaRecenteItem],
+    dependencies=[Depends(verificar_api_key)],
+)
+def listar_revisoes_avulsas_recentes(limite: int = 20) -> list[RevisaoAvulsaRecenteItem]:
+    """Retorna o histórico de exercícios avulsos já salvos manualmente (revisao_exercicio_avulso)."""
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resp = (
+            client.table("revisao_exercicio_avulso")
+            .select(
+                "id, fen, lance_jogado, melhor_lance, queda_win_percent, "
+                "texto_pensamento, qualidade_lance, qualidade_raciocinio, "
+                "feedback_texto, created_at"
+            )
+            .order("created_at", desc=True)
+            .limit(min(limite, 50))
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falha ao consultar histórico de exercícios avulsos: {error}",
+        ) from error
+
+    return [RevisaoAvulsaRecenteItem(**row) for row in resp.data or []]
 
 
 @app.post(
@@ -507,7 +590,46 @@ def explicar_posicao_endpoint(
             detail=f"Falha ao processar explicação da posição: {error}",
         ) from error
 
+    # Persistência é um efeito colateral, não o contrato principal do endpoint:
+    # se salvar falhar, o usuário ainda recebe a explicação que pediu (só sem
+    # id, então o frontend não marca este resultado como "ativo" no histórico).
+    try:
+        resultado["id"] = salvar_explicacao_posicao(_state["supabase_client"], resultado)
+    except Exception as error:
+        logger = _state.get("logger")
+        if logger:
+            logger.warning("Falha ao salvar explicação de posição; seguindo sem persistir. %s", error)
+        resultado["id"] = None
+
     return ExplicarPosicaoResponse(**resultado)
+
+
+@app.get(
+    "/explicacoes-posicao/recentes",
+    response_model=list[ExplicacaoPosicaoRecenteItem],
+    dependencies=[Depends(verificar_api_key)],
+)
+def listar_explicacoes_recentes(limite: int = 20) -> list[ExplicacaoPosicaoRecenteItem]:
+    """Retorna o histórico de explicações de posição já geradas (explicacoes_posicao)."""
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resp = (
+            client.table("explicacoes_posicao")
+            .select("id, fen, lado_analisado, resultado, created_at")
+            .order("created_at", desc=True)
+            .limit(min(limite, 50))
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falha ao consultar histórico de explicações: {error}",
+        ) from error
+
+    return [ExplicacaoPosicaoRecenteItem(**row) for row in resp.data or []]
 
 
 @app.post(

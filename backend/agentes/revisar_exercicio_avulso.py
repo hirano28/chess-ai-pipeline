@@ -589,22 +589,33 @@ def salvar_exercicio(
     fen: str,
     texto_pensamento: str,
     resultado: dict[str, Any],
-) -> None:
-    """Insere o exercício avulso revisado em revisao_exercicio_avulso."""
+) -> str | None:
+    """Insere o exercício avulso revisado em revisao_exercicio_avulso.
 
-    client.table("revisao_exercicio_avulso").insert(
-        {
-            "fen": fen,
-            "lance_jogado": resultado["lance_jogado"],
-            "melhor_lance": resultado["melhor_lance"],
-            "queda_win_percent": resultado["queda_win_percent"],
-            "texto_pensamento": texto_pensamento,
-            "qualidade_lance": resultado["qualidade_lance"],
-            "qualidade_raciocinio": resultado["qualidade_raciocinio"],
-            "feedback_texto": resultado["feedback_texto"],
-            "origem": "GUESS_THE_MOVE",
-        }
-    ).execute()
+    Retorna o id da linha criada (usado pelo frontend para marcar o exercício
+    salvo como o "item ativo" no histórico, sobrevivendo a um F5), ou None se
+    a resposta do Supabase não trouxer o id por algum motivo inesperado.
+    """
+
+    resposta = (
+        client.table("revisao_exercicio_avulso")
+        .insert(
+            {
+                "fen": fen,
+                "lance_jogado": resultado["lance_jogado"],
+                "melhor_lance": resultado["melhor_lance"],
+                "queda_win_percent": resultado["queda_win_percent"],
+                "texto_pensamento": texto_pensamento,
+                "qualidade_lance": resultado["qualidade_lance"],
+                "qualidade_raciocinio": resultado["qualidade_raciocinio"],
+                "feedback_texto": resultado["feedback_texto"],
+                "origem": "GUESS_THE_MOVE",
+            }
+        )
+        .execute()
+    )
+    linhas = resposta.data or []
+    return linhas[0]["id"] if linhas else None
 
 
 def executar_um_exercicio(

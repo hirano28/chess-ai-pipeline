@@ -1,4 +1,13 @@
+---
+doc: ROADMAP_EVOLUCAO.md
+escopo: plano de evolução por fases e o raciocínio de priorização
+nao_contem: status de execução nem contagens (ver ESTADO.md) — este arquivo é o plano, não o estado
+verificado_em: 2026-09-11
+---
+
 # Roadmap de Evolução — Do Diagnóstico por Blunder ao Diagnóstico Multidimensional
+
+O que já foi executado de cada fase está em `ESTADO.md`, não aqui.
 
 Consolidação das duas pesquisas em fases executáveis, na ordem de melhor custo-benefício (mais barato e maior impacto primeiro). Numeração continua a partir da Fase 11 (loop adaptativo) do guia original.
 
@@ -10,20 +19,6 @@ Consolidação das duas pesquisas em fases executáveis, na ordem de melhor cust
 2. **Fase 14** adiciona a coleta que falta e é barata (relógio já vem no PGN).
 3. **Fase 15** é a peça mais inovadora (ninguém documentado faz isso) — captura de pensamento via Lichess Studies.
 4. **Fases 16-17** são enriquecimento incremental, podem esperar.
-
----
-
-## Status geral (atualizado em 07/09/2026)
-
-- ✅ **Fase 12 concluída e validada matematicamente.** Testes confirmam a curva de Win% batendo com os valores públicos do Lichess (cp 300 → ~75%, 800 → ~95%), e a comparação de queda em posição equilibrada vs. já ganha confirma o objetivo (16,4 pontos percentuais de diferença).
-- ✅ **Fase 13 concluída e validada com 2 partidas reais anotadas manualmente** (`cwrI5a8c` e `AmxiZxvj`). Achados-chave:
-  - Confirmado: erros de processo que o próprio jogador identificou (ex: xeque não visto, ameaça percebida tarde) ficam **invisíveis** para o critério de gravidade isolada — só a erosão ou a própria anotação os capturam.
-  - Bug real encontrado e corrigido: o prompt do Agente 1 aplicado a eventos `EROSAO` inicialmente invertia a perspectiva (atribuía lances do próprio jogador ao oponente) e citava lances fora da janela. Corrigido com prompt dedicado (`build_erosion_prompt`), roteado por `tipo_evento`.
-  - **Achado revisado após consulta direta ao banco (mesma data):** `falta_de_coordenacao_de_pecas` **já fazia parte do vocabulário controlado de 16 tags** desde a Fase 5 — não era uma tag nova "vazando" do controle do LLM, só estava sub-utilizada (34 ocorrências em 458 diagnósticos, a 10ª mais comum das 15 tags já vistas). A Fase 13 (erosão) foi o mecanismo que trouxe à tona um padrão que já tinha nome certo à espera. **Nenhuma tag nova precisa ser criada.**
-- **Confirmado por consulta direta:** a única tag das 16 com **zero ocorrências em 458 diagnósticos** é `gestao_de_tempo_ruim` — 100% explicado pela ausência do dado de relógio (não coletamos isso ainda), reforçando a prioridade da Fase 15.
-- 🆕 **Achado que muda a Fase 14/15:** o próprio Lichess já calcula precisão/erros por fase (abertura/meio-jogo/final) e tem gráfico de tempo por lance com a curva de avaliação sobreposta ("Análise do computador" + "Tempo por movimento" na interface). Isso é exposto via API (`GET /game/export/{id}?evals=1&accuracy=1&clocks=1&division=1`, formato JSON) — não precisamos recalcular isso do zero com nosso próprio Stockfish, só consumir o que já existe pronto. Fases 14 e 15 abaixo foram ajustadas para refletir isso.
-
-**Ação pendente de decisão:** nenhuma — o vocabulário atual está correto e completo, só faltando dado de relógio para ativar `gestao_de_tempo_ruim` (Fase 15).
 
 ---
 

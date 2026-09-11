@@ -886,3 +886,28 @@ def explicar_posicao(
         "elementos_posicionais": elementos,
         "explicacao": explicacao.model_dump(),
     }
+
+
+def salvar_explicacao_posicao(client: Any, resultado: dict[str, Any]) -> str | None:
+    """Persiste o resultado completo de explicar_posicao() em explicacoes_posicao.
+
+    Fecha a pendência P-10 (ESTADO.md): antes desta função, nenhuma explicação
+    gerada era salva. 'resultado' é o dict inteiro devolvido por
+    explicar_posicao() e é gravado por completo em jsonb - fen e lado_analisado
+    também viram colunas próprias só para filtrar/exibir sem desempacotar o
+    jsonb. Retorna o id da linha criada, ou None se a resposta não trouxer id.
+    """
+
+    resposta = (
+        client.table("explicacoes_posicao")
+        .insert(
+            {
+                "fen": resultado["fen"],
+                "lado_analisado": resultado["lado_analisado"],
+                "resultado": resultado,
+            }
+        )
+        .execute()
+    )
+    linhas = resposta.data or []
+    return linhas[0]["id"] if linhas else None

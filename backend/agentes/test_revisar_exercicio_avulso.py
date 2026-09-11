@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 from typing import Any
+from unittest.mock import MagicMock
 
 import chess
 
@@ -19,6 +20,7 @@ from backend.agentes.revisar_exercicio_avulso import (
     processar_revisao_sequencia,
     resolver_lance_usuario,
     resolver_sequencia_usuario,
+    salvar_exercicio,
 )
 from backend.agentes.revisar_pensamento import CHECKLIST_KEYS, Settings
 
@@ -403,6 +405,56 @@ class ProcessarRevisaoSequenciaTest(unittest.TestCase):
                 ["e4", "e5", "Zz9"],
                 "x",
             )
+
+
+class SalvarExercicioTest(unittest.TestCase):
+    """salvar_exercicio precisa devolver o id da linha criada (usado pelo
+    frontend para marcar o exercício salvo como "ativo" no histórico)."""
+
+    def test_retorna_o_id_da_linha_criada(self) -> None:
+        client = MagicMock()
+        resp = MagicMock()
+        resp.data = [{"id": "exercicio-novo-789"}]
+        client.table.return_value.insert.return_value.execute.return_value = resp
+
+        novo_id = salvar_exercicio(
+            client,
+            chess.Board().fen(),
+            "Abro o centro.",
+            {
+                "lance_jogado": "e4",
+                "melhor_lance": "e4",
+                "queda_win_percent": 0.0,
+                "qualidade_lance": "BOM",
+                "qualidade_raciocinio": "SOLIDO",
+                "feedback_texto": "ok",
+            },
+        )
+
+        self.assertEqual(novo_id, "exercicio-novo-789")
+        client.table.assert_called_once_with("revisao_exercicio_avulso")
+
+    def test_retorna_none_se_resposta_nao_trouxer_dados(self) -> None:
+        client = MagicMock()
+        resp = MagicMock()
+        resp.data = []
+        client.table.return_value.insert.return_value.execute.return_value = resp
+
+        novo_id = salvar_exercicio(
+            client,
+            chess.Board().fen(),
+            "x",
+            {
+                "lance_jogado": "e4",
+                "melhor_lance": "e4",
+                "queda_win_percent": 0.0,
+                "qualidade_lance": "BOM",
+                "qualidade_raciocinio": "SOLIDO",
+                "feedback_texto": "ok",
+            },
+        )
+
+        self.assertIsNone(novo_id)
 
 
 if __name__ == "__main__":

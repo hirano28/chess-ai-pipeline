@@ -331,6 +331,18 @@
         }
       </section>
     }
+
+    <!-- SEÇÃO: Histórico de Explicações Recentes -->
+    @if (chaveConfigurada()) {
+      <app-historico-analise
+        titulo="Histórico de Explicações"
+        [itens]="itensHistoricoComponent()"
+        [carregando]="carregandoHistorico()"
+        mensagemVazio="Nenhuma explicação recente registrada. Cole uma posição acima para gerar a primeira!"
+        (itemClicado)="selecionarHistorico($event)"
+        (atualizarClicado)="carregarHistorico()"
+      />
+    }
   </section>
 </main>
 

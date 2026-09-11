@@ -1,15 +1,24 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { debounceTime, distinctUntilChanged, from, switchMap } from 'rxjs';
 import {
   GuiaPasso,
   ResultadoRevisaoAvulsa,
+  RevisaoAvulsaRecenteItem,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
 import { AuthLocalService } from '../../services/auth-local.service';
 import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-preview.component';
+import {
+  HistoricoAnaliseComponent,
+  HistoricoAnaliseItem
+} from '../historico-analise/historico-analise.component';
+import { urlAnaliseLichess } from '../../shared/lichess';
 
 const DEBOUNCE_PREVIEW_FEN_MS = 600;
+
+/** Chave de localStorage que sobrevive a um F5, mesmo padrão do Analisador de Partida. */
+export const STORAGE_KEY_LABORATORIO_ATIVO = 'chess_laboratorio_ativo';
 
 /** Nome por extensão da inicial em português, para o texto de conferência. */
 const NOME_DA_PECA_PT: Record<string, string> = {
@@ -23,7 +32,7 @@ const NOME_DA_PECA_PT: Record<string, string> = {
 @Component({
   selector: 'app-laboratorio-raciocinio',
   standalone: true,
-  imports: [TabuleiroPreviewComponent],
+  imports: [TabuleiroPreviewComponent, HistoricoAnaliseComponent],
   templateUrl: './laboratorio-raciocinio.component.html'
 })
 export class LaboratorioRaciocinioComponent implements OnInit {
@@ -34,6 +43,10 @@ export class LaboratorioRaciocinioComponent implements OnInit {
   // Pré-visualização do tabuleiro: atualizada com debounce a partir de `posicao`,
   // tanto por digitação manual quanto pelo preenchimento via reconhecimento de foto.
   readonly fenPreview = signal('');
+
+  // Link para abrir a MESMA posição do preview no analisador do Lichess.
+  // Nulo enquanto não houver FEN resolvida — aí o link nem é renderizado.
+  readonly linkLichess = computed(() => urlAnaliseLichess(this.fenPreview()));
 
   readonly carregando = signal(false);
   readonly erro = signal<string | null>(null);
@@ -49,6 +62,28 @@ export class LaboratorioRaciocinioComponent implements OnInit {
   // Resumo leve dos 8 passos do guia (buscado de GET /guia-passos, discreto).
   readonly guiaPassos = signal<GuiaPasso[]>([]);
   readonly guiaAberto = signal(false);
+
+  // Histórico de exercícios avulsos já SALVOS manualmente (revisao_exercicio_avulso).
+  // Diferente do Analisador: o registro salvo não guarda top_candidatos/
+  // analise_mestre/checklist_rotina, então reabrir um item do histórico mostra
+  // um card resumido e somente-leitura (visualizandoHistorico), não o mesmo
+  // card rico de uma análise recém-gerada (resultado).
+  readonly historico = signal<RevisaoAvulsaRecenteItem[]>([]);
+  readonly carregandoHistorico = signal(false);
+  readonly visualizandoHistorico = signal<RevisaoAvulsaRecenteItem | null>(null);
+
+  readonly itensHistoricoComponent = computed<HistoricoAnaliseItem[]>(() =>
+    this.historico().map((item) => ({
+      id: item.id,
+      titulo: `Lance ${item.lance_jogado}`,
+      detalhes: [
+        `Qualidade: ${item.qualidade_lance ?? '—'}`,
+        `Raciocínio: ${item.qualidade_raciocinio ?? '—'}`
+      ],
+      dataIso: item.created_at
+      // Sem 'status': é sempre um registro já salvo e completo.
+    }))
+  );
 
   private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
   private readonly authLocalService = inject(AuthLocalService);
@@ -97,10 +132,65 @@ export class LaboratorioRaciocinioComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     this.guiaPassos.set(await this.revisaoAvulsaService.guiaPassos());
+    if (this.chaveConfigurada()) {
+      await this.carregarHistorico();
+      this.restaurarAtivoSalvo();
+    }
   }
 
   toggleGuia(): void {
     this.guiaAberto.update((aberto) => !aberto);
+  }
+
+  async carregarHistorico(): Promise<void> {
+    this.carregandoHistorico.set(true);
+    try {
+      const res = await this.revisaoAvulsaService.listarRevisoesAvulsasRecentes(20);
+      if (res.chaveInvalida) {
+        this.tratarChaveInvalida();
+        return;
+      }
+      if (res.success && res.itens) {
+        this.historico.set(res.itens);
+      }
+    } finally {
+      this.carregandoHistorico.set(false);
+    }
+  }
+
+  /** O item embute tudo o que foi persistido - restaurar é local, sem chamada de rede. */
+  selecionarHistorico(id: string): void {
+    const item = this.historico().find((i) => i.id === id);
+    if (!item) {
+      return;
+    }
+    this.visualizandoHistorico.set(item);
+    this.resultado.set(null);
+    this.erro.set(null);
+    this.salvarAtivo(id);
+  }
+
+  private restaurarAtivoSalvo(): void {
+    try {
+      const salvo = localStorage.getItem(STORAGE_KEY_LABORATORIO_ATIVO);
+      if (salvo) {
+        this.selecionarHistorico(salvo);
+      }
+    } catch {
+      // Ignora erro de acesso a localStorage em ambientes restritos
+    }
+  }
+
+  private salvarAtivo(id: string | null): void {
+    try {
+      if (id) {
+        localStorage.setItem(STORAGE_KEY_LABORATORIO_ATIVO, id);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_LABORATORIO_ATIVO);
+      }
+    } catch {
+      // Ignora erro de acesso a localStorage
+    }
   }
 
   salvarChave(): void {
@@ -111,6 +201,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     this.chaveInput.set('');
     this.erroChave.set(null);
     this.chaveConfigurada.set(true);
+    void this.carregarHistorico();
+    this.restaurarAtivoSalvo();
   }
 
   private tratarChaveInvalida(): void {
@@ -178,6 +270,10 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     this.resultado.set(null);
     this.salvo.set(false);
     this.avisoConferirPosicao.set(false);
+    // Uma nova análise ao vivo abandona qualquer registro salvo que estivesse
+    // sendo visualizado (evita mostrar os dois ao mesmo tempo).
+    this.visualizandoHistorico.set(null);
+    this.salvarAtivo(null);
 
     try {
       const resposta = await this.revisaoAvulsaService.revisar(
@@ -225,6 +321,13 @@ export class LaboratorioRaciocinioComponent implements OnInit {
         throw new Error(resposta.error ?? 'O servidor não confirmou o salvamento.');
       }
       this.salvo.set(true);
+      // O resultado ao vivo continua na tela (mais completo que o card
+      // resumido do histórico) - só marcamos como "ativo" para sobreviver a
+      // um F5, e atualizamos a lista para o item novo aparecer nela.
+      if (resposta.id) {
+        this.salvarAtivo(resposta.id);
+      }
+      void this.carregarHistorico();
     } catch (cause: unknown) {
       const message = cause instanceof Error ? cause.message : 'Erro desconhecido';
       this.erro.set(message);
@@ -243,6 +346,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     this.erroReconhecimento.set(null);
     this.avisoConferirPosicao.set(false);
     this.fenPreview.set('');
+    this.visualizandoHistorico.set(null);
+    this.salvarAtivo(null);
   }
 
   /**

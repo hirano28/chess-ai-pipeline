@@ -480,6 +480,147 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
             self.assertEqual(resposta.status_code, 503)
             self.assertIn("Servidor ocupado", resposta.json()["detail"])
 
+    def test_explicar_posicao_persiste_e_devolve_id(self) -> None:
+        # Fecha P-10: a explicação gerada precisa ser salva em
+        # explicacoes_posicao, e o id da linha criada precisa voltar na
+        # resposta (usado pelo frontend para marcar o item como "ativo").
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [{"id": "explicacao-nova-123"}]
+        mock_client.table.return_value.insert.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post(
+            "/explicar-posicao",
+            json={
+                "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                "lado": "BRANCAS",
+            },
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["id"], "explicacao-nova-123")
+        mock_client.table.assert_any_call("explicacoes_posicao")
+        payload_inserido = mock_client.table.return_value.insert.call_args[0][0]
+        self.assertEqual(
+            payload_inserido["fen"],
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        )
+        self.assertEqual(payload_inserido["lado_analisado"], "BRANCAS")
+        self.assertIn("resultado", payload_inserido)
+
+    def test_explicar_posicao_retorna_200_mesmo_se_persistencia_falhar(self) -> None:
+        # A persistência é um efeito colateral: se salvar falhar, o usuário
+        # ainda recebe a explicação (só sem id) - não pode virar erro 500.
+        mock_client = MagicMock()
+        mock_client.table.return_value.insert.return_value.execute.side_effect = (
+            RuntimeError("Falha simulada de conexão com o banco")
+        )
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post(
+            "/explicar-posicao",
+            json={
+                "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            },
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertIsNone(resposta.json()["id"])
+        self.assertIn("explicacao", resposta.json())
+
+    def test_explicar_posicao_sem_supabase_client_no_state_continua_200(self) -> None:
+        # setUp desta classe não coloca "supabase_client" em _state (padrão já
+        # existente nos outros testes) - confirma que o KeyError resultante
+        # também é tratado como falha graciosa de persistência, não erro 500.
+        resposta = self.client.post(
+            "/explicar-posicao",
+            json={
+                "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            },
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertIsNone(resposta.json()["id"])
+
+
+class ExplicacoesPosicaoRecentesEndpointTest(unittest.TestCase):
+    """Testes do endpoint GET /explicacoes-posicao/recentes."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_sem_api_key_recebe_401(self) -> None:
+        resposta = self.client.get("/explicacoes-posicao/recentes")
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_lista_com_sucesso_embute_resultado_completo(self) -> None:
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resultado_completo = {
+            "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "lado_a_jogar": "BRANCAS",
+            "lado_analisado": "BRANCAS",
+            "avaliacao": {
+                "score_cp": 0,
+                "mate": None,
+                "win_percent": 50.0,
+                "lado_vencedor": "EQUILIBRADO",
+                "descricao": "Posição inicial",
+            },
+            "linhas_taticas": [],
+            "refutacao_defesa": None,
+            "elementos_posicionais": {},
+            "explicacao": {
+                "veredito": "Posição equilibrada.",
+                "ameaca_concreta": "Nenhuma ainda.",
+                "o_que_parece_bom_mas_falha": "N/A",
+                "plano_conversao": "Desenvolver as peças.",
+                "resumo_didatico": "Início de partida.",
+            },
+        }
+        resp_mock.data = [
+            {
+                "id": "exp-1",
+                "fen": resultado_completo["fen"],
+                "lado_analisado": "BRANCAS",
+                "resultado": resultado_completo,
+                "created_at": "2026-09-11T10:00:00Z",
+            }
+        ]
+        mock_client.table.return_value.select.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/explicacoes-posicao/recentes",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        itens = resposta.json()
+        self.assertEqual(len(itens), 1)
+        self.assertEqual(itens[0]["id"], "exp-1")
+        self.assertEqual(itens[0]["lado_analisado"], "BRANCAS")
+        # O resultado embutido é o suficiente para restaurar a tela sem outra
+        # chamada de rede (não existe endpoint "buscar por id" nesta API).
+        self.assertEqual(
+            itens[0]["resultado"]["explicacao"]["veredito"], "Posição equilibrada."
+        )
+
+    def test_banco_indisponivel_retorna_503(self) -> None:
+        resposta = self.client.get(
+            "/explicacoes-posicao/recentes",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 503)
+
 
 class ReconhecerPosicaoEndpointTest(unittest.TestCase):
     """Testes do endpoint POST /reconhecer-posicao (reconhecimento via Gemini visão).
@@ -590,6 +731,127 @@ class ReconhecerPosicaoEndpointTest(unittest.TestCase):
         )
 
         self.assertEqual(resposta.status_code, 500)
+
+
+class RevisarAvulsoSalvarEndpointTest(unittest.TestCase):
+    """Testes de sucesso do POST /revisar-avulso/salvar (o 401 já é coberto em ApiKeyAuthTest)."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_salvar_com_sucesso_devolve_id_da_linha_criada(self) -> None:
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [{"id": "revisao-nova-456"}]
+        mock_client.table.return_value.insert.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post(
+            "/revisar-avulso/salvar",
+            json={
+                "lance_jogado": "e4",
+                "melhor_lance": "e4",
+                "queda_win_percent": 0.0,
+                "qualidade_lance": "BOM",
+                "qualidade_raciocinio": "SOLIDO",
+                "feedback_texto": "ok",
+                "analise_mestre": "ok",
+                "fen": chess_fen_inicial(),
+                "texto_pensamento": "x",
+            },
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        dados = resposta.json()
+        self.assertEqual(dados["status"], "salvo")
+        self.assertEqual(dados["id"], "revisao-nova-456")
+        mock_client.table.assert_any_call("revisao_exercicio_avulso")
+
+    def test_falha_ao_salvar_retorna_500(self) -> None:
+        mock_client = MagicMock()
+        mock_client.table.return_value.insert.return_value.execute.side_effect = (
+            RuntimeError("Falha simulada")
+        )
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post(
+            "/revisar-avulso/salvar",
+            json={
+                "lance_jogado": "e4",
+                "melhor_lance": "e4",
+                "queda_win_percent": 0.0,
+                "qualidade_lance": "BOM",
+                "qualidade_raciocinio": "SOLIDO",
+                "feedback_texto": "ok",
+                "analise_mestre": "ok",
+                "fen": chess_fen_inicial(),
+                "texto_pensamento": "x",
+            },
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 500)
+
+
+class RevisoesAvulsasRecentesEndpointTest(unittest.TestCase):
+    """Testes do endpoint GET /revisoes-avulsas/recentes."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_sem_api_key_recebe_401(self) -> None:
+        resposta = self.client.get("/revisoes-avulsas/recentes")
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_lista_com_sucesso(self) -> None:
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [
+            {
+                "id": "rev-1",
+                "fen": chess_fen_inicial(),
+                "lance_jogado": "e4",
+                "melhor_lance": "e4",
+                "queda_win_percent": 0.0,
+                "texto_pensamento": "Abro o centro.",
+                "qualidade_lance": "BOM",
+                "qualidade_raciocinio": "SOLIDO",
+                "feedback_texto": "Lance principal, sem contestação.",
+                "created_at": "2026-09-11T10:00:00Z",
+            }
+        ]
+        mock_client.table.return_value.select.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/revisoes-avulsas/recentes",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        itens = resposta.json()
+        self.assertEqual(len(itens), 1)
+        self.assertEqual(itens[0]["id"], "rev-1")
+        self.assertEqual(itens[0]["lance_jogado"], "e4")
+        self.assertEqual(itens[0]["qualidade_lance"], "BOM")
+
+    def test_banco_indisponivel_retorna_503(self) -> None:
+        resposta = self.client.get(
+            "/revisoes-avulsas/recentes",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 503)
 
 
 class AnalisarPgnEndpointTest(unittest.TestCase):

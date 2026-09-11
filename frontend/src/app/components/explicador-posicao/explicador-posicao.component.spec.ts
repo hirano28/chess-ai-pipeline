@@ -2,8 +2,12 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { vi } from 'vitest';
-import { ExplicadorPosicaoComponent } from './explicador-posicao.component';
 import {
+  ExplicadorPosicaoComponent,
+  STORAGE_KEY_EXPLICADOR_ATIVO
+} from './explicador-posicao.component';
+import {
+  ExplicacaoPosicaoRecenteItem,
   ResultadoExplicadorPosicao,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
@@ -178,6 +182,73 @@ describe('ExplicadorPosicaoComponent', () => {
     expect(component.chaveConfigurada()).toBe(true);
     expect(component.chaveInput()).toBe('');
     expect(authService.getKey()).toBe('nova-chave-secreta');
+  });
+
+  describe('histórico de explicações (fecha P-10)', () => {
+    const itemHistorico: ExplicacaoPosicaoRecenteItem = {
+      id: 'exp-1',
+      fen: resultadoMock.fen,
+      lado_analisado: 'BRANCAS',
+      created_at: '2026-09-11T10:00:00Z',
+      resultado: resultadoMock
+    };
+
+    afterEach(() => {
+      localStorage.removeItem(STORAGE_KEY_EXPLICADOR_ATIVO);
+    });
+
+    it('deve carregar o histórico e mapear para o formato genérico', async () => {
+      vi.spyOn(revisaoService, 'listarExplicacoesRecentes').mockResolvedValue({
+        success: true,
+        itens: [itemHistorico]
+      });
+
+      await component.carregarHistorico();
+      const itens = component.itensHistoricoComponent();
+
+      expect(component.historico().length).toBe(1);
+      expect(itens[0].id).toBe('exp-1');
+      expect(itens[0].titulo).toContain('Brancas têm ataque decisivo');
+      expect(itens[0].detalhes).toContain('Analisado: Brancas ♔');
+      expect(itens[0].detalhes).toContain('Win%: 92.5%');
+    });
+
+    it('deve restaurar o resultado completo ao selecionar um item do histórico', () => {
+      component.historico.set([itemHistorico]);
+
+      component.selecionarHistorico('exp-1');
+
+      expect(component.resultado()).toEqual(resultadoMock);
+      expect(localStorage.getItem(STORAGE_KEY_EXPLICADOR_ATIVO)).toBe('exp-1');
+    });
+
+    it('não deve quebrar ao selecionar um id que não existe no histórico carregado', () => {
+      component.historico.set([]);
+      component.selecionarHistorico('id-inexistente');
+      expect(component.resultado()).toBeNull();
+    });
+
+    it('deve marcar o resultado recém-gerado como ativo quando o backend devolve id', async () => {
+      vi.spyOn(revisaoService, 'explicarPosicao').mockResolvedValue({
+        success: true,
+        resultado: { ...resultadoMock, id: 'exp-novo-99' }
+      });
+      vi.spyOn(revisaoService, 'listarExplicacoesRecentes').mockResolvedValue({
+        success: true,
+        itens: []
+      });
+
+      component.posicao.set(resultadoMock.fen);
+      await component.analisar();
+
+      expect(localStorage.getItem(STORAGE_KEY_EXPLICADOR_ATIVO)).toBe('exp-novo-99');
+    });
+
+    it('novaAnalise deve limpar o item ativo salvo', () => {
+      localStorage.setItem(STORAGE_KEY_EXPLICADOR_ATIVO, 'exp-1');
+      component.novaAnalise();
+      expect(localStorage.getItem(STORAGE_KEY_EXPLICADOR_ATIVO)).toBeNull();
+    });
   });
 });
 

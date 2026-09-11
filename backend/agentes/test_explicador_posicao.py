@@ -17,6 +17,7 @@ import logging
 import threading
 import unittest
 from typing import Any
+from unittest.mock import MagicMock
 
 import chess
 
@@ -31,6 +32,7 @@ from backend.agentes.explicador_posicao import (
     inspecionar_elementos_tabuleiro,
     normalizar_lado,
     obter_lances_permitidos,
+    salvar_explicacao_posicao,
 )
 from backend.agentes.revisar_pensamento import Settings
 
@@ -557,6 +559,60 @@ class ExplicarPosicaoEndToEndTest(unittest.TestCase):
                 logger,
                 posicao="nao_eh_nem_fen_nem_pgn",
             )
+
+
+class SalvarExplicacaoPosicaoTest(unittest.TestCase):
+    """Cobre a persistência que fecha a pendência P-10 (ESTADO.md)."""
+
+    def _resultado_minimo(self) -> dict[str, Any]:
+        return {
+            "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "lado_a_jogar": "BRANCAS",
+            "lado_analisado": "BRANCAS",
+            "avaliacao": {
+                "score_cp": 0,
+                "mate": None,
+                "win_percent": 50.0,
+                "lado_vencedor": "EQUILIBRADO",
+                "descricao": "Posição inicial",
+            },
+            "linhas_taticas": [],
+            "refutacao_defesa": None,
+            "elementos_posicionais": {},
+            "explicacao": {
+                "veredito": "Equilibrado.",
+                "ameaca_concreta": "Nenhuma.",
+                "o_que_parece_bom_mas_falha": "N/A",
+                "plano_conversao": "Desenvolver.",
+                "resumo_didatico": "Início.",
+            },
+        }
+
+    def test_insere_na_tabela_correta_com_o_resultado_completo(self) -> None:
+        client = MagicMock()
+        resp = MagicMock()
+        resp.data = [{"id": "novo-id-123"}]
+        client.table.return_value.insert.return_value.execute.return_value = resp
+
+        resultado = self._resultado_minimo()
+        novo_id = salvar_explicacao_posicao(client, resultado)
+
+        self.assertEqual(novo_id, "novo-id-123")
+        client.table.assert_called_once_with("explicacoes_posicao")
+        payload = client.table.return_value.insert.call_args[0][0]
+        self.assertEqual(payload["fen"], resultado["fen"])
+        self.assertEqual(payload["lado_analisado"], "BRANCAS")
+        self.assertEqual(payload["resultado"], resultado)
+
+    def test_retorna_none_se_resposta_nao_trouxer_dados(self) -> None:
+        client = MagicMock()
+        resp = MagicMock()
+        resp.data = []
+        client.table.return_value.insert.return_value.execute.return_value = resp
+
+        novo_id = salvar_explicacao_posicao(client, self._resultado_minimo())
+
+        self.assertIsNone(novo_id)
 
 
 if __name__ == "__main__":

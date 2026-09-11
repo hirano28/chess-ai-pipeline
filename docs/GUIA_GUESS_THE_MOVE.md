@@ -1,3 +1,11 @@
+<!-- ASSET DE RUNTIME - NAO E SO DOCUMENTACAO.
+     backend/agentes/revisar_pensamento.py le este arquivo em tempo de execucao e
+     parseia os cabecalhos "## N. Titulo". Precisa haver EXATAMENTE 8 passos
+     numerados, na ordem 1..8, porque sao pareados posicionalmente com
+     CHECKLIST_KEYS. Reordenar, remover ou acrescentar um cabecalho numerado
+     quebra a rubrica e o endpoint /guia-passos. O texto do corpo pode mudar
+     a vontade. Ver regra R9 em AGENTS.md. -->
+
 # Rotina para Resolver Exercícios de "Guess the Move"
 
 Baseado nas pesquisas sobre correção de visão de túnel e geração de lances candidatos (Heisman, Aagaard, Kotov, de Groot). Não aplique os 8 passos por completo desde o primeiro dia — veja a progressão sugerida no final.

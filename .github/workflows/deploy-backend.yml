@@ -56,7 +56,8 @@ jobs:
             backend.agentes.test_revisar_pensamento \
             backend.analise_engine.test_analisar_partidas \
             backend.api.test_api_server \
-            backend.common.test_chess_math
+            backend.common.test_chess_math \
+            backend.common.test_notacao_pt
 
       - name: Autenticar no Google Cloud
         uses: google-github-actions/auth@v2

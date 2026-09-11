@@ -1,0 +1,73 @@
+<section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8 space-y-4">
+  <div class="flex items-center justify-between border-b border-[#304247] pb-3">
+    <div class="flex items-center gap-3">
+      <h2 class="text-base font-semibold text-[#f4f0e6]">
+        {{ titulo }}
+      </h2>
+      <span class="rounded bg-[#10191d] border border-[#304247] px-2 py-0.5 text-xs text-[#8fa5a7]">
+        {{ itens.length }} recentes
+      </span>
+    </div>
+    <button
+      type="button"
+      (click)="atualizarClicado.emit()"
+      [disabled]="carregando"
+      class="inline-flex items-center gap-1.5 text-xs font-semibold text-[#dea34c] hover:underline disabled:opacity-50"
+    >
+      <span [class.animate-spin]="carregando">🔄</span>
+      <span>Atualizar lista</span>
+    </button>
+  </div>
+
+  @if (carregando && itens.length === 0) {
+    <div class="py-6 text-center text-xs text-[#8fa5a7]">
+      Carregando histórico...
+    </div>
+  } @else if (itens.length === 0) {
+    <div class="py-6 text-center text-xs text-[#8fa5a7]">
+      {{ mensagemVazio }}
+    </div>
+  } @else {
+    <div class="divide-y divide-[#304247]/50">
+      @for (item of itens; track item.id) {
+        <div
+          class="group flex flex-col gap-3 py-3.5 sm:flex-row sm:items-center sm:justify-between transition-colors hover:bg-[#10191d]/60 px-3 rounded-md cursor-pointer border border-transparent hover:border-[#304247]"
+          (click)="itemClicado.emit(item.id)"
+        >
+          <div class="flex items-start sm:items-center gap-3">
+            @if (item.status) {
+              <span
+                [class]="corBadgeStatus(item.status)"
+                class="inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+              >
+                {{ rotuloBadgeStatus(item.status) }}
+              </span>
+            }
+
+            <div>
+              <div class="text-sm font-semibold text-[#f4f0e6] group-hover:text-[#dea34c] transition-colors">
+                {{ item.titulo }}
+              </div>
+              <div class="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-[#8fa5a7]">
+                @for (detalhe of item.detalhes; track $index) {
+                  <span>{{ detalhe }}</span>
+                  <span>•</span>
+                }
+                <span>{{ formatarData(item.dataIso) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="self-end sm:self-center">
+            <button
+              type="button"
+              class="rounded-md border border-[#304247] bg-[#10191d] px-3 py-1.5 text-xs font-semibold text-[#dea34c] transition-colors group-hover:border-[#dea34c] group-hover:bg-[#1f2e34]"
+            >
+              {{ rotuloBotaoAcao(item.status) }}
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  }
+</section>

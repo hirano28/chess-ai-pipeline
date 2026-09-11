@@ -228,9 +228,32 @@ describe('AnalisadorPartidaComponent', () => {
     expect(component.estado()).toBe('PROCESSANDO');
   });
 
-  it('deve formatar data adequadamente', () => {
-    expect(component.formatarData('')).toBe('');
-    expect(component.formatarData('2026-09-10T01:58:29Z')).toBeTruthy();
+  it('deve mapear o histórico para o formato genérico do componente compartilhado', async () => {
+    vi.spyOn(revisaoService, 'listarPartidasRecentes').mockResolvedValue({
+      success: true,
+      partidas: [
+        {
+          partida_id: 'p-2',
+          status: 'falhou',
+          cor_jogada: 'PRETAS',
+          eco_abertura: 'B90',
+          resultado: 'DERROTA',
+          jogadores: 'hirano28 vs adversario',
+          created_at: '2026-09-10T01:58:29Z'
+        }
+      ]
+    });
+
+    await component.carregarHistorico();
+    const itens = component.itensHistoricoComponent();
+
+    expect(itens.length).toBe(1);
+    expect(itens[0].id).toBe('p-2');
+    expect(itens[0].titulo).toBe('hirano28 vs adversario');
+    expect(itens[0].status).toBe('falhou');
+    expect(itens[0].detalhes).toContain('Cor: Pretas ♚');
+    expect(itens[0].detalhes).toContain('ECO: B90');
+    expect(itens[0].detalhes).toContain('DERROTA');
   });
 });
 
