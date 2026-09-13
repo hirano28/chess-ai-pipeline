@@ -47,6 +47,8 @@ create policy "Leitura authenticated isolada por dono: partidas"
 drop policy if exists "Permitir leitura authenticated de revisao_exercicio_avulso"
     on revisao_exercicio_avulso;
 drop policy if exists "Leitura authenticated isolada por dono: revisao_exercicio_avulso"
+    on revisao_exercicio_avulso;
+create policy "Leitura authenticated isolada por dono: revisao_exercicio_avulso"
     on revisao_exercicio_avulso for select
     to authenticated
     using (user_id = auth.uid());
