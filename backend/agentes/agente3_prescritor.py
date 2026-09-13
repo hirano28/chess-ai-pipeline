@@ -25,7 +25,6 @@ from supabase import Client, create_client
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from backend.common.progress import configurar_encoding_utf8, log_and_print  # noqa: E402
-from backend.common.tenant import obter_default_user_id  # noqa: E402
 
 configurar_encoding_utf8()
 
@@ -137,12 +136,25 @@ def load_settings() -> Settings:
     )
 
 
-def fetch_latest_analysis(client: Client) -> dict[str, Any] | None:
-    """Busca a análise de hexágono mais recente."""
+def listar_usuarios_com_analise(client: Client) -> list[str]:
+    """Lista, sem repetir, os donos que já têm ao menos uma análise de hexágono.
+
+    Cada um recebe sua própria sprint, calculada a partir do PRÓPRIO gargalo
+    mais recente (D-28) - sem isso, uma sprint só seria gerada para quem quer
+    que tenha a análise mais recente entre TODOS os usuários.
+    """
+
+    response = client.table("analises_hexagono").select("user_id").execute()
+    return sorted({row["user_id"] for row in response.data or [] if row.get("user_id")})
+
+
+def fetch_latest_analysis(client: Client, user_id: str) -> dict[str, Any] | None:
+    """Busca a análise de hexágono mais recente de `user_id`."""
 
     response = (
         client.table("analises_hexagono")
         .select("*")
+        .eq("user_id", user_id)
         .order("data_analise", desc=True)
         .limit(1)
         .execute()
@@ -515,7 +527,7 @@ def referencia_livro(chunks: list[dict[str, Any]]) -> str:
 
 
 def salvar_sessao(
-    client: Client, categoria: str, sprint: SprintTreino
+    client: Client, categoria: str, sprint: SprintTreino, user_id: str
 ) -> None:
     """Persiste a sprint gerada na tabela sessoes_treino."""
 
@@ -523,37 +535,41 @@ def salvar_sessao(
         {
             "diagnostico_gargalo": f"{categoria}: {sprint.titulo}",
             "modulos": sprint.model_dump(),
-            "user_id": obter_default_user_id(),
+            "user_id": user_id,
         }
     ).execute()
 
 
-def main() -> None:
-    """Executa a prescrição de treino e imprime o resumo final."""
+def prescrever_para_usuario(
+    supabase_client: Client,
+    gemini_client: Any,
+    settings: Settings,
+    logger: logging.Logger,
+    user_id: str,
+) -> tuple[str, SprintTreino | None, list[dict[str, str]], str]:
+    """Roda as 6 etapas da prescrição para um único usuário.
 
-    logger = configure_logging()
+    Retorna (categoria, sprint ou None, vídeos, referência de livro) - mesmo
+    formato que `main` já imprimia, um resumo por usuário.
+    """
+
     categoria = ""
     sprint: SprintTreino | None = None
     videos: list[dict[str, str]] = []
     referencia = "sem referência de livro"
-    try:
-        settings = load_settings()
-        supabase_client = create_client(
-            settings.supabase_url, settings.supabase_service_role_key
+
+    analysis = fetch_latest_analysis(supabase_client, user_id)
+    categoria = (analysis or {}).get("gargalo_sistemico_atual") or ""
+    if not categoria:
+        log_and_print(
+            logger,
+            f"Usuário {user_id}: nenhum gargalo sistêmico identificado "
+            "(dados insuficientes); sprint não gerada.",
         )
-        gemini_client = genai.Client(api_key=settings.gemini_api_key)
+        return categoria, sprint, videos, referencia
 
-        analysis = fetch_latest_analysis(supabase_client)
-        categoria = (analysis or {}).get("gargalo_sistemico_atual") or ""
-        if not categoria:
-            log_and_print(
-                logger,
-                "Nenhum gargalo sistêmico identificado (dados insuficientes); "
-                "sprint não gerada.",
-            )
-            return
-
-        log_and_print(logger, f"Etapa 1/6: buscando conceitos para {categoria}...")
+    log_and_print(logger, f"Usuário {user_id}, etapa 1/6: buscando conceitos para {categoria}...")
+    try:
         conceitos, livros, capitulos = executar_etapa_critica(
             logger,
             1,
@@ -565,11 +581,11 @@ def main() -> None:
         )
         log_and_print(
             logger,
-            f"Etapa 1/6: {len(conceitos)} conceitos, {len(livros)} livros.",
+            f"Usuário {user_id}, etapa 1/6: {len(conceitos)} conceitos, {len(livros)} livros.",
         )
 
         tags = top_tags(analysis)
-        log_and_print(logger, "Etapa 2/6: busca vetorial no RAG...")
+        log_and_print(logger, f"Usuário {user_id}, etapa 2/6: busca vetorial no RAG...")
         chunks = executar_etapa_critica(
             logger,
             2,
@@ -584,17 +600,17 @@ def main() -> None:
             ),
         )
         referencia = referencia_livro(chunks)
-        log_and_print(logger, f"Etapa 2/6: {len(chunks)} trechos recuperados.")
+        log_and_print(logger, f"Usuário {user_id}, etapa 2/6: {len(chunks)} trechos recuperados.")
 
         query_video = (
             f"xadrez {categoria.replace('_', ' ').lower()} "
             f"{tags[0]['tag'].replace('_', ' ') if tags else ''}".strip()
         )
-        log_and_print(logger, "Etapa 3/6: busca de vídeos no YouTube...")
+        log_and_print(logger, f"Usuário {user_id}, etapa 3/6: busca de vídeos no YouTube...")
         videos = buscar_videos_youtube(settings.youtube_api_key, query_video, logger)
-        log_and_print(logger, f"Etapa 3/6: {len(videos)} vídeos encontrados.")
+        log_and_print(logger, f"Usuário {user_id}, etapa 3/6: {len(videos)} vídeos encontrados.")
 
-        log_and_print(logger, "Etapa 4/6: gerando sprint via Gemini...")
+        log_and_print(logger, f"Usuário {user_id}, etapa 4/6: gerando sprint via Gemini...")
         prompt, response_text = executar_etapa_critica(
             logger,
             4,
@@ -611,35 +627,62 @@ def main() -> None:
                 gemini_client, prompt, response_text, chunks, logger
             ),
         )
-        log_and_print(logger, "Etapa 5/6: sprint validada com sucesso.")
+        log_and_print(logger, f"Usuário {user_id}, etapa 5/6: sprint validada com sucesso.")
 
         executar_etapa_critica(
             logger,
             6,
             "persistência da sessão em sessoes_treino",
-            lambda: salvar_sessao(supabase_client, categoria, sprint),
+            lambda: salvar_sessao(supabase_client, categoria, sprint, user_id),
         )
-        log_and_print(logger, "Etapa 6/6: sessão persistida em sessoes_treino.")
+        log_and_print(
+            logger, f"Usuário {user_id}, etapa 6/6: sessão persistida em sessoes_treino."
+        )
     except EtapaPrescricaoError as error:
         log_and_print(logger, str(error))
-        return
     except Exception:
         log_and_print(
             logger,
-            "ERRO antes ou fora das seis etapas da prescrição; execução "
-            "interrompida.\n"
+            f"ERRO antes ou fora das seis etapas da prescrição do usuário {user_id}; "
+            "execução interrompida.\n"
             f"{traceback.format_exc()}",
         )
-        return
 
-    print(f"Gargalo: {categoria or 'dados insuficientes'}")
-    if sprint is not None:
-        print(f"Sprint: {sprint.titulo}")
-        print(f"Módulos: {len(sprint.modulos)}")
-    else:
-        print("Sprint: não gerada")
-    print(f"Vídeo do YouTube: {'sim' if videos else 'não'}")
-    print(f"Referência de livro citada: {referencia}")
+    return categoria, sprint, videos, referencia
+
+
+def main() -> None:
+    """Executa a prescrição de treino para cada usuário e imprime o resumo final."""
+
+    logger = configure_logging()
+    try:
+        settings = load_settings()
+        supabase_client = create_client(
+            settings.supabase_url, settings.supabase_service_role_key
+        )
+        gemini_client = genai.Client(api_key=settings.gemini_api_key)
+
+        usuarios = listar_usuarios_com_analise(supabase_client)
+        log_and_print(logger, f"{len(usuarios)} usuário(s) com análise de hexágono.")
+        for user_id in usuarios:
+            categoria, sprint, videos, referencia = prescrever_para_usuario(
+                supabase_client, gemini_client, settings, logger, user_id
+            )
+            print(f"Usuário {user_id}:")
+            print(f"  Gargalo: {categoria or 'dados insuficientes'}")
+            if sprint is not None:
+                print(f"  Sprint: {sprint.titulo}")
+                print(f"  Módulos: {len(sprint.modulos)}")
+            else:
+                print("  Sprint: não gerada")
+            print(f"  Vídeo do YouTube: {'sim' if videos else 'não'}")
+            print(f"  Referência de livro citada: {referencia}")
+    except Exception:
+        log_and_print(
+            logger,
+            f"ERRO geral na prescrição de treino; execução interrompida.\n"
+            f"{traceback.format_exc()}",
+        )
 
 
 if __name__ == "__main__":

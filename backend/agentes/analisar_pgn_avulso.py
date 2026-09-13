@@ -125,15 +125,27 @@ def parse_pgn(pgn_text: str) -> chess.pgn.Game:
     return game
 
 
-def inferir_cor_jogador(game: chess.pgn.Game) -> str | None:
-    """Tenta inferir a cor do jogador comparando headers com .env usernames."""
+def inferir_cor_jogador(
+    game: chess.pgn.Game, usernames: list[str] | None = None
+) -> str | None:
+    """Tenta inferir a cor do jogador comparando headers com usernames conhecidos.
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    usernames: list[str] = []
-    for var in ("LICHESS_USERNAME", "CHESSCOM_USERNAME"):
-        val = os.getenv(var)
-        if val:
-            usernames.append(val.strip().lower())
+    `usernames` vem de quem chama (a API passa o perfil de QUEM ESTÁ LOGADO -
+    ver `resolver_usernames_do_perfil` em api_server.py, D-28). Se omitido,
+    mantém o comportamento de sempre do CLI standalone: lê `LICHESS_USERNAME`/
+    `CHESSCOM_USERNAME` do `.env`, que só fazem sentido pra quem roda o
+    script direto no terminal.
+    """
+
+    if usernames is None:
+        load_dotenv(PROJECT_ROOT / ".env")
+        usernames = [
+            os.getenv(var).strip().lower()
+            for var in ("LICHESS_USERNAME", "CHESSCOM_USERNAME")
+            if os.getenv(var)
+        ]
+    else:
+        usernames = [nome.strip().lower() for nome in usernames if nome]
 
     if not usernames:
         return None
@@ -164,11 +176,16 @@ def perguntar_cor_interativamente() -> str:
         print("  Resposta inválida. Digite B (Brancas) ou P (Pretas).")
 
 
-def resolver_cor(game: chess.pgn.Game, cor_fornecida: str | None = None) -> str:
+def resolver_cor(
+    game: chess.pgn.Game,
+    cor_fornecida: str | None = None,
+    usernames: list[str] | None = None,
+) -> str:
     """Resolve a cor do jogador a partir do argumento fornecido ou inferência do PGN.
 
     Se cor_fornecida for informada, normaliza e valida ('BRANCAS' ou 'PRETAS').
-    Se não for informada, tenta inferir via inferir_cor_jogador.
+    Se não for informada, tenta inferir via inferir_cor_jogador (repassando
+    `usernames`, quando informado - ver ali o porquê).
     Se não for possível inferir, levanta ValueError solicitando a cor explicitamente.
     """
     if cor_fornecida is not None:
@@ -181,7 +198,7 @@ def resolver_cor(game: chess.pgn.Game, cor_fornecida: str | None = None) -> str:
             f"Cor inválida: '{cor_fornecida}'. A cor deve ser 'BRANCAS' ou 'PRETAS'."
         )
 
-    cor_inferida = inferir_cor_jogador(game)
+    cor_inferida = inferir_cor_jogador(game, usernames)
     if cor_inferida:
         return cor_inferida
 

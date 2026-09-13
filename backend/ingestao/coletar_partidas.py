@@ -16,6 +16,7 @@ import chess
 import chess.pgn
 import requests
 from dotenv import load_dotenv
+from supabase import Client
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +28,7 @@ from backend.common.progress import (  # noqa: E402
 )
 from backend.ingestao.common_ingestao import (  # noqa: E402
     already_exists,
+    carregar_perfis,
     configure_logging,
     create_supabase_client,
     insert_game,
@@ -46,19 +48,21 @@ class Settings:
     supabase_url: str
     supabase_service_role_key: str
     lichess_token: str
-    lichess_username: str
     limit: int
 
 
 def load_settings() -> Settings:
-    """Carrega e valida as configurações do ambiente."""
+    """Carrega e valida as configurações do ambiente.
+
+    Desde D-28, o username não vem mais daqui: cada perfil cadastrado em
+    `perfis_usuario` gera sua própria rodada de coleta (ver `main`).
+    """
 
     load_dotenv(PROJECT_ROOT / ".env")
     required = {
         "SUPABASE_URL": os.getenv("SUPABASE_URL"),
         "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
         "LICHESS_TOKEN": os.getenv("LICHESS_TOKEN"),
-        "LICHESS_USERNAME": os.getenv("LICHESS_USERNAME"),
     }
     missing = [name for name, value in required.items() if not value]
     if missing:
@@ -78,15 +82,16 @@ def load_settings() -> Settings:
         supabase_url=required["SUPABASE_URL"],
         supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],
         lichess_token=required["LICHESS_TOKEN"],
-        lichess_username=required["LICHESS_USERNAME"],
         limit=limit,
     )
 
 
-def fetch_games(settings: Settings, logger: logging.Logger) -> Iterator[dict[str, Any]]:
+def fetch_games(
+    settings: Settings, logger: logging.Logger, username: str
+) -> Iterator[dict[str, Any]]:
     """Busca partidas do usuário no endpoint NDJSON do Lichess."""
 
-    url = LICHESS_GAMES_URL.format(username=settings.lichess_username)
+    url = LICHESS_GAMES_URL.format(username=username)
     headers = {
         "Accept": "application/x-ndjson",
         "Authorization": f"Bearer {settings.lichess_token}",
@@ -246,8 +251,46 @@ def to_record(game: dict[str, Any], username: str) -> dict[str, Any]:
     }
 
 
+def coletar_para_perfil(
+    client: Client,
+    settings: Settings,
+    logger: logging.Logger,
+    user_id: str,
+    username: str,
+) -> tuple[int, int, int]:
+    """Coleta as partidas de um único perfil. Retorna (inseridas, existentes, falhas)."""
+
+    inserted = existing = failed = 0
+    games = list(fetch_games(settings, logger, username))
+    total = len(games)
+    start_time = time.time()
+    for index, game in enumerate(games, start=1):
+        try:
+            external_id = str(game["id"])
+            if already_exists(client, external_id):
+                existing += 1
+                continue
+            insert_game(client, to_record(game, username), user_id)
+            inserted += 1
+        except Exception as error:
+            failed += 1
+            logger.exception(
+                "Falha ao processar a partida %s do perfil %s: %s",
+                game.get("id", "desconhecida"),
+                username,
+                error,
+            )
+        log_and_print(
+            logger,
+            format_progress(
+                f"Coleta ({username})", "partidas", index, total, time.time() - start_time
+            ),
+        )
+    return inserted, existing, failed
+
+
 def main() -> None:
-    """Executa a coleta e imprime o resumo da operação."""
+    """Executa a coleta para cada perfil cadastrado e imprime o resumo."""
 
     logger = configure_logging()
     inserted = existing = failed = 0
@@ -256,30 +299,24 @@ def main() -> None:
         client = create_supabase_client(
             settings.supabase_url, settings.supabase_service_role_key
         )
-        games = list(fetch_games(settings, logger))
-        total = len(games)
-        start_time = time.time()
-        for index, game in enumerate(games, start=1):
+        perfis = carregar_perfis(client, "lichess_username")
+        if not perfis:
+            print("Nenhum perfil com usuário do Lichess cadastrado em perfis_usuario.")
+        for perfil in perfis:
+            username = perfil["lichess_username"]
+            user_id = perfil["user_id"]
             try:
-                external_id = str(game["id"])
-                if already_exists(client, external_id):
-                    existing += 1
-                    continue
-                insert_game(client, to_record(game, settings.lichess_username))
-                inserted += 1
+                perfil_inserted, perfil_existing, perfil_failed = coletar_para_perfil(
+                    client, settings, logger, user_id, username
+                )
+                inserted += perfil_inserted
+                existing += perfil_existing
+                failed += perfil_failed
             except Exception as error:
                 failed += 1
                 logger.exception(
-                    "Falha ao processar a partida %s: %s",
-                    game.get("id", "desconhecida"),
-                    error,
+                    "Falha ao coletar o perfil %s (%s): %s", username, user_id, error
                 )
-            log_and_print(
-                logger,
-                format_progress(
-                    "Coleta", "partidas", index, total, time.time() - start_time
-                ),
-            )
     except Exception as error:
         failed += 1
         logger.exception("Falha na execução da ingestão: %s", error)

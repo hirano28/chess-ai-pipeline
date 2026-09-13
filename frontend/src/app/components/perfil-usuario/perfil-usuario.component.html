@@ -1,0 +1,65 @@
+<main class="mx-auto w-full max-w-2xl px-5 py-10 text-[#f4f0e6] sm:px-8">
+  <p class="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#dea34c]">Meu perfil</p>
+  <h1 class="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl">Suas contas de xadrez</h1>
+  <p class="mb-8 text-sm leading-6 text-[#8fa5a7]">
+    Informe pelo menos uma conta (Lichess ou Chess.com) para baixarmos suas partidas
+    automaticamente, colocá-las na fila de análise e montar o seu hexágono. As duas não são
+    obrigatórias - uma já é suficiente.
+  </p>
+
+  @if (carregando()) {
+    <div class="flex min-h-24 items-center justify-center rounded-lg border border-[#304247] bg-[#10191d] text-[#b9c7c8]" role="status">
+      <span class="mr-3 h-3 w-3 animate-pulse rounded-full bg-[#dea34c]"></span>
+      Carregando seu perfil...
+    </div>
+  } @else {
+    @if (erro()) {
+      <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
+        {{ erro() }}
+      </div>
+    }
+    @if (salvo()) {
+      <div class="mb-5 rounded-lg border border-[#3f6b4c] bg-[#173322] px-5 py-4 text-sm text-[#8fd6a6]" role="status">
+        Perfil salvo! A próxima coleta automática já vai buscar suas partidas.
+      </div>
+    }
+
+    <form (submit)="$event.preventDefault(); salvar()" class="rounded-lg border border-[#304247] bg-[#162126] p-6 shadow-lg shadow-black/10 sm:p-8">
+      <div class="mb-5">
+        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+          Usuário no Lichess
+        </label>
+        <input
+          type="text"
+          autocomplete="off"
+          class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
+          placeholder="ex.: laisxadrez"
+          [value]="lichessUsername()"
+          (input)="lichessUsername.set($any($event.target).value)"
+        />
+      </div>
+
+      <div class="mb-6">
+        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+          Usuário no Chess.com
+        </label>
+        <input
+          type="text"
+          autocomplete="off"
+          class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
+          placeholder="ex.: laisxadrez"
+          [value]="chesscomUsername()"
+          (input)="chesscomUsername.set($any($event.target).value)"
+        />
+      </div>
+
+      <button
+        type="submit"
+        class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-not-allowed disabled:opacity-60"
+        [disabled]="!formularioValido || salvando()"
+      >
+        {{ salvando() ? 'Salvando...' : 'Salvar' }}
+      </button>
+    </form>
+  }
+</main>

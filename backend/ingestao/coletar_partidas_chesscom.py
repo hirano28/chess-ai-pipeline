@@ -15,6 +15,7 @@ from typing import Any, Iterator
 
 import requests
 from dotenv import load_dotenv
+from supabase import Client
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +27,7 @@ from backend.common.progress import (  # noqa: E402
 )
 from backend.ingestao.common_ingestao import (  # noqa: E402
     already_exists,
+    carregar_perfis,
     configure_logging,
     create_supabase_client,
     insert_game,
@@ -45,19 +47,21 @@ class Settings:
 
     supabase_url: str
     supabase_service_role_key: str
-    username: str
     months_limit: int
     user_agent: str
 
 
 def load_settings() -> Settings:
-    """Carrega e valida as configurações do ambiente."""
+    """Carrega e valida as configurações do ambiente.
+
+    Desde D-28, o username não vem mais daqui: cada perfil cadastrado em
+    `perfis_usuario` gera sua própria rodada de coleta (ver `main`).
+    """
 
     load_dotenv(PROJECT_ROOT / ".env")
     required = {
         "SUPABASE_URL": os.getenv("SUPABASE_URL"),
         "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-        "CHESSCOM_USERNAME": os.getenv("CHESSCOM_USERNAME"),
     }
     missing = [name for name, value in required.items() if not value]
     if missing:
@@ -76,7 +80,6 @@ def load_settings() -> Settings:
     return Settings(
         supabase_url=required["SUPABASE_URL"],
         supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],
-        username=required["CHESSCOM_USERNAME"],
         months_limit=months_limit,
         user_agent=os.getenv("CHESSCOM_USER_AGENT", USER_AGENT),
     )
@@ -96,11 +99,11 @@ def request_json(
 
 
 def fetch_archive_urls(
-    settings: Settings, logger: logging.Logger
+    settings: Settings, logger: logging.Logger, username: str
 ) -> list[str]:
     """Busca os URLs mensais e retorna os meses mais recentes."""
 
-    url = ARCHIVES_URL.format(username=settings.username)
+    url = ARCHIVES_URL.format(username=username)
     data = request_json(
         url,
         {"User-Agent": settings.user_agent},
@@ -215,8 +218,47 @@ def to_record(game: dict[str, Any], username: str) -> dict[str, Any]:
     }
 
 
+def coletar_para_perfil(
+    client: Client,
+    settings: Settings,
+    logger: logging.Logger,
+    user_id: str,
+    username: str,
+) -> tuple[int, int, int]:
+    """Coleta as partidas de um único perfil. Retorna (inseridas, existentes, falhas)."""
+
+    inserted = existing = failed = 0
+    archive_urls = fetch_archive_urls(settings, logger, username)
+    games = fetch_games_from_archives(archive_urls, settings, logger)
+    total = len(games)
+    start_time = time.time()
+    for index, game in enumerate(games, start=1):
+        try:
+            record = to_record(game, username)
+            if already_exists(client, record["external_id"]):
+                existing += 1
+            else:
+                insert_game(client, record, user_id)
+                inserted += 1
+        except Exception:
+            failed += 1
+            logger.error(
+                "Falha completa na partida Chess.com %s do perfil %s:\n%s",
+                game.get("url", game.get("uuid", "desconhecida")),
+                username,
+                traceback.format_exc(),
+            )
+        log_and_print(
+            logger,
+            format_progress(
+                f"Chess.com ({username})", "partidas", index, total, time.time() - start_time
+            ),
+        )
+    return inserted, existing, failed
+
+
 def main() -> None:
-    """Coleta as partidas e imprime o resumo."""
+    """Coleta as partidas de cada perfil cadastrado e imprime o resumo."""
 
     logger = configure_logging(LOG_PATH, "ingestao_chesscom")
     inserted = existing = failed = 0
@@ -225,31 +267,27 @@ def main() -> None:
         client = create_supabase_client(
             settings.supabase_url, settings.supabase_service_role_key
         )
-        archive_urls = fetch_archive_urls(settings, logger)
-        games = fetch_games_from_archives(archive_urls, settings, logger)
-        total = len(games)
-        start_time = time.time()
-        for index, game in enumerate(games, start=1):
+        perfis = carregar_perfis(client, "chesscom_username")
+        if not perfis:
+            print("Nenhum perfil com usuário do Chess.com cadastrado em perfis_usuario.")
+        for perfil in perfis:
+            username = perfil["chesscom_username"]
+            user_id = perfil["user_id"]
             try:
-                record = to_record(game, settings.username)
-                if already_exists(client, record["external_id"]):
-                    existing += 1
-                else:
-                    insert_game(client, record)
-                    inserted += 1
+                perfil_inserted, perfil_existing, perfil_failed = coletar_para_perfil(
+                    client, settings, logger, user_id, username
+                )
+                inserted += perfil_inserted
+                existing += perfil_existing
+                failed += perfil_failed
             except Exception:
                 failed += 1
                 logger.error(
-                    "Falha completa na partida Chess.com %s:\n%s",
-                    game.get("url", game.get("uuid", "desconhecida")),
+                    "Falha ao coletar o perfil %s (%s):\n%s",
+                    username,
+                    user_id,
                     traceback.format_exc(),
                 )
-            log_and_print(
-                logger,
-                format_progress(
-                    "Chess.com", "partidas", index, total, time.time() - start_time
-                ),
-            )
     except Exception:
         failed += 1
         logger.error("Falha geral na coleta Chess.com:\n%s", traceback.format_exc())

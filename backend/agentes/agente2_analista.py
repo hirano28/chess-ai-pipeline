@@ -20,7 +20,6 @@ from supabase import Client, create_client
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from backend.common.progress import configurar_encoding_utf8, log_and_print  # noqa: E402
-from backend.common.tenant import obter_default_user_id  # noqa: E402
 
 configurar_encoding_utf8()
 
@@ -113,19 +112,40 @@ def load_settings() -> dict[str, str]:
     return {name: value for name, value in required.items()}  # type: ignore[misc]
 
 
-def fetch_diagnosticos(client: Client, logger: logging.Logger) -> list[dict[str, Any]]:
-    """Busca todos os diagnósticos com dados do lance e da partida."""
+def listar_usuarios_com_partidas(client: Client) -> list[str]:
+    """Lista, sem repetir, os donos que têm ao menos uma partida cadastrada.
+
+    Fonte de "quem tem hexágono pra calcular" (D-28): times a `partidas`, não
+    a `perfis_usuario`, porque um perfil recém-cadastrado sem partida
+    ingerida ainda não tem diagnóstico nenhum pra analisar.
+    """
+
+    response = client.table("partidas").select("user_id").execute()
+    return sorted({row["user_id"] for row in response.data or [] if row.get("user_id")})
+
+
+def fetch_diagnosticos(
+    client: Client, logger: logging.Logger, user_id: str
+) -> list[dict[str, Any]]:
+    """Busca os diagnósticos de `user_id`, com dados do lance e da partida.
+
+    `!inner` nos dois embeds (D-28) transforma o embed num join de verdade,
+    o que permite filtrar a tabela de fora (`diagnosticos`) pela coluna
+    aninhada `lances_criticos.partidas.user_id` - sem isso, o `.eq` só
+    filtraria o que aparece dentro do embed, não as linhas retornadas.
+    """
 
     rows: list[dict[str, Any]] = []
     offset = 0
     select = (
-        "*, lances_criticos(gravidade_cpl, numero_lance, "
-        "partidas(data_partida, eco_abertura))"
+        "*, lances_criticos!inner(queda_win_percent, numero_lance, "
+        "partidas!inner(data_partida, eco_abertura, user_id))"
     )
     while True:
         response = (
             client.table("diagnosticos")
             .select(select)
+            .eq("lances_criticos.partidas.user_id", user_id)
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
         )
@@ -157,7 +177,7 @@ def build_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
             {
                 "diagnostico_id": row.get("id"),
                 "tags_falha": [tag for tag in tags if tag in TAGS_VOCABULARY],
-                "gravidade_cpl": lance.get("gravidade_cpl"),
+                "queda_win_percent": lance.get("queda_win_percent"),
                 "numero_lance": lance.get("numero_lance"),
                 "data_partida": partida.get("data_partida"),
                 "eco_abertura": partida.get("eco_abertura"),
@@ -168,7 +188,7 @@ def build_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
         columns=[
             "diagnostico_id",
             "tags_falha",
-            "gravidade_cpl",
+            "queda_win_percent",
             "numero_lance",
             "data_partida",
             "eco_abertura",
@@ -199,6 +219,8 @@ def calcular_metricas_hexagono(df: pd.DataFrame) -> dict:
         "frequencia_tags_por_eco": {},
         "frequencia_por_categoria": {name: 0 for name in HEXAGON_CATEGORIES},
         "gravidade_media_por_categoria": {name: None for name in HEXAGON_CATEGORIES},
+        "frequencia_por_categoria_recente": {name: 0 for name in HEXAGON_CATEGORIES},
+        "gravidade_media_por_categoria_recente": {name: None for name in HEXAGON_CATEGORIES},
         "gargalo_sistemico_atual": None,
     }
     if total_diagnosticos == 0:
@@ -206,41 +228,18 @@ def calcular_metricas_hexagono(df: pd.DataFrame) -> dict:
 
     exploded = df.explode("tags_falha").dropna(subset=["tags_falha"])
     exploded = exploded[exploded["tags_falha"].isin(TAGS_VOCABULARY)]
-    exploded["gravidade_cpl"] = pd.to_numeric(
-        exploded["gravidade_cpl"], errors="coerce"
+    exploded["queda_win_percent"] = pd.to_numeric(
+        exploded["queda_win_percent"], errors="coerce"
     )
 
+    # --- Métricas cumulativas (todo o histórico — alimentam o radar) ---
     total_counts = exploded["tags_falha"].value_counts()
     for tag, count in total_counts.items():
         metrics["frequencia_tags_total"][tag] = int(count)
 
-    gravity_by_tag = exploded.groupby("tags_falha")["gravidade_cpl"].mean()
+    gravity_by_tag = exploded.groupby("tags_falha")["queda_win_percent"].mean()
     for tag, gravity in gravity_by_tag.items():
         metrics["gravidade_media_por_tag"][tag] = _to_native(round(gravity, 2))
-
-    parsed_dates = pd.to_datetime(
-        exploded["data_partida"], errors="coerce", utc=True
-    )
-    cutoff = datetime.now(timezone.utc) - timedelta(days=RECENT_WINDOW_DAYS)
-    recent = exploded[parsed_dates >= cutoff]
-    for tag, count in recent["tags_falha"].value_counts().items():
-        metrics["frequencia_tags_recente"][tag] = int(count)
-
-    metrics["top_3_tags"] = [
-        {
-            "tag": tag,
-            "contagem": int(count),
-            "gravidade_media": metrics["gravidade_media_por_tag"][tag],
-        }
-        for tag, count in total_counts.head(3).items()
-    ]
-
-    eco_df = exploded.dropna(subset=["eco_abertura"])
-    for eco, group in eco_df.groupby("eco_abertura"):
-        metrics["frequencia_tags_por_eco"][str(eco)] = {
-            str(tag): int(count)
-            for tag, count in group["tags_falha"].value_counts().items()
-        }
 
     tag_to_category = {
         tag: category
@@ -249,7 +248,7 @@ def calcular_metricas_hexagono(df: pd.DataFrame) -> dict:
     }
     exploded["categoria"] = exploded["tags_falha"].map(tag_to_category)
     category_counts = exploded["categoria"].value_counts()
-    category_gravity = exploded.groupby("categoria")["gravidade_cpl"].mean()
+    category_gravity = exploded.groupby("categoria")["queda_win_percent"].mean()
     for category in HEXAGON_CATEGORIES:
         metrics["frequencia_por_categoria"][category] = int(
             category_counts.get(category, 0)
@@ -259,16 +258,57 @@ def calcular_metricas_hexagono(df: pd.DataFrame) -> dict:
                 round(category_gravity[category], 2)
             )
 
+    # --- Métricas recentes (últimos RECENT_WINDOW_DAYS dias — decidem o gargalo) ---
+    parsed_dates = pd.to_datetime(
+        exploded["data_partida"], errors="coerce", utc=True
+    )
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RECENT_WINDOW_DAYS)
+    recent = exploded[parsed_dates >= cutoff]
+
+    recent_tag_counts = recent["tags_falha"].value_counts()
+    for tag, count in recent_tag_counts.items():
+        metrics["frequencia_tags_recente"][tag] = int(count)
+
+    recent_cat_counts = recent["categoria"].value_counts()
+    recent_cat_gravity = recent.groupby("categoria")["queda_win_percent"].mean()
+    for category in HEXAGON_CATEGORIES:
+        metrics["frequencia_por_categoria_recente"][category] = int(
+            recent_cat_counts.get(category, 0)
+        )
+        if category in recent_cat_gravity and not pd.isna(recent_cat_gravity[category]):
+            metrics["gravidade_media_por_categoria_recente"][category] = _to_native(
+                round(recent_cat_gravity[category], 2)
+            )
+
+    # --- Top 3 tags: usa contagens RECENTES para refletir o estado atual ---
+    metrics["top_3_tags"] = [
+        {
+            "tag": tag,
+            "contagem": int(count),
+            "gravidade_media": metrics["gravidade_media_por_tag"].get(tag),
+        }
+        for tag, count in recent_tag_counts.head(3).items()
+    ]
+
+    # --- Frequência por ECO (cumulativa, uso informativo) ---
+    eco_df = exploded.dropna(subset=["eco_abertura"])
+    for eco, group in eco_df.groupby("eco_abertura"):
+        metrics["frequencia_tags_por_eco"][str(eco)] = {
+            str(tag): int(count)
+            for tag, count in group["tags_falha"].value_counts().items()
+        }
+
+    # --- Gargalo: usa métricas RECENTES ---
     metrics["gargalo_sistemico_atual"] = _identify_bottleneck(metrics)
     return metrics
 
 
 def _identify_bottleneck(metrics: dict[str, Any]) -> str | None:
-    """Escolhe a categoria com pior combinação de frequência e gravidade."""
+    """Escolhe a categoria com pior combinação de frequência e gravidade recentes."""
 
     eligible = {
         category: count
-        for category, count in metrics["frequencia_por_categoria"].items()
+        for category, count in metrics["frequencia_por_categoria_recente"].items()
         if count >= CATEGORY_MIN_DIAGNOSTICS
     }
     if not eligible:
@@ -276,7 +316,7 @@ def _identify_bottleneck(metrics: dict[str, Any]) -> str | None:
 
     max_count = max(eligible.values())
     gravities = [
-        metrics["gravidade_media_por_categoria"][category] or 0.0
+        metrics["gravidade_media_por_categoria_recente"][category] or 0.0
         for category in eligible
     ]
     max_gravity = max(gravities) or 1.0
@@ -284,7 +324,7 @@ def _identify_bottleneck(metrics: dict[str, Any]) -> str | None:
     best_category = None
     best_score = float("-inf")
     for category, count in eligible.items():
-        gravity = metrics["gravidade_media_por_categoria"][category] or 0.0
+        gravity = metrics["gravidade_media_por_categoria_recente"][category] or 0.0
         score = (count / max_count) + (gravity / max_gravity)
         if score > best_score:
             best_score = score
@@ -297,16 +337,20 @@ def build_prompt(metrics: dict[str, Any]) -> str:
 
     resumo = {
         "total_diagnosticos": metrics["total_diagnosticos"],
-        "top_3_tags": metrics["top_3_tags"],
-        "frequencia_por_categoria": metrics["frequencia_por_categoria"],
-        "gravidade_media_por_categoria": metrics["gravidade_media_por_categoria"],
+        "top_3_tags_recentes": metrics["top_3_tags"],
+        "frequencia_por_categoria_total": metrics["frequencia_por_categoria"],
+        "frequencia_por_categoria_recente": metrics["frequencia_por_categoria_recente"],
+        "gravidade_media_por_categoria_recente": metrics["gravidade_media_por_categoria_recente"],
         "gargalo_sistemico_atual": metrics["gargalo_sistemico_atual"],
+        "janela_recente_dias": RECENT_WINDOW_DAYS,
     }
     return (
         "Você é um treinador de xadrez. Com base APENAS nos números abaixo "
         "(já calculados a partir dos diagnósticos), escreva de 2 a 3 parágrafos "
         "em linguagem natural explicando o que esses padrões significam para o "
-        "jogador e onde ele deve focar seus estudos. Não invente dados além dos "
+        "jogador e onde ele deve focar seus estudos. Compare a situação recente "
+        f"(últimos {RECENT_WINDOW_DAYS} dias) com o acumulado geral para "
+        "identificar se houve evolução ou regressão. Não invente dados além dos "
         "fornecidos.\n\n"
         f"{json.dumps(resumo, ensure_ascii=False, indent=2)}"
     )
@@ -323,7 +367,7 @@ def gerar_narrativa(client: Any, metrics: dict[str, Any]) -> str:
 
 
 def salvar_analise(
-    client: Client, metrics: dict[str, Any], narrativa: str
+    client: Client, metrics: dict[str, Any], narrativa: str, user_id: str
 ) -> None:
     """Persiste as métricas e a narrativa na tabela analises_hexagono."""
 
@@ -332,55 +376,79 @@ def salvar_analise(
             "metricas": metrics,
             "narrativa": narrativa,
             "gargalo_sistemico_atual": metrics["gargalo_sistemico_atual"],
-            "user_id": obter_default_user_id(),
+            "user_id": user_id,
         }
     ).execute()
 
 
+def analisar_usuario(
+    client: Client,
+    gemini_client: Any,
+    logger: logging.Logger,
+    user_id: str,
+) -> dict[str, Any]:
+    """Roda as 3 etapas da análise para um único usuário e persiste o resultado."""
+
+    rows = fetch_diagnosticos(client, logger, user_id)
+    log_and_print(
+        logger, f"Usuário {user_id}: {len(rows)} diagnósticos carregados."
+    )
+    df = build_dataframe(rows)
+    metrics = calcular_metricas_hexagono(df)
+    if metrics["total_diagnosticos"] == 0:
+        log_and_print(
+            logger, f"Usuário {user_id}: sem diagnósticos ainda; análise pulada."
+        )
+        return metrics
+
+    narrativa = ""
+    try:
+        narrativa = gerar_narrativa(gemini_client, metrics)
+    except Exception:
+        logger.error(
+            "Falha ao gerar narrativa do usuário %s:\n%s",
+            user_id,
+            traceback.format_exc(),
+        )
+
+    salvar_analise(client, metrics, narrativa, user_id)
+    log_and_print(logger, f"Usuário {user_id}: análise persistida em analises_hexagono.")
+    return metrics
+
+
 def main() -> None:
-    """Executa a análise agregada e imprime o resumo final."""
+    """Executa a análise agregada de cada usuário e imprime o resumo final."""
 
     logger = configure_logging()
-    metrics: dict[str, Any] = {
-        "total_diagnosticos": 0,
-        "top_3_tags": [],
-        "gargalo_sistemico_atual": None,
-    }
+    resultados_por_usuario: dict[str, dict[str, Any]] = {}
     try:
         settings = load_settings()
         supabase_client = create_client(
             settings["SUPABASE_URL"], settings["SUPABASE_SERVICE_ROLE_KEY"]
         )
-        rows = fetch_diagnosticos(supabase_client, logger)
-        log_and_print(logger, f"Etapa 1/3: {len(rows)} diagnósticos carregados.")
-        df = build_dataframe(rows)
-        log_and_print(logger, "Etapa 2/3: iniciando cálculo de métricas...")
-        metrics = calcular_metricas_hexagono(df)
-        log_and_print(logger, "Etapa 2/3: cálculo de métricas concluído.")
+        gemini_client = genai.Client(api_key=settings["GEMINI_API_KEY"])
 
-        narrativa = ""
-        try:
-            log_and_print(logger, "Etapa 3/3: gerando narrativa via Gemini...")
-            gemini_client = genai.Client(api_key=settings["GEMINI_API_KEY"])
-            narrativa = gerar_narrativa(gemini_client, metrics)
-            log_and_print(logger, "Etapa 3/3: narrativa gerada.")
-        except Exception:
-            logger.error("Falha ao gerar narrativa:\n%s", traceback.format_exc())
-
-        try:
-            salvar_analise(supabase_client, metrics, narrativa)
-            log_and_print(logger, "Análise persistida em analises_hexagono.")
-        except Exception:
-            logger.error("Falha ao salvar análise:\n%s", traceback.format_exc())
+        usuarios = listar_usuarios_com_partidas(supabase_client)
+        log_and_print(logger, f"Etapa 1/2: {len(usuarios)} usuário(s) com partidas.")
+        for user_id in usuarios:
+            try:
+                resultados_por_usuario[user_id] = analisar_usuario(
+                    supabase_client, gemini_client, logger, user_id
+                )
+            except Exception:
+                logger.error(
+                    "Falha ao analisar o usuário %s:\n%s",
+                    user_id,
+                    traceback.format_exc(),
+                )
+        log_and_print(logger, "Etapa 2/2: análise de todos os usuários concluída.")
     except Exception:
         logger.error("Falha geral na análise agregada:\n%s", traceback.format_exc())
 
-    gargalo = metrics.get("gargalo_sistemico_atual") or "dados insuficientes"
-    print(f"Diagnósticos analisados: {metrics.get('total_diagnosticos', 0)}")
-    print(f"Gargalo sistêmico atual: {gargalo}")
-    print("Top 3 tags mais frequentes:")
-    for item in metrics.get("top_3_tags", []):
-        print(f"  - {item['tag']}: {item['contagem']}")
+    print(f"Usuários analisados: {len(resultados_por_usuario)}")
+    for user_id, metrics in resultados_por_usuario.items():
+        gargalo = metrics.get("gargalo_sistemico_atual") or "dados insuficientes"
+        print(f"- {user_id}: {metrics.get('total_diagnosticos', 0)} diagnósticos, gargalo {gargalo}")
 
 
 if __name__ == "__main__":

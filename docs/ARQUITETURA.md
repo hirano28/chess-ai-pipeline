@@ -22,20 +22,31 @@ bibliotecas, mas rodam de formas diferentes:
 ## 2. Fluxo de dados do pipeline em lote
 
 ```
+tabela perfis_usuario (uma linha por usuário logado, D-28)
+        ↓
 Lichess API / Chess.com API
-        ↓  backend/ingestao/coletar_partidas*.py
-   tabela partidas (status_processamento = 'pendente')
+        ↓  backend/ingestao/coletar_partidas*.py         [1 rodada por perfil]
+   tabela partidas (status_processamento = 'pendente', user_id do perfil)
         ↓  backend/analise_engine/analisar_partidas.py  [Stockfish]
    tabela lances_criticos (eventos PICO e EROSAO)
         ↓  backend/agentes/agente1_linter.py            [Gemini]
    tabela diagnosticos (tags_falha, causa raiz)
-        ↓  backend/agentes/agente2_analista.py          [pandas + Gemini p/ narrar]
+        ↓  backend/agentes/agente2_analista.py          [pandas + Gemini p/ narrar, 1x por usuário]
    tabela analises_hexagono (métricas agregadas + gargalo atual)
-        ↓  backend/agentes/agente3_prescritor.py        [RAG pgvector + YouTube + Gemini]
+        ↓  backend/agentes/agente3_prescritor.py        [RAG pgvector + YouTube + Gemini, 1x por usuário]
    tabela sessoes_treino (sprint com módulos citando livro/capítulo/página)
         ↓  backend/agentes/medir_eficacia.py
    coluna sessoes_treino.eficacia_medida (fecha o loop adaptativo)
 ```
+
+Desde D-28, o pipeline em lote é multi-tenant de ponta a ponta:
+`coletar_partidas*.py` percorre `perfis_usuario` (uma rodada de coleta por
+pessoa cadastrada, cada uma gravando no próprio `user_id`), e Agentes 2 e 3
+recalculam hexágono e sprint separadamente para cada `user_id` com dado
+próprio — sem isso, os dois agentes misturariam diagnósticos de pessoas
+diferentes num único hexágono global. Agente 1 não precisou mudar: já
+processa lance a lance, herdando o dono via `partida_id` sem precisar saber
+"de quem" é cada um.
 
 Enriquecimentos que entram lateralmente nesse fluxo:
 
@@ -56,7 +67,7 @@ Enriquecimentos que entram lateralmente nesse fluxo:
 | Agente | Arquivo | Entrada | Saída | Papel do LLM |
 |---|---|---|---|---|
 | 1 — Linter | `agente1_linter.py` | um lance crítico + linha do motor | `diagnosticos` | diagnostica a causa do erro em 16 tags fechadas |
-| 2 — Analista | `agente2_analista.py` | todos os diagnósticos | `analises_hexagono` | só narra; a estatística é pandas puro |
+| 2 — Analista | `agente2_analista.py` | diagnósticos de um usuário (loop por `user_id`, D-28) | `analises_hexagono` | só narra; a estatística é pandas puro |
 | 3 — Prescritor | `agente3_prescritor.py` | gargalo + RAG de livros | `sessoes_treino` | monta a sprint citando teoria real |
 
 O Agente 1 usa **prompts diferentes por `tipo_evento`**: um para `PICO` (erro
@@ -123,11 +134,11 @@ Angular 21, standalone components, signals, Tailwind CSS 4, testes em Vitest.
 | `/laboratorio` | `laboratorio-raciocinio` | exercício avulso com feedback imediato |
 | `/explicador` | `explicador-posicao` | explicação didática de uma posição |
 | `/analisador` | `analisador-partida` | cola PGN, acompanha o progresso, lê o resumo |
+| `/perfil` | `perfil-usuario` | cadastra a(s) conta(s) de Lichess/Chess.com de quem está logado (D-28) |
 | `/login` | `login` | signUp/signInWithPassword do Supabase Auth (Fase B.1 — ver D-15 em `DECISOES.md`) |
 
-Nenhuma rota tem `canActivate` hoje: `guards/auth.guard.ts` existe e tem
-teste, mas está deliberadamente desligado (D-15) — logar não é obrigatório
-ainda, e travar a navegação quebraria quem só usa X-API-Key.
+`authGuard` está ligado nas 5 rotas do dashboard (todas acima, exceto
+`/login`) desde D-23 — ver a nota mais abaixo sobre a Fase B.
 
 Componentes de apoio: `tabuleiro-preview` (tabuleiro 8x8 em CSS Grid com SVGs do
 conjunto cburnett), `narrativa-analise`, `perguntas-pendentes`, `sessoes-treino`,
@@ -154,9 +165,10 @@ todos via `SupabaseService`) passam a carregar com a sessão automaticamente,
 sem precisar de nenhuma mudança de código.
 
 **Login passou a ser obrigatório pro dashboard (Fase B concluída — D-23).**
-`authGuard` está ligado nas 4 rotas (`/`, `/laboratorio`, `/explicador`,
-`/analisador`) em `app.routes.ts`; visitante sem sessão é redirecionado pra
-`/login`. As tabelas por trás dos 4 componentes acima não têm mais nenhuma
+`authGuard` está ligado nas rotas do dashboard (`/`, `/laboratorio`,
+`/explicador`, `/analisador`, e `/perfil` desde D-28) em `app.routes.ts`;
+visitante sem sessão é redirecionado pra `/login`. As tabelas por trás dos 4
+primeiros componentes acima não têm mais nenhuma
 policy `to anon` — só `authenticated`, isolada por dono (`user_id =
 auth.uid()`, direto ou via `exists` até `partidas`, ver D-19/D-22/D-23 em
 `DECISOES.md`). Consequência aceita: os 4 amigos que só têm `X-API-Key` (D-7),

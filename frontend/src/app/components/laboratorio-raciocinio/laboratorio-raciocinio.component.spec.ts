@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { vi } from 'vitest';
 import {
   LaboratorioRaciocinioComponent,
@@ -56,7 +57,14 @@ describe('LaboratorioRaciocinioComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [LaboratorioRaciocinioComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()]
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: convertToParamMap({}) } }
+        }
+      ]
     }).compileComponents();
 
     fixture = TestBed.createComponent(LaboratorioRaciocinioComponent);
@@ -149,5 +157,41 @@ describe('LaboratorioRaciocinioComponent', () => {
     expect(component.visualizandoHistorico()).toBeNull();
     expect(localStorage.getItem(STORAGE_KEY_LABORATORIO_ATIVO)).toBeNull();
     expect(component.resultado()).toEqual(resultadoMock);
+  });
+
+  it('deve pré-preencher posição e lance a partir dos query params, vindo de uma pergunta pendente', async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [LaboratorioRaciocinioComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              queryParamMap: convertToParamMap({ fen: resultadoMock.fen, lance: 'Cd5' })
+            }
+          }
+        }
+      ]
+    }).compileComponents();
+
+    const outraFixture = TestBed.createComponent(LaboratorioRaciocinioComponent);
+    const outroComponent = outraFixture.componentInstance;
+    const outroServico = TestBed.inject(RevisaoAvulsaService);
+    vi.spyOn(outroServico, 'guiaPassos').mockResolvedValue([]);
+    vi.spyOn(outroServico, 'listarRevisoesAvulsasRecentes').mockResolvedValue({
+      success: true,
+      itens: [itemHistoricoMock]
+    });
+
+    localStorage.setItem(STORAGE_KEY_LABORATORIO_ATIVO, 'rev-1');
+    await outroComponent.ngOnInit();
+
+    expect(outroComponent.posicao()).toBe(resultadoMock.fen);
+    expect(outroComponent.lance()).toBe('Cd5');
+    // Prioridade sobre o último exercício salvo (F5): não deve restaurá-lo.
+    expect(outroComponent.visualizandoHistorico()).toBeNull();
   });
 });

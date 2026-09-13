@@ -107,6 +107,16 @@ class TestInferirCorJogador(unittest.TestCase):
         game = _game_from_pgn(PGN_VALIDO)
         self.assertIsNone(inferir_cor_jogador(game))
 
+    @patch("backend.agentes.analisar_pgn_avulso.load_dotenv")
+    @patch("backend.agentes.analisar_pgn_avulso.os.getenv")
+    def test_usernames_explicito_ignora_o_env(self, mock_getenv, mock_dotenv):
+        """D-28: a API passa o perfil de quem está logado, não o .env fixo."""
+        mock_getenv.side_effect = lambda k, d=None: {"LICHESS_USERNAME": "hirano28"}.get(k, d)
+        game = _game_from_pgn(PGN_VALIDO)
+
+        self.assertEqual(inferir_cor_jogador(game, usernames=["opponent123"]), "PRETAS")
+        mock_dotenv.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Testes: resolver_cor

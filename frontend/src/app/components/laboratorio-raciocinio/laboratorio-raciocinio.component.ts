@@ -1,5 +1,6 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { ActivatedRoute } from '@angular/router';
 import { debounceTime, distinctUntilChanged, from, switchMap } from 'rxjs';
 import {
   GuiaPasso,
@@ -85,6 +86,7 @@ export class LaboratorioRaciocinioComponent implements OnInit {
   );
 
   private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
+  private readonly route = inject(ActivatedRoute);
 
 
 
@@ -125,7 +127,26 @@ export class LaboratorioRaciocinioComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     this.guiaPassos.set(await this.revisaoAvulsaService.guiaPassos());
     await this.carregarHistorico();
+
+    // Vindo de "Perguntas pendentes" (miniatura clicada): carrega a posição e o
+    // lance já jogado, deixando só "o que você pensou" para o usuário
+    // preencher. Tem prioridade sobre o último exercício salvo (F5).
+    if (this.preencherViaQueryParams()) {
+      return;
+    }
     this.restaurarAtivoSalvo();
+  }
+
+  /** @returns true se `fen` veio na URL e o formulário foi pré-preenchido com ela. */
+  private preencherViaQueryParams(): boolean {
+    const params = this.route.snapshot.queryParamMap;
+    const fen = params.get('fen');
+    if (!fen) {
+      return false;
+    }
+    this.posicao.set(fen);
+    this.lance.set(params.get('lance') ?? '');
+    return true;
   }
 
   toggleGuia(): void {

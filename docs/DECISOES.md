@@ -977,6 +977,157 @@ deles pra conta própria deixou de ser só recomendada — virou pré-requisito.
 
 ---
 
+### D-26 — Agente 2: gargalo usa janela recente + queda_win_percent (P-3)
+
+**Data:** 2026-09-13  
+**Contexto:** O gargalo sistêmico do hexágono estava permanentemente congelado em
+`TATICA` porque `_identify_bottleneck` usava `frequencia_por_categoria` (cumulativa
+sobre todo o histórico). Além disso, a gravidade era medida por `gravidade_cpl`
+(centipawns brutos) em vez de `queda_win_percent` (impacto real nas chances de
+vitória, métrica D-1).
+
+**O que mudou em `backend/agentes/agente2_analista.py`:**
+
+1. `fetch_diagnosticos` busca `queda_win_percent` em vez de `gravidade_cpl`
+2. `build_dataframe` extrai `queda_win_percent` como coluna do DataFrame
+3. `calcular_metricas_hexagono` calcula dois conjuntos de métricas por categoria:
+   - **Cumulativas** (`frequencia_por_categoria`, `gravidade_media_por_categoria`):
+     usam todo o histórico, alimentam o radar do hexágono no frontend
+   - **Recentes** (`frequencia_por_categoria_recente`,
+     `gravidade_media_por_categoria_recente`): usam apenas os últimos 30 dias
+     (`RECENT_WINDOW_DAYS`), decidem o gargalo
+4. `_identify_bottleneck` usa as métricas recentes
+5. `top_3_tags` usa contagens recentes (não mais cumulativas)
+6. `build_prompt` inclui contexto temporal para a narrativa do Gemini
+
+**O que NÃO mudou:** schema do banco, frontend, as 6 categorias do hexágono,
+`RECENT_WINDOW_DAYS = 30`, campos cumulativos (continuam gravados).
+
+**Testes:** Criado `test_agente2_analista.py` com 11 testes cobrindo o cenário
+central (TATICA domina cumulativo, FINAIS domina recente → gargalo = FINAIS).
+Registrado em `docs/OPERACAO.md` e `.github/workflows/deploy-backend.yml` (R8).
+
+---
+
+### D-27 — Miniatura de tabuleiro nas perguntas pendentes, com clique pro Laboratório
+
+**Data:** 2026-09-13
+**Contexto:** "Perguntas pendentes" mostra só texto (`No lance 16, o que você
+estava pensando?`) — sem ver a posição, é difícil lembrar o que aconteceu.
+
+**O que mudou:**
+
+1. **Nova coluna `lances_criticos.fen_antes_lance`** (`backend/db/lances_criticos_fen_antes_lance.sql`):
+   FEN de imediatamente antes do lance (ou do início da janela, em EROSAO).
+   `backend/analise_engine/analisar_partidas.py` passou a capturar e gravar
+   esse FEN em toda partida nova (`PlayerMoveEval.fen_antes`,
+   `CriticalMove.fen_antes_lance`).
+2. **Backfill do histórico:** `backend/analise_engine/backfill_fen_lances_criticos.py`
+   recalculou o FEN das 525 linhas existentes a partir do PGN de cada partida
+   (mesma regra de travessia de `processar_partida`, sem chamar o Stockfish).
+   Rodado contra produção: **525 atualizadas, 0 falhas**.
+3. **`TabuleiroPreviewComponent` ganhou `[miniatura]`:** versão compacta
+   (96px, sem a legenda de créditos das peças) para uso em lista.
+4. **`PerguntasPendentesComponent`** renderiza a miniatura como link
+   (`routerLink="/laboratorio"` com `queryParams: {fen, lance}`).
+5. **`LaboratorioRaciocinioComponent.ngOnInit`** lê esses query params via
+   `ActivatedRoute` e pré-preenche `posicao`/`lance` — tem prioridade sobre a
+   restauração do último exercício salvo em `localStorage` (F5), porque o
+   usuário navegou ali com uma intenção explícita. Falta só "o que você
+   pensou" pra enviar pra análise.
+
+**Validado:** o embed do PostgREST (`perguntas_pendentes.lances_criticos.fen_antes_lance`)
+testado por `curl` real com o JWT de produção, confirmando FEN correta
+(posição real de uma partida do dono). 353 testes de backend, 76 de frontend,
+`ng build` limpo.
+
+---
+
+### D-28 — Onboarding de novo usuário: contas de Lichess/Chess.com por pessoa (Fase C do multi-tenant)
+
+**Data:** 2026-09-13
+**Contexto:** Confirmado antes de começar: só o Edson e a Lais devem ter
+acesso por enquanto — os 4 amigos de X-API-Key continuam de fora, decisão já
+tomada em D-23/D-25. Faltava a peça que faz uma conta *nova* (sem histórico)
+funcionar: até aqui, TODA a coleta e análise era single-tenant por baixo dos
+panos, mesmo com login e RLS por dono já funcionando desde a Fase B.
+
+**Descoberta antes de codar (evitou corromper dado real):** `common_ingestao.insert_game`
+sempre gravava `obter_default_user_id()`; `coletar_partidas.py`/
+`coletar_partidas_chesscom.py` liam um `LICHESS_USERNAME`/`CHESSCOM_USERNAME`
+fixo do `.env`. Mais grave: `agente2_analista.fetch_diagnosticos` buscava
+**todos** os diagnósticos do banco sem filtrar por dono, e
+`agente3_prescritor.fetch_latest_analysis` pegava sempre a análise mais
+recente **de qualquer usuário**, com `salvar_analise`/`salvar_sessao`
+gravando tudo em `DEFAULT_USER_ID`. Sem corrigir os dois agentes, o hexágono
+da Lais nunca existiria — ou pior, os diagnósticos dela contaminariam o
+hexágono do Edson (e vice-versa) assim que a segunda conta tivesse dado.
+
+**O que mudou:**
+
+1. **Nova tabela `perfis_usuario`** (`backend/db/perfis_usuario.sql`):
+   `user_id` (**FK real para `auth.users(id)`** — a primeira do schema),
+   `lichess_username`, `chesscom_username`, `check` exigindo ao menos uma das
+   duas. RLS: cada um só lê/grava a própria linha. Seedada com a conta do
+   Edson (usernames que já estavam no `.env`).
+2. **`common_ingestao.insert_game(client, record, user_id)`** — `user_id`
+   agora é parâmetro obrigatório, sem fallback nenhum. Nova
+   `carregar_perfis(client, coluna_username)` busca os perfis com aquela
+   conta preenchida.
+3. **`coletar_partidas.py`/`coletar_partidas_chesscom.py`** viraram um loop:
+   uma rodada de coleta por perfil cadastrado (`coletar_para_perfil`), cada
+   uma gravando no `user_id` daquele perfil. Falha de um perfil (username
+   errado, API fora do ar) não derruba os outros — captura por perfil, soma
+   no total. `LICHESS_USERNAME`/`CHESSCOM_USERNAME` saíram de `load_settings`
+   e do `pipeline-diario.yml` (viraram secrets órfãos no GitHub — cleanup
+   futuro, não bloqueante).
+4. **`agente2_analista.py`:** `fetch_diagnosticos` agora filtra por dono via
+   `lances_criticos!inner(...partidas!inner(...user_id))` +
+   `.eq("lances_criticos.partidas.user_id", user_id)` — o `!inner` é o que
+   permite filtrar a tabela de fora por uma coluna aninhada no embed do
+   PostgREST. `main()` percorre `listar_usuarios_com_partidas` (distinct
+   `partidas.user_id`) e gera um hexágono por usuário; usuário com zero
+   diagnósticos é pulado (sem narrativa vazia, sem gravação inútil).
+5. **`agente3_prescritor.py`:** mesmo padrão — `fetch_latest_analysis` filtra
+   por `user_id`, `main()` percorre `listar_usuarios_com_analise` (distinct
+   `analises_hexagono.user_id`) e prescreve uma sprint por usuário, isolada
+   no PRÓPRIO gargalo mais recente.
+6. **Efeito colateral corrigido:** `analisar_pgn_avulso.inferir_cor_jogador`
+   também só reconhecia o `.env` fixo — colar o PGN de outra pessoa logada no
+   Analisador de Partida nunca detectaria a cor dela sozinho. Ganhou um
+   parâmetro opcional `usernames`; `/analisar-pgn` passa o perfil de quem
+   está logado (`resolver_usernames_do_perfil`, nova função em
+   `api_server.py`) quando `cor` não é informada. O CLI standalone
+   (`analisar_pgn_avulso.py` rodado direto no terminal) **não mudou**: sem
+   `usernames` explícito, continua lendo o `.env` como sempre.
+7. **Frontend:** nova tela `/perfil` (`PerfilUsuarioComponent`, atrás do
+   `authGuard`) onde a pessoa informa lichess/chesscom (pelo menos um,
+   validação espelhando o `check` do banco) e salva via
+   `SupabaseService.salvarPerfilUsuario` — primeiro INSERT do frontend numa
+   tabela com policy `with_check(user_id = auth.uid())`, por isso o `userId`
+   vem explícito de `AuthService.usuario()?.id` no payload. Link "Meu Perfil"
+   na nav.
+
+**Validado de ponta a ponta com conta de teste real (mesmo padrão de D-19):**
+criada via Admin API, perfil cadastrado com um username real do Lichess,
+`coletar_partidas.py` rodado de verdade com `LICHESS_GAMES_LIMIT=1` —
+processou o perfil do Edson E o da conta de teste na mesma execução, cada um
+gravando no `user_id` certo (confirmado por SQL). Diagnóstico fabricado
+(bypassando Stockfish/Gemini) associado à conta de teste; `agente2_analista.py`
+e `agente3_prescritor.py` rodados de verdade (Gemini real): a conta de teste
+gerou hexágono próprio com **1** diagnóstico e "dados insuficientes" (correto,
+abaixo do mínimo de 5), sem tocar nos 525 diagnósticos do Edson — o hexágono
+dele seguiu com os mesmos 525 e gargalo `TATICA`; a sprint só foi gerada pra
+ele, a conta de teste foi corretamente pulada por falta de gargalo. Conta,
+perfil e dado fabricado removidos ao final.
+
+**Consequência aceita:** a limpeza dos secrets `LICHESS_USERNAME`/
+`CHESSCOM_USERNAME` no GitHub Actions (ficaram sem leitor) é candidata a
+faxina futura, não bloqueante — igual à pendência já registrada de
+`API_SECRET_KEYS` em D-25.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

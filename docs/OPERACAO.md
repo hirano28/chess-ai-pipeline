@@ -27,6 +27,7 @@ namespace packages (sem `__init__.py`). Use a lista explícita.
 ```bash
 python -m unittest \
   backend.agentes.test_agente1_linter \
+  backend.agentes.test_agente2_analista \
   backend.agentes.test_agente3_prescritor \
   backend.agentes.test_analisar_pgn_avulso \
   backend.agentes.test_explicador_posicao \
@@ -37,6 +38,7 @@ python -m unittest \
   backend.agentes.test_revisar_exercicio_avulso \
   backend.agentes.test_revisar_pensamento \
   backend.analise_engine.test_analisar_partidas \
+  backend.analise_engine.test_backfill_fen_lances_criticos \
   backend.api.test_api_server \
   backend.common.test_chess_math \
   backend.common.test_notacao_pt \
@@ -152,6 +154,16 @@ falha com `ValueError` — de propósito, para o erro aparecer na hora em vez de
 gravar linha órfã. Depois de D-25 ela vale **só para os scripts de CLI
 standalone**: nos endpoints da API o dono vem sempre da sessão, sem fallback.
 Por isso ela **não** entra na limpeza citada acima.
+
+`LICHESS_USERNAME`/`CHESSCOM_USERNAME` **não controlam mais a coleta em lote**
+desde D-28: `coletar_partidas.py`/`coletar_partidas_chesscom.py` passaram a
+percorrer a tabela `perfis_usuario` (um usuário, uma conta cadastrada, uma
+rodada de coleta atribuída ao `user_id` certo — ver BANCO.md). As duas
+variáveis continuam valendo **só** para quem roda `analisar_pgn_avulso.py`
+direto no terminal (CLI standalone): é o fallback de inferência de cor
+`inferir_cor_jogador` usa quando não recebe `usernames` explícito. Pela API,
+`/analisar-pgn` já passa o perfil de quem está logado, sem tocar nessas
+variáveis.
 
 **`deploy-backend.yml` é a fonte de verdade em produção, não `env.yaml`
 local (D-20).** A cada deploy automático, o workflow gera um arquivo de env

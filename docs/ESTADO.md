@@ -16,14 +16,17 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **322**, todos passando, em 16 módulos |
-| Testes de frontend (Vitest) | **70**, todos passando, em 9 arquivos |
-| `ng build` de produção | passa; avisa excesso de bundle (~770 kB), conhecido e aceito |
+| Testes de backend | **353**, todos passando, em 21 módulos |
+| Testes de frontend (Vitest) | **76**, todos passando, em 10 arquivos |
+| `ng build` de produção | passa; avisa excesso de bundle (~777 kB), conhecido e aceito |
 
-`.github/workflows/deploy-backend.yml` lista os 16 módulos de teste do backend
-à mão (incluindo `backend.common.test_notacao_pt`, que já esteve faltando —
-regra R8 corrigida). Continua sendo uma lista mantida manualmente: todo módulo
-de teste novo precisa ser adicionado lá também.
+`.github/workflows/deploy-backend.yml` lista os 21 módulos de teste do backend
+à mão (incluindo `backend.agentes.test_agente2_analista`,
+`backend.common.test_notacao_pt`, `backend.analise_engine.test_backfill_fen_lances_criticos`,
+`backend.ingestao.test_coletar_partidas`, `backend.ingestao.test_coletar_partidas_chesscom`
+e `backend.ingestao.test_common_ingestao` — regra R8 cumprida). Continua sendo
+uma lista mantida manualmente: todo módulo de teste novo precisa ser
+adicionado lá também.
 
 ## 2. Volume de dados
 
@@ -35,7 +38,7 @@ pendência P-11 abaixo).
 
 | Tabela | Linhas |
 |---|---|
-| `partidas` | 215 (02/07/2026 a 11/09/2026); as 215 já têm `abertura_normalizada` preenchida (ver D-12 em `DECISOES.md`) |
+| `partidas` | 215 (02/07/2026 a 11/09/2026); as 215 já têm `abertura_normalizada` preenchida (ver D-12 em `DECISOES.md`). Uma 216ª foi ingerida em 13/09/2026 pela validação real de D-28, ainda sem `abertura_normalizada`/ECO processados — as distribuições abaixo não a incluem |
 | `lances_criticos` | 510 — 492 `PICO`, 18 `EROSAO` |
 | `diagnosticos` | 473 |
 | `puzzle_atividade` | 660, em 41 dias distintos |
@@ -197,17 +200,17 @@ amigos que só têm `X-API-Key` (D-7), sem conta Supabase Auth, ficam sem acesso
 ao Laboratório/Explicador/Analisador pela tela do Vercel até migrarem — ver
 P-11.
 
-### P-3 — O gargalo é cumulativo e está congelado em TATICA 🟡
+### P-3 — O gargalo é cumulativo e está congelado em TATICA 🟢 (resolvido em D-26)
 
-`_identify_bottleneck` em `agente2_analista.py` usa `frequencia_por_categoria`,
-calculada sobre **todo o histórico**. A janela recente (`frequencia_tags_recente`,
-`RECENT_WINDOW_DAYS = 30`) é calculada e **nunca usada**. Prova: as análises de
-06/09 e 07/09 têm contagens idênticas (351/148/112), e as 3 sprints existentes
-apontam `TATICA`, `TATICA`, `TATICA`. Enquanto for cumulativo, o sistema é
-incapaz de reconhecer melhora.
+`_identify_bottleneck` em `agente2_analista.py` passou a usar métricas recentes
+(`frequencia_por_categoria_recente` e `gravidade_media_por_categoria_recente`,
+`RECENT_WINDOW_DAYS = 30`). As métricas cumulativas continuam gravadas para alimentar
+o radar histórico.
 
-Junto disso: `fetch_diagnosticos` seleciona `gravidade_cpl` e nunca
-`queda_win_percent`, então `D-1` não chega à decisão de gargalo.
+Além disso, `fetch_diagnosticos` e `build_dataframe` passaram a usar `queda_win_percent`
+em vez de `gravidade_cpl`, integrando a métrica D-1 à decisão do gargalo. `top_3_tags` e o
+prompt narrativo do Gemini também foram atualizados para focar no período recente. 11 testes
+unitários adicionados em `backend.agentes.test_agente2_analista`.
 
 ### P-4 — O loop adaptativo nunca fechou 🟡
 
@@ -391,6 +394,27 @@ role) e validado por curl que o INSERT anônimo agora recebe `HTTP 401`.
 
 P-2 e P-13 estão fechadas (D-22 e D-23). A frente de RLS/Auth deste projeto
 não tem mais pendência de segurança aberta — só a migração de usuário acima.
+
+**Fase C — onboarding de novo usuário real (13/09/2026, D-28).** Antes de
+D-28, mesmo com login e RLS por dono funcionando desde a Fase B, TODA a
+coleta e análise ainda era single-tenant por baixo dos panos: a coleta em
+lote sempre gravava no `DEFAULT_USER_ID`, e os Agentes 2 e 3 nunca filtravam
+por dono — o Agente 2 misturaria os diagnósticos de qualquer segunda conta
+com os do Edson no mesmo hexágono. Corrigido com a tabela `perfis_usuario`
+(onde cada um cadastra sua própria conta de Lichess/Chess.com, tela `/perfil`)
+e um loop por usuário em `coletar_partidas.py`, `coletar_partidas_chesscom.py`,
+`agente2_analista.py` e `agente3_prescritor.py`. Validado de ponta a ponta com
+conta de teste real (Admin API + limpeza ao final, mesmo padrão de D-19): a
+conta de teste gerou hexágono e coleta próprios, isolados, sem tocar nos 525
+diagnósticos nem no gargalo `TATICA` do Edson. **A Lais já pode ser
+convidada** — falta só ela se cadastrar em `/login` e preencher `/perfil`.
+
+Consequência menor: `LICHESS_USERNAME`/`CHESSCOM_USERNAME` deixaram de ter
+leitor em `pipeline-diario.yml` (a coleta em lote lê `perfis_usuario` agora) —
+os secrets correspondentes no GitHub ficaram órfãos, candidatos a remoção
+futura, mesma categoria de pendência não bloqueante de `API_SECRET_KEYS` em
+D-25. As duas variáveis continuam vivas no `.env` só para quem roda
+`analisar_pgn_avulso.py` direto no terminal.
 
 ### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
 

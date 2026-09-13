@@ -1,12 +1,15 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import {
   PerguntaPendente,
   SupabaseService
 } from '../../services/supabase.service';
+import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-preview.component';
 
 @Component({
   selector: 'app-perguntas-pendentes',
   standalone: true,
+  imports: [RouterLink, TabuleiroPreviewComponent],
   templateUrl: './perguntas-pendentes.component.html'
 })
 export class PerguntasPendentesComponent implements OnInit {

@@ -1282,6 +1282,32 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
     @patch("backend.api.api_server.load_analysis_settings")
     @patch("backend.api.api_server.load_linter_settings")
     @patch("backend.api.api_server.executar_pipeline_partida")
+    @patch("backend.api.api_server.inserir_partida", return_value="partida_777")
+    def test_infere_cor_pelo_perfil_de_quem_esta_logado(
+        self, mock_inserir, mock_executar_pipeline, mock_linter, mock_analysis
+    ) -> None:
+        """D-28: o auto-detect usa o perfil de QUEM CHAMOU, não um username fixo.
+
+        Sem isso, colar o PGN de outra pessoa logada nunca detectaria a cor
+        dela sozinho - só reconheceria o dono de sempre.
+        """
+        perfil_mock = MagicMock()
+        perfil_mock.data = {"lichess_username": "opponent123", "chesscom_username": None}
+        api_server._state["supabase_client"].table.return_value.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value = perfil_mock
+
+        resposta = self.client.post(
+            "/analisar-pgn",
+            json={"pgn": self.PGN_TESTE, "cor": None},
+            headers=HEADERS_SESSAO,
+        )
+
+        self.assertEqual(resposta.status_code, 202)
+        args, _kwargs = mock_inserir.call_args
+        self.assertEqual(args[3], "PRETAS")
+
+    @patch("backend.api.api_server.load_analysis_settings")
+    @patch("backend.api.api_server.load_linter_settings")
+    @patch("backend.api.api_server.executar_pipeline_partida")
     @patch("backend.agentes.analisar_pgn_avulso.inferir_cor_jogador", return_value="BRANCAS")
     @patch("backend.api.api_server.inserir_partida", return_value="partida_888")
     def test_infere_cor_automaticamente_se_cor_for_null(

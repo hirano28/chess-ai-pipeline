@@ -47,6 +47,7 @@ jobs:
         run: |
           python -m unittest \
             backend.agentes.test_agente1_linter \
+            backend.agentes.test_agente2_analista \
             backend.agentes.test_agente3_prescritor \
             backend.agentes.test_analisar_pgn_avulso \
             backend.agentes.test_explicador_posicao \
@@ -57,10 +58,14 @@ jobs:
             backend.agentes.test_revisar_exercicio_avulso \
             backend.agentes.test_revisar_pensamento \
             backend.analise_engine.test_analisar_partidas \
+            backend.analise_engine.test_backfill_fen_lances_criticos \
             backend.api.test_api_server \
             backend.common.test_chess_math \
             backend.common.test_notacao_pt \
             backend.common.test_tenant \
+            backend.ingestao.test_coletar_partidas \
+            backend.ingestao.test_coletar_partidas_chesscom \
+            backend.ingestao.test_common_ingestao \
             backend.ingestao.test_enriquecer_partidas_lichess
 
       - name: Autenticar no Google Cloud

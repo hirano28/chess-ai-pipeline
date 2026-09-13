@@ -67,6 +67,7 @@ class CriticalMove:
     win_percent_drop: float
     tipo_evento: str = "PICO"
     move_number_fim: int | None = None
+    fen_antes_lance: str | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,7 @@ class PlayerMoveEval:
     evaluation_after_cp: int
     win_percent_before: float
     win_percent_after: float
+    fen_antes: str
 
 
 @dataclass(frozen=True)
@@ -293,6 +295,7 @@ def selecionar_picos(player_moves: list[PlayerMoveEval]) -> list[CriticalMove]:
             win_percent_drop=round(
                 move.win_percent_before - move.win_percent_after, 2
             ),
+            fen_antes_lance=move.fen_antes,
         )
         for move in player_moves
     ]
@@ -366,6 +369,7 @@ def detectar_erosao(
                 win_percent_drop=round(queda_liquida, 2),
                 tipo_evento="EROSAO",
                 move_number_fim=fim.move_number,
+                fen_antes_lance=inicio.fen_antes,
             )
         )
         move_numbers_selecionados.update(move_numbers_janela)
@@ -387,6 +391,7 @@ def processar_partida(partida: dict, engine: Stockfish) -> ProcessResult:
         if playing_color == color:
             notation = board.san(move)
             move_number = board.fullmove_number
+            fen_antes = board.fen()
             before_cp = evaluate_position(engine, board, color)
             board.push(move)
             if board.is_checkmate():
@@ -400,6 +405,7 @@ def processar_partida(partida: dict, engine: Stockfish) -> ProcessResult:
                     evaluation_after_cp=after_cp,
                     win_percent_before=centipawns_para_win_percent(before_cp),
                     win_percent_after=centipawns_para_win_percent(after_cp),
+                    fen_antes=fen_antes,
                 )
             )
         else:
@@ -538,6 +544,7 @@ def insert_critical_moves(
                 "avaliacao_depois_cp": move.evaluation_after_cp,
                 "queda_win_percent": move.win_percent_drop,
                 "tipo_evento": move.tipo_evento,
+                "fen_antes_lance": move.fen_antes_lance,
             }
         ).execute()
         inserted += 1

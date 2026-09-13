@@ -1,5 +1,6 @@
 <div
-  class="mx-auto grid w-full max-w-[320px] grid-cols-8 overflow-hidden rounded-md border border-[#40565c]"
+  class="mx-auto grid w-full grid-cols-8 overflow-hidden rounded-md border border-[#40565c]"
+  [class]="miniatura ? 'max-w-[96px]' : 'max-w-[320px]'"
 >
   @for (casa of casas; track $index) {
     <div
@@ -18,6 +19,8 @@
   }
 </div>
 
-<p class="mx-auto mt-2 max-w-[320px] text-center text-[10px] leading-tight text-[#5b706d]">
-  Peças: conjunto cburnett, Colin M.L. Burnett (CC-BY-SA/GPL)
-</p>
+@if (!miniatura) {
+  <p class="mx-auto mt-2 max-w-[320px] text-center text-[10px] leading-tight text-[#5b706d]">
+    Peças: conjunto cburnett, Colin M.L. Burnett (CC-BY-SA/GPL)
+  </p>
+}

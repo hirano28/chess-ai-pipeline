@@ -53,9 +53,20 @@ export interface PerguntaPendente {
   tipoEvento: string;
   dataPartida: string | null;
   corJogada: string | null;
+  fenAntesLance: string | null;
 }
 
 export interface RespostaPerguntaResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface PerfilUsuario {
+  lichessUsername: string | null;
+  chesscomUsername: string | null;
+}
+
+export interface SalvarPerfilResult {
   success: boolean;
   error?: string;
 }
@@ -159,7 +170,7 @@ export class SupabaseService {
       .from('perguntas_pendentes')
       .select(
         'id, pergunta_texto, created_at, ' +
-          'lances_criticos(numero_lance, numero_lance_fim, lance_notacao, tipo_evento, partida_id, ' +
+          'lances_criticos(numero_lance, numero_lance_fim, lance_notacao, tipo_evento, partida_id, fen_antes_lance, ' +
           'partidas(id, data_partida, cor_jogada))'
       )
       .eq('status', 'PENDENTE')
@@ -185,7 +196,8 @@ export class SupabaseService {
           lanceNotacao: lance.lance_notacao ?? null,
           tipoEvento: lance.tipo_evento,
           dataPartida: partida?.data_partida ?? null,
-          corJogada: partida?.cor_jogada ?? null
+          corJogada: partida?.cor_jogada ?? null,
+          fenAntesLance: lance.fen_antes_lance ?? null
         } satisfies PerguntaPendente;
       })
       .filter((item: PerguntaPendente | null): item is PerguntaPendente => item !== null);
@@ -230,6 +242,52 @@ export class SupabaseService {
       return { success: false, error: updateError.message };
     }
 
+    return { success: true };
+  }
+
+  /**
+   * Conta(s) de Lichess/Chess.com de quem está logado (D-28) - fonte que os
+   * coletores em backend/ingestao/ usam pra saber de quem baixar partidas.
+   * RLS já restringe a própria linha; sem `.eq`, igual ao resto do serviço.
+   */
+  async getPerfilUsuario(): Promise<PerfilUsuario | null> {
+    const { data, error } = await this.client
+      .from('perfis_usuario')
+      .select('lichess_username, chesscom_username')
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Não foi possível carregar o perfil: ${error.message}`);
+    }
+    if (!data) {
+      return null;
+    }
+    return {
+      lichessUsername: data.lichess_username ?? null,
+      chesscomUsername: data.chesscom_username ?? null
+    };
+  }
+
+  /**
+   * `userId` precisa vir de `AuthService.usuario()?.id`: a policy de INSERT
+   * exige `user_id = auth.uid()` na linha nova, e este é o primeiro INSERT do
+   * frontend numa tabela com essa policy - sem o campo explícito no payload,
+   * a gravação seria rejeitada.
+   */
+  async salvarPerfilUsuario(
+    userId: string,
+    lichessUsername: string,
+    chesscomUsername: string
+  ): Promise<SalvarPerfilResult> {
+    const { error } = await this.client.from('perfis_usuario').upsert({
+      user_id: userId,
+      lichess_username: lichessUsername.trim() || null,
+      chesscom_username: chesscomUsername.trim() || null
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
     return { success: true };
   }
 }

@@ -36,6 +36,9 @@ export class TabuleiroPreviewComponent implements OnChanges {
   /** FEN completa ou só o campo de colocação de peças. Vazio/inválido -> tabuleiro vazio. */
   @Input() fen = '';
 
+  /** true = versão compacta (sem legenda, tabuleiro menor) para uso como miniatura clicável em listas. */
+  @Input() miniatura = false;
+
   /** Exposto para o template montar `src="{{ piecesBaseUrl }}/{{ casa.peca }}.svg"`. */
   readonly piecesBaseUrl = PIECES_BASE_URL;
 

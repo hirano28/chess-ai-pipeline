@@ -3,6 +3,7 @@ import { HexagonoRadarComponent } from './components/hexagono-radar/hexagono-rad
 import { LaboratorioRaciocinioComponent } from './components/laboratorio-raciocinio/laboratorio-raciocinio.component';
 import { ExplicadorPosicaoComponent } from './components/explicador-posicao/explicador-posicao.component';
 import { AnalisadorPartidaComponent } from './components/analisador-partida/analisador-partida.component';
+import { PerfilUsuarioComponent } from './components/perfil-usuario/perfil-usuario.component';
 import { LoginComponent } from './components/login/login.component';
 import { authGuard } from './guards/auth.guard';
 
@@ -18,5 +19,6 @@ export const routes: Routes = [
 	{ path: 'laboratorio', component: LaboratorioRaciocinioComponent, canActivate: [authGuard] },
 	{ path: 'explicador', component: ExplicadorPosicaoComponent, canActivate: [authGuard] },
 	{ path: 'analisador', component: AnalisadorPartidaComponent, canActivate: [authGuard] },
+	{ path: 'perfil', component: PerfilUsuarioComponent, canActivate: [authGuard] },
 	{ path: '**', redirectTo: '' }
 ];

@@ -467,6 +467,37 @@ def resolver_user_id_da_sessao(token: str) -> str | None:
     return user.id if user else None
 
 
+def resolver_usernames_do_perfil(client: Any, user_id: str) -> list[str]:
+    """Busca o(s) username(s) de Lichess/Chess.com de `user_id` em perfis_usuario.
+
+    Alimenta a inferência de cor de `/analisar-pgn` (D-28): sem isso, o
+    auto-detect só reconheceria o username fixo do `.env` (sempre o mesmo
+    dono), então colar o PGN de outra pessoa logada nunca acertaria a cor
+    sozinho. Retorna lista vazia (nunca lança) se o perfil não existir ainda
+    ou a consulta falhar - o pior caso é cair no fallback de pedir a cor
+    explicitamente, não um erro.
+    """
+
+    try:
+        resposta = (
+            client.table("perfis_usuario")
+            .select("lichess_username, chesscom_username")
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception:
+        return []
+    perfil = resposta.data if resposta else None
+    if not perfil:
+        return []
+    return [
+        perfil[coluna]
+        for coluna in ("lichess_username", "chesscom_username")
+        if perfil.get(coluna)
+    ]
+
+
 def verificar_sessao(request: Request) -> str:
     """Exige sessão real do Supabase Auth ANTES de qualquer rota executar.
 
@@ -820,14 +851,17 @@ def analisar_pgn_endpoint(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
+    client = _state["supabase_client"]
     try:
-        cor = resolver_cor(game, payload.cor)
+        usernames = (
+            resolver_usernames_do_perfil(client, user_id) if payload.cor is None else None
+        )
+        cor = resolver_cor(game, payload.cor, usernames=usernames)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
     external_id = gerar_external_id(pgn_text)
     try:
-        client = _state["supabase_client"]
         partida_id = inserir_partida(
             client, pgn_text, game, cor, user_id=user_id
         )

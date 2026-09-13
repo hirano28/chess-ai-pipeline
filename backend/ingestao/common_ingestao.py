@@ -10,8 +10,6 @@ from typing import Any, Callable, TypeVar
 import requests
 from supabase import Client, create_client
 
-from backend.common.tenant import obter_default_user_id
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "ingestao.log"
@@ -83,9 +81,28 @@ def already_exists(client: Client, external_id: str) -> bool:
     return bool(result.data)
 
 
-def insert_game(client: Client, record: dict[str, Any]) -> None:
-    """Insere um registro de partida na tabela partidas."""
+def insert_game(client: Client, record: dict[str, Any], user_id: str) -> None:
+    """Insere um registro de partida na tabela partidas, atribuída a `user_id`.
 
-    client.table("partidas").insert(
-        {**record, "user_id": obter_default_user_id()}
-    ).execute()
+    Sem fallback (D-28): desde que a coleta passou a percorrer `perfis_usuario`
+    e atender mais de uma pessoa, gravar sem saber de quem é a partida seria
+    silenciosamente atribuí-la a quem quer que seja o dono padrão.
+    """
+
+    client.table("partidas").insert({**record, "user_id": user_id}).execute()
+
+
+def carregar_perfis(client: Client, coluna_username: str) -> list[dict[str, Any]]:
+    """Busca em perfis_usuario os perfis com a conta desta plataforma preenchida.
+
+    `coluna_username` é ``"lichess_username"`` ou ``"chesscom_username"``.
+    Cada perfil vira uma rodada de coleta independente (ver D-28).
+    """
+
+    result = (
+        client.table("perfis_usuario")
+        .select(f"user_id, {coluna_username}")
+        .not_.is_(coluna_username, "null")
+        .execute()
+    )
+    return result.data or []

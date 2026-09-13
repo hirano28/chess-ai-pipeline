@@ -15,7 +15,7 @@ fonte: introspecção direta do projeto Supabase pmzmershonrqzwbmhaco
 | Tabela | Colunas relevantes | Papel |
 |---|---|---|
 | `partidas` | `id`, `plataforma`, `external_id`, `pgn`, `data_partida`, `resultado`, `cor_jogada`, `rating_proprio`, `rating_oponente`, `eco_abertura`, `abertura_normalizada`, `status_processamento`, `created_at` | toda partida coletada |
-| `lances_criticos` | `partida_id`, `numero_lance`, `numero_lance_fim`, `tipo_evento`, `gravidade_cpl`, `queda_win_percent` | lances e janelas ruins achados pelo Stockfish |
+| `lances_criticos` | `partida_id`, `numero_lance`, `numero_lance_fim`, `tipo_evento`, `gravidade_cpl`, `queda_win_percent`, `fen_antes_lance` | lances e janelas ruins achados pelo Stockfish. `fen_antes_lance` (D-27) é o FEN de antes do lance (ou do início da janela, em EROSAO); alimenta a miniatura de tabuleiro nas perguntas pendentes |
 | `diagnosticos` | `lance_id`, `tags_falha[]`, `diagnostico_mecanico`, `tipo_erro` | causa do erro, gerada pelo Gemini |
 | `analises_hexagono` | `data_analise`, `metricas` (jsonb), `narrativa`, `gargalo_sistemico_atual` | saída do Agente 2 |
 | `sessoes_treino` | `diagnostico_gargalo`, `modulos` (jsonb), `data_prescrita`, `data_concluida`, `eficacia_medida`, `observacoes` | sprints do Agente 3 |
@@ -60,8 +60,23 @@ tabela. `livros_chunks` e `indice_conceitual` ficam de fora por serem corpus
 compartilhado, não dado de usuário.
 
 O valor vem de `DEFAULT_USER_ID` (obrigatória), lida por
-`backend/common/tenant.py`. A FK para `auth.users` ainda **não** existe — ver
-P-11 em `ESTADO.md`.
+`backend/common/tenant.py`. A FK para `auth.users` ainda **não** existe nestas
+6 — ver P-11 em `ESTADO.md`.
+
+### Perfis de usuário — Fase C do multi-tenant (D-28)
+
+| Tabela | Colunas relevantes | Papel |
+|---|---|---|
+| `perfis_usuario` | `user_id` (PK, **FK real** para `auth.users(id)`), `lichess_username`, `chesscom_username` | conta(s) de Lichess/Chess.com de cada usuário logado |
+
+Fonte que `backend/ingestao/coletar_partidas.py` e
+`coletar_partidas_chesscom.py` usam pra saber DE QUEM buscar partidas e a QUEM
+atribuir o `user_id` gravado — sem uma linha aqui, a pessoa pode logar e ver as
+telas, mas nunca tem partida nenhuma ingerida. Constraint `check` exige pelo
+menos uma das duas colunas preenchida. RLS: cada usuário só lê/grava a própria
+linha (`user_id = auth.uid()`, mesmo padrão de D-19). É a única tabela do
+schema com FK declarada para `auth.users` até agora — as 6 tabelas raiz da
+seção anterior não têm.
 
 ## 2. Vocabulário controlado — as 16 tags de falha
 

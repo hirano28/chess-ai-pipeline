@@ -9,6 +9,7 @@ from backend.analise_engine.analisar_partidas import (
     detectar_erosao,
     processar_partida,
     processar_partida_com_timeout,
+    selecionar_picos,
 )
 
 
@@ -50,6 +51,26 @@ class ProcessarPartidaTest(unittest.TestCase):
         self.assertEqual(engine.evaluation_calls, 3)
 
 
+class SelecionarPicosTest(unittest.TestCase):
+    def test_pico_carrega_fen_de_antes_do_lance(self) -> None:
+        player_moves = [
+            PlayerMoveEval(
+                move_number=5,
+                notation="Qxd5",
+                evaluation_before_cp=50,
+                evaluation_after_cp=-200,
+                win_percent_before=55.0,
+                win_percent_after=25.0,
+                fen_antes="fen-antes-do-erro",
+            )
+        ]
+
+        picos = selecionar_picos(player_moves)
+
+        self.assertEqual(len(picos), 1)
+        self.assertEqual(picos[0].fen_antes_lance, "fen-antes-do-erro")
+
+
 class DetectarErosaoTest(unittest.TestCase):
     def _lance(
         self, numero: int, win_percent_before: float, win_percent_after: float
@@ -61,6 +82,7 @@ class DetectarErosaoTest(unittest.TestCase):
             evaluation_after_cp=0,
             win_percent_before=win_percent_before,
             win_percent_after=win_percent_after,
+            fen_antes=f"fen-lance-{numero}",
         )
 
     def test_queda_gradual_sem_pico_e_detectada(self) -> None:
@@ -79,6 +101,8 @@ class DetectarErosaoTest(unittest.TestCase):
         self.assertEqual(evento.move_number_fim, 8)
         self.assertIsNone(evento.notation)
         self.assertAlmostEqual(evento.win_percent_drop, 20.0, places=2)
+        # D-27: a janela guarda o FEN de ANTES do lance inicial, não do final.
+        self.assertEqual(evento.fen_antes_lance, "fen-lance-1")
 
     def test_sequencia_estavel_nao_gera_evento(self) -> None:
         player_moves = [self._lance(i + 1, 50.0, 50.0) for i in range(8)]
