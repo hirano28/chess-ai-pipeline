@@ -141,11 +141,16 @@ correção automática. Ver pendência em `ESTADO.md`.
 **Policy de RLS é por role, não por condição.** Uma policy criada com
 `to anon using (true)` só vale pra quem conecta como `anon` — a role
 `authenticated` (usuário logado via Supabase Auth) cai em negação por
-padrão se não existir NENHUMA policy própria pra ela, mesmo a de `anon`
-tendo `using(true)`. `analises_hexagono`, `lances_criticos`, `partidas`,
-`resumo_partida`, `revisao_exercicio_avulso` e `sessoes_treino` tinham
-exatamente esse problema (descoberto testando a Fase B.1 do Auth — D-15) e
-ganharam uma 2ª policy de SELECT `to authenticated`, mesmo `using(true)`,
-sem mexer nas de `anon` (D-16). Ao criar uma tabela nova com RLS, decida a
-lista de roles de propósito — `to public` cobre as duas de uma vez; `to
-anon` sozinho é isso aqui de novo, só que ainda não descoberto.
+padrão se não existir NENHUMA policy própria pra ela.
+Inicialmente (D-16), criaram-se policies `to authenticated using(true)` para
+paridade. Na Fase B.3 (D-19), essas policies foram substituídas por
+**isolamento estrito por dono**:
+- Tabelas raiz com `user_id` próprio (`analises_hexagono`, `sessoes_treino`,
+  `partidas`, `revisao_exercicio_avulso`): `using (user_id = auth.uid())`.
+- Tabelas filhas sem `user_id` próprio (`lances_criticos`, `diagnosticos`,
+  `resumo_partida`): `using (exists (select 1 from ... where ... partidas.user_id = auth.uid()))`.
+As policies `to anon` continuam intactas (`using(true)`), permitindo que o
+fluxo histórico sem login continue operando normalmente.
+Ao criar uma tabela nova com RLS, decida a lista de roles de propósito —
+`to public` cobre as duas de uma vez; `to anon` sozinho exclui autenticados.
+

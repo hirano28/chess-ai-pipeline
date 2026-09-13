@@ -578,6 +578,56 @@ foi. Essa migração é o próximo passo da Fase B.3, fora do escopo daqui.
 
 ---
 
+## D-19 — Isolamento RLS por dono nas tabelas do dashboard (Fase B.3, segunda parte)
+
+**Problema.** D-16 introduziu paridade entre `anon` e `authenticated` criando
+policies de SELECT `to authenticated` com `using(true)` em `analises_hexagono`,
+`sessoes_treino`, `partidas`, `lances_criticos`, `revisao_exercicio_avulso` e
+`resumo_partida`. Isso evitou que o dashboard carregasse vazio para usuários
+logados, mas como efeito colateral permitia que qualquer usuário logado visse
+os dados de todos os outros usuários. Com mais de uma pessoa real usando a
+aplicação, a leitura direta via PostgREST precisava de isolamento estrito no
+banco por dono de verdade.
+
+**Decisão.** Trocar a cláusula `using(true)` das policies de `authenticated`
+pelo filtro de identidade `auth.uid()`:
+
+1. **Tabelas raiz com `user_id` próprio** (`analises_hexagono`, `sessoes_treino`,
+   `partidas`, `revisao_exercicio_avulso`):
+   `using (user_id = auth.uid())`
+2. **Tabelas filhas sem `user_id` próprio** (`lances_criticos`, `diagnosticos`,
+   `resumo_partida`):
+   Filtram via `exists` subindo a cadeia de chaves estrangeiras até
+   `partidas.user_id = auth.uid()`:
+   - `lances_criticos`: `exists (select 1 from partidas where partidas.id = lances_criticos.partida_id and partidas.user_id = auth.uid())`
+   - `diagnosticos`: `exists (select 1 from lances_criticos join partidas on partidas.id = lances_criticos.partida_id where lances_criticos.id = diagnosticos.lance_id and partidas.user_id = auth.uid())`
+   - `resumo_partida`: `exists (select 1 from partidas where partidas.id = resumo_partida.partida_id and partidas.user_id = auth.uid())`
+
+**As policies `to anon` NÃO foram alteradas.** O acesso não autenticado (via
+chave pública anônima) continua funcionando como antes, sem quebrar o fluxo
+histórico.
+
+**Frontend não precisou de nenhuma mudança de código.** O `SupabaseClient` do
+`SupabaseService` anexa o JWT da sessão automaticamente em todas as requisições
+`.from(...)`. O PostgREST avalia `auth.uid()` diretamente contra as novas
+policies, tornando o isolamento transparente para os componentes Angular
+(Hexágono, Narrativa, Sessões de Treino, Perguntas Pendentes).
+
+**Dono do corpus histórico migrado para Edson.** As 900 linhas anteriormente
+backfilladas com o UUID provisório `51e682f1-50a7-4360-a40d-f17a5524c49b` foram
+transferidas para o UUID real da conta confirmada do Edson
+(`bfde845a-8e2e-4885-801f-0fed2dd3b426`), e `DEFAULT_USER_ID` no `.env` e
+`env.yaml` foi atualizado para este mesmo UUID.
+
+**Consequência e validação.** Testado via script automatizado com duas contas
+reais (`edson.hirano.dev@gmail.com` e uma conta temporária via Admin API): cada
+conta gerou seus registros em partidas, lances críticos, diagnósticos, resumos,
+sessões de treino e análises de hexágono. Sob a sessão de cada conta, confirmou-se
+que nenhuma enxerga qualquer dado pertencente à outra. A conta e dados de teste
+temporários foram removidos ao final, mantendo a conta do Edson intacta.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

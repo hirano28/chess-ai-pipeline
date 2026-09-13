@@ -253,47 +253,29 @@ teste, a linha nasceu com o `user_id` da conta; no mesmo navegador sem
 sessão (só `X-API-Key`), nasceu com `DEFAULT_USER_ID` — os dois caminhos
 coexistindo na mesma bateria de teste, como pedido.
 
-**Fase B.3, primeira parte concluída (13/09/2026) — leitura também filtrada
-pelo dono real (D-18).** `GET /revisoes-avulsas/recentes`,
-`/explicacoes-posicao/recentes` e `/partidas/recentes` passaram a filtrar a
-query com `.eq("user_id", resolver_user_id_para_escrita(request))` —
-reaproveitando, sem alterar, a mesma função de resolução de identidade de
-D-17. RLS não foi tocado: o filtro é na query do backend, suficiente porque
-só o backend fala com essas tabelas, sempre com a `service role key` (que
-ignora RLS). Testado com 2 contas reais (`teste-d18-conta-a/b`), cada uma
-salvando um exercício com sua própria sessão: a listagem de cada conta
-devolveu só o próprio item, confirmado por SQL direto que os `user_id`
-gravados batem com os UUIDs reais das duas contas. Repetido sem
-`Authorization` (só `X-API-Key`): a listagem voltou a mostrar exclusivamente
-o histórico sob `DEFAULT_USER_ID`, sem nenhuma das duas linhas de teste —
-os dois caminhos continuam isolados um do outro. Contas e linhas de teste
-apagadas ao final.
+**Fase B.3, primeira parte concluída (13/09/2026) — leitura filtrada pelo dono nos 3 endpoints do FastAPI (D-18).**
+`GET /revisoes-avulsas/recentes`, `/explicacoes-posicao/recentes` e `/partidas/recentes`
+filtram por `user_id = resolver_user_id_para_escrita(request)`.
 
-Falta, para o sistema ser multiusuário de verdade (resto da Fase B.3, ainda
-não iniciado):
+**Fase B.3, segunda parte concluída (13/09/2026) — isolamento RLS por dono nas tabelas do dashboard (D-19).**
+As policies de `authenticated` criadas com `using(true)` em D-16 foram substituídas por isolamento real:
+- Tabelas raiz (`analises_hexagono`, `sessoes_treino`, `partidas`, `revisao_exercicio_avulso`): `using (user_id = auth.uid())`.
+- Tabelas filhas (`lances_criticos`, `diagnosticos`, `resumo_partida`): `using (exists (select 1 from ... where ... partidas.user_id = auth.uid()))`.
+- A conta do Edson (`edson.hirano.dev@gmail.com`, UUID `bfde845a-8e2e-4885-801f-0fed2dd3b426`) está confirmada em `auth.users`.
+- As 900 linhas do corpus histórico foram migradas para o UUID real do Edson, e `DEFAULT_USER_ID` atualizado no `.env`.
+- As policies de `anon` continuam intactas.
+- Testado e validado de ponta a ponta com 2 contas reais: isolamento mútuo total verificado (nenhum dado vaza entre usuários).
 
-- **`auth.users` está vazia** (0 contas — confirmado em 13/09/2026, depois de
-  eu mesmo criar e apagar contas de teste pra validar B.1, a correção de
-  paridade, a B.2 e agora a primeira parte da B.3). Por isso a coluna
-  `user_id` é `uuid` puro, **sem FK** — a constraint está escrita e comentada
-  no fim de `backend/db/user_id_tabelas_raiz.sql`.
+Falta, para o sistema ser multiusuário de verdade (próximos passos de Auth):
+
 - **Migrar os 4 amigos para conta própria.** Enquanto eles só tiverem
   `X-API-Key`, toda leitura e escrita deles continua caindo em
-  `DEFAULT_USER_ID` — nem B.2 nem esta parte de B.3 migraram ninguém (nem
-  deveriam, ainda). Explicitamente fora do escopo até aqui.
+  `DEFAULT_USER_ID` (que agora é o UUID do Edson) — migração deliberadamente
+  mantida para momento oportuno.
 - **Ligar o `authGuard`** nas rotas do dashboard, quando fizer sentido exigir
-  login de verdade (agora sem o bloqueio de dado vazio que existia antes).
-- **Isolamento por usuário via RLS.** Trocar `using(true)` por
-  `user_id = auth.uid()` nas policies de `authenticated` das 6 raízes (as que
-  D-16 criou com `using(true)`), e por um `exists` subindo a cadeia de FK nas
-  tabelas filhas (D-14 explica por que filha não ganha coluna própria). As
-  policies de `anon` provavelmente precisam ser revistas nesse momento
-  também — hoje elas continuam dando acesso total a qualquer portador da
-  chave pública. D-18 filtrou só a leitura que passa pelo FastAPI; RLS
-  continua sem isolamento nenhum.
-- **Fim do `DEFAULT_USER_ID` como fallback.** Enquanto ele existir, quem não
-  tiver sessão Supabase Auth continua lendo e gravando pro mesmo dono —
-  correto enquanto os amigos não migrarem, mas não é o estado final.
+  login de verdade para navegar.
+- **Adicionar FK para `auth.users(id)`** nas 6 tabelas raiz (comentada no fim
+  de `backend/db/user_id_tabelas_raiz.sql`).
 
 Isto **não** resolve P-2 (6 tabelas sem RLS nenhum): as duas coisas se cruzam,
 e o certo é tratá-las na mesma passada.
