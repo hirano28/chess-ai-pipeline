@@ -2,7 +2,7 @@
 doc: DECISOES.md
 escopo: decisões de design e o motivo delas; conhecimento durável, não envelhece
 regra: nunca reescreva uma decisão antiga — acrescente uma nova marcando a anterior como substituída
-verificado_em: 2026-09-11
+verificado_em: 2026-09-13
 ---
 
 # Registro de decisões
@@ -218,6 +218,363 @@ endpoint: se salvar falhar, a resposta ainda volta com a explicação, só sem
 usuário pediu do que devolver 500 por causa de um efeito colateral" já usada em
 `gerar_resumo_sequencia` (resumo geral da sequência é best-effort, ver
 `revisar_exercicio_avulso.py`).
+
+---
+
+## D-12 — Nome de abertura resolvido diferente por plataforma, nunca inventado
+
+**Problema.** A ideia inicial era ler o nome da abertura de uma tag `[Opening]`
+no PGN já salvo em `partidas`. Verificação real (regra R3 do `AGENTS.md`: "não
+confie sem checar o formato real") mostrou que isso não existe nos dados deste
+projeto: **nenhuma** das 64 partidas do Lichess nem das 146 do Chess.com tem
+essa tag — só as 4 partidas `MANUAL` (PGN colado à mão) têm.
+
+**Decisão.** `backend/agentes/normalizar_aberturas.py` resolve o nome cru de um
+jeito diferente por plataforma, na ordem:
+
+1. Tag `[Opening "..."]` do PGN, quando presente (cobre `MANUAL`).
+2. Tag `[ECOUrl "..."]` do Chess.com — o nome já está embutido na URL do
+   artigo (`.../openings/French-Defense-Steinitz-Attack` → `"French Defense
+   Steinitz Attack"`).
+3. Só para Lichess, sem nenhuma das duas: chama
+   `GET /game/export/{id}?opening=1` (mesmo endpoint que
+   `enriquecer_partidas_lichess.py` já usa — D-4) e lê `opening.name` da
+   resposta. É uma chamada de rede por partida, mas roda uma vez por leva nova
+   (o script só processa `abertura_normalizada is null`).
+
+Depois de obter o nome cru, `normalizar_abertura()` tenta casar contra um
+dicionário de padrões reconhecíveis (`MAPEAMENTO_FAMILIAS`, ordenado do mais
+específico ao mais genérico — ex.: `"Giuoco Piano"` precisa bater com Italiana
+antes de qualquer regra genérica de peão de rei). **Sem correspondência, grava
+o nome original completo**, nunca uma família aproximada — mesma filosofia
+anti-invenção de `D-6`, adaptada de "não alucine dado técnico" para "não
+alucine categoria que os dados não sustentam".
+
+**Consequência.** Rodado contra as 215 partidas existentes: 0 falhas,
+distribuição concentrada em `Francesa` (51), `Peão de Dama` (22), `Moderna`
+(17), `Sistema Londres` (17) e `Siciliana` (17), com uma cauda longa de
+variações raras mantidas com o nome original — ver `ESTADO.md`. O dicionário é
+deliberadamente incompleto: **é para ser estendido conforme aparecer volume**,
+não para cobrir todo o vocabulário ECO de uma vez.
+
+---
+
+## D-13 — Insights de repertório: só LICHESS/CHESSCOM, limiar de amostra por agregação
+
+**Problema.** `GET /insights/repertorio` cruza `abertura_normalizada` (D-12)
+com resultado, precisão por fase e diagnósticos — mas 4 agregações diferentes
+sobre a mesma base pequena (215 partidas) correm risco de ruído estatístico
+(uma abertura com 1-2 partidas "provando" 100% ou 0% de vitória) e de misturar
+dado que não deveria entrar na mesma conta.
+
+**Decisão.**
+
+1. **Partidas `MANUAL` ficam de fora de toda agregação.** São PGN colado à mão
+   no Analisador — podem ser qualquer partida (de um livro, de um amigo), não
+   necessariamente do próprio jogador. Misturá-las em "minha taxa de vitória"
+   seria dado errado, não só ruidoso.
+2. **`MIN_AMOSTRA = 5`**, mesmo valor já usado como `CATEGORY_MIN_DIAGNOSTICS`
+   em `agente2_analista.py` — reaproveita o limiar que este projeto já validou
+   como "amostra mínima aceitável", em vez de inventar um novo número.
+3. **Onde dá pra somar sem perder sentido (item 2, por abertura+cor), os
+   grupos abaixo do limiar viram um bucket `"outras"`** — por `cor_jogada`
+   separadamente, porque taxa de vitória de brancas e de pretas não deveriam
+   se misturar dentro do mesmo "outras". Onde somar não faz sentido (item 3,
+   lance de PICO; item 4, categoria do hexágono) o grupo abaixo do limiar é só
+   omitido — a média de "lance onde ocorre PICO" de duas aberturas diferentes
+   não vira uma média útil de coisa nenhuma.
+4. **O limiar do item 4 (categorias por abertura) conta diagnósticos
+   considerados, não incrementos de categoria válidos.** Um diagnóstico com
+   tag fora do vocabulário fechado (R1) ainda consome uma vaga da amostra — a
+   pergunta que o limiar responde é "quantos diagnósticos temos dessa
+   abertura", não "quantos incrementos bateram".
+
+**Consequência.** Rodado contra o banco de produção (210 partidas
+LICHESS+CHESSCOM, 11/09/2026): Francesa aparece separada por cor (PRETAS: 44
+partidas, 52,27% vitória; BRANCAS: 7 partidas, 57,14%) porque as duas
+combinações batem o limiar sozinhas; nenhuma abertura precisou do bucket
+`"outras"` para ficar de fora da lista principal nesta massa de dados —
+"outras" apareceu só como agregado dos casos abaixo de 5 por cor. Nenhuma das
+linhas trouxe `precisao_media_*`: as 3 colunas de fase (ver `BANCO.md`) só têm
+valor a partir de agora, e nenhuma das 4 linhas existentes de
+`metricas_lichess_partida` foi reprocessada retroativamente (decisão já
+tomada ao criar essas colunas — ver `enriquecer_partidas_lichess.py`).
+
+---
+
+## D-14 — `user_id` só nas 6 tabelas raiz; Fase B (Auth + RLS) deliberadamente adiada
+
+**Problema.** O banco nasceu single-tenant implícito: nenhuma linha diz de quem
+ela é. Para um dia existir mais de um usuário, o dono precisa estar gravado —
+mas travar acesso agora quebraria tudo que funciona hoje.
+
+**Decisão: separar em duas fases, e fazer só a Fase A.**
+
+**Fase A (feita).** `user_id uuid not null` em exatamente 6 tabelas:
+`partidas`, `analises_hexagono`, `sessoes_treino`, `explicacoes_posicao`,
+`puzzle_atividade`, `revisao_exercicio_avulso`.
+
+**Por que só essas 6: são as únicas sem pai natural.** Todo o resto do schema
+pendura numa cadeia de FK que já existe e já identifica o dono —
+`lances_criticos.partida_id` → `partidas`, `diagnosticos.lance_id` →
+`lances_criticos` → `partidas`, e assim por diante para `tempos_lance`,
+`metricas_lichess_partida`, `anotacoes_pensamento`, `perguntas_pendentes`,
+`revisoes_pensamento`, `resumo_partida`. Repetir `user_id` nelas criaria um
+segundo lugar para o mesmo fato, que pode divergir do primeiro (um `user_id`
+de `diagnosticos` diferente do `user_id` da `partida` do lance) — é a mesma
+regra de "um fato, um só lar" que vale para a documentação (ver D-11),
+aplicada ao schema. Na Fase B, a policy de uma tabela filha vira um `exists`
+subindo a cadeia, não uma coluna nova.
+
+`livros_chunks` e `indice_conceitual` ficam de fora por outro motivo: são
+corpus de referência compartilhado (livros), não dado de usuário.
+
+**A FK para `auth.users` NÃO entra agora.** `auth.users` está vazia — o Auth do
+Supabase é justamente a Fase B — então nenhum UUID satisfaria a constraint
+hoje. A coluna é `uuid` puro e a FK está escrita e comentada no fim de
+`backend/db/user_id_tabelas_raiz.sql`, para entrar junto com a conta real.
+
+**O valor vem de `DEFAULT_USER_ID`**, variável obrigatória lida por
+`backend/common/tenant.py` **na hora da escrita**, não no import: os scripts só
+chamam `load_dotenv()` dentro do próprio `load_settings()`, então capturar no
+import pegaria vazio. Os 7 pontos de escrita nessas 6 tabelas
+(`common_ingestao.insert_game`, `analisar_pgn_avulso.inserir_partida`,
+`agente2_analista.salvar_analise`, `agente3_prescritor.salvar_sessao`,
+`explicador_posicao.salvar_explicacao_posicao`,
+`importar_puzzle_activity.upsert_puzzle_atividade`,
+`revisar_exercicio_avulso.salvar_exercicio`) preenchem o campo.
+
+**RLS não foi tocado.** Nenhuma policy criada, alterada ou removida; o
+comportamento de leitura e escrita é idêntico ao de antes. Esta é uma mudança
+de **dado**, não de **acesso** — o que é exatamente o que a torna segura de
+fazer antes do Auth existir.
+
+**Consequência.** 900 linhas backfilladas com o mesmo dono
+(`partidas` 215, `puzzle_atividade` 660, `revisao_exercicio_avulso` 12,
+`explicacoes_posicao` 7, `analises_hexagono` 3, `sessoes_treino` 3). Como a
+coluna é `NOT NULL`, qualquer caminho de escrita novo nessas 6 tabelas que
+esqueça o `user_id` **falha na hora** em vez de gravar órfão — o erro aparece
+no desenvolvimento, não meses depois na migração para multi-tenant. A Fase B
+está registrada como pendência P-11 em `ESTADO.md`.
+
+---
+
+## D-15 — Fase B.1: login existe e funciona, mas fica desligado do fluxo hoje
+
+**Problema.** Ligar autenticação de verdade (D-14/P-11, Fase B) sem quebrar o
+que já funciona: X-API-Key do Laboratório/Explicador, e o dashboard
+("Meu Hexágono") que hoje é 100% anônimo.
+
+**Decisão 1 — um único client, não dois.** O supabase-js não tem conceito de
+"client anônimo" vs "client autenticado" como duas instâncias: é o MESMO
+`SupabaseClient` que, a partir do momento em que `auth.signInWithPassword()`/
+`signUp()` roda nele, passa a anexar o JWT da sessão em toda chamada
+`.from(...)` seguinte. `SupabaseService` (usado por `hexagono-radar`,
+`narrativa-analise`, `sessoes-treino`, `perguntas-pendentes`) já era um
+singleton `providedIn: 'root'` com um único client — bastou expor
+`get auth()` nele e fazer `AuthService` operar sobre esse mesmo client. Os 4
+componentes que já liam Supabase direto **não precisaram de nenhuma mudança**
+pra "usar o client autenticado": passaram a fazer isso automaticamente, de
+graça, só por injetarem o mesmo `SupabaseService` de sempre.
+
+**Decisão 2 — o guard existe, está testado, mas NÃO está ligado nas rotas.**
+O próprio pedido desta fase tinha uma contradição real: a instrução de
+abertura e a de fechamento diziam "não trave nenhum acesso
+existente, deve continuar funcionando via anon"; o item pontual do guard
+pedia redirecionar pra `/login` **qualquer** acesso às 4 telas do dashboard —
+inclusive de quem só usa o Laboratório via X-API-Key e nunca criou conta.
+Confirmado com o usuário: o guard (`guards/auth.guard.ts`) fica implementado
+e coberto por teste, mas `app.routes.ts` não usa `canActivate` em nenhuma
+rota. Hoje, literalmente nada muda para ninguém — login/cadastro existem
+como uma porta nova, não como uma porta trancada. Ligar o guard é decisão
+explícita de uma fase B.2.
+
+**Descoberta durante o teste manual — RLS aqui é `TO anon`, não `TO public`.**
+Testado de ponta a ponta com uma conta real (signUp → confirmação de e-mail
+via Admin API, já que este projeto exige confirmação por padrão → login →
+dashboard): **o dashboard carrega vazio para quem está autenticado**, embora
+carregue normalmente para quem está anônimo. Causa raiz, confirmada por
+`pg_policies`: toda policy em `analises_hexagono`, `lances_criticos`,
+`partidas`, `resumo_partida`, `revisao_exercicio_avulso`, `sessoes_treino` é
+`roles: {anon}` — não `{public}`. Postgres não trata "using(true)" como
+"vale pra qualquer role": a policy só se aplica à role listada. Sem uma
+policy para `authenticated`, a regra vira **negação por padrão** assim que o
+PostgREST troca a role da requisição de `anon` para `authenticated`.
+
+Isso **não foi corrigido aqui** — mexer em RLS estava explicitamente fora do
+escopo deste passo ("RLS permanece como está"). Fica registrado como bloqueio
+conhecido da Fase B.2 em `ESTADO.md` (P-11): antes de qualquer travamento por
+usuário fazer sentido, alguém vai precisar decidir entre acrescentar policy
+`TO authenticated` espelhando a de `anon`, ou trocar `TO anon` por
+`TO public` nessas 6 tabelas — e só DEPOIS resolver o escopo por `user_id`
+(D-14) por cima disso.
+
+**Consequência prática hoje.** Fazer login pela tela nova é seguro (não
+quebra nada, o guard está desligado), mas **não traz nenhum benefício ainda**
+para as 4 telas do dashboard — elas ficam vazias pra quem loga, cheias pra
+quem não loga. Laboratório/Explicador/Analisador não são afetados: eles
+falam com o FastAPI (que usa a service role key, sem RLS) via X-API-Key, não
+com o Supabase direto.
+
+---
+
+## D-16 — Paridade anon/authenticated nas 6 tabelas do dashboard (correção pontual, não é B.3)
+
+**Problema.** D-15 registrou a descoberta: logar pela tela de B.1 fazia o
+dashboard "Meu Hexágono" carregar vazio, porque `analises_hexagono`,
+`lances_criticos`, `partidas`, `resumo_partida`, `revisao_exercicio_avulso`
+e `sessoes_treino` só tinham policy de SELECT para a role `anon`
+(`roles: {anon}`). Postgres nega por padrão quando não existe nenhuma
+policy aplicável à role da sessão — `using(true)` na policy de `anon` não
+"vaza" pra `authenticated`; são avaliadas por role, não por condição.
+
+**Decisão.** `backend/db/rls_authenticated_paridade_dashboard.sql` acrescenta
+uma 2ª policy de SELECT em cada uma das 6 tabelas, `to authenticated`, com o
+**mesmo `using(true)`** da policy de `anon` — não um filtro novo, só a mesma
+regra pra role nova. As policies de `anon` (leitura, e as de escrita em
+`sessoes_treino`/`revisao_exercicio_avulso`) não foram tocadas: nem editadas,
+nem removidas, nem recriadas.
+
+**Isto é uma correção de paridade temporária, não a Fase B.3.** B.3 (ainda
+não implementada) é sobre **isolar** dado por dono — trocar `using(true)`
+por `using(user_id = auth.uid())` (ou o `exists` equivalente nas tabelas
+filha, ver D-14). O que este commit faz é o oposto do escopo de B.3: garante
+que, HOJE, autenticado e anônimo continuam vendo exatamente o mesmo dado —
+zero isolamento, só paridade. Quando B.3 rodar, é a condição destas mesmas 6
+policies de `authenticated` que vai mudar de `true` para o filtro por
+usuário; as de `anon` provavelmente deixam de fazer sentido nesse momento
+(ou são removidas, ou passam a exigir login de fato) — decisão de B.3, não
+desta correção.
+
+**Consequência.** Testado de ponta a ponta com uma conta real (mesmo e-mail
+`+alias` de D-15, recriada — signUp, confirmação via Admin API já que este
+projeto exige confirmação, login, comparação do `<main>` do dashboard entre
+aba anônima e aba autenticada): conteúdo **byte-a-byte idêntico** (6823
+caracteres nas duas), incluindo o radar do hexágono, a narrativa, as 6
+perguntas pendentes (via `lances_criticos`→`partidas` embutido) e as 3
+sessões de treino. Confirmado também direto via `curl` com o JWT real contra
+o PostgREST (`HTTP 200`, `content-range: 0-5/*`, as mesmas 6 linhas), sem
+depender do navegador. Um erro de CORS apareceu uma única vez no console
+durante a transição de rota `/login` → `/` na primeira rodada do teste e não
+se repetiu numa segunda rodada idêntica — tudo indica requisição abortada
+pela própria navegação da SPA, não falha do fix (o servidor respondeu 200
+via curl para a mesma query com o mesmo token). Conta de teste apagada ao
+final (`auth.users` de volta a 0 linhas).
+
+---
+
+## D-17 — Identidade por sessão real, com fallback de API key (Fase B.2)
+
+**Problema.** Depois de D-14 (coluna `user_id`) e D-15/D-16 (login funcionando
+e vendo o mesmo dado que anônimo), toda escrita de verdade — Laboratório,
+Explicador, Analisador — continuava gravando `DEFAULT_USER_ID` fixo. Os 4
+amigos que usam o Laboratório com sua própria `X-API-Key` nomeada (D-7) têm
+identidade individual **no log**, mas todo dado deles cai no mesmo dono no
+banco que o do dono do projeto — o multi-tenant da Fase A não tinha, na
+prática, nenhum dado realmente multi-tenant ainda.
+
+**Decisão.** Dois caminhos de identidade coexistindo, resolvidos nesta ordem
+em `api_server.resolver_user_id_para_escrita(request)`:
+
+1. **Header `Authorization: Bearer <token>` presente e válido** → valida via
+   `supabase_client.auth.get_user(token)` (mesmo client de sempre, criado com
+   a service role key — confirmado que isso funciona: `get_user` valida a
+   assinatura do JWT contra o projeto, independente de qual `apikey` o
+   client usa pra suas próprias chamadas) → usa o `user.id` real.
+2. **Qualquer outro caso** (sem header, token expirado/malformado, banco
+   indisponível) → `DEFAULT_USER_ID` de sempre (D-14). `get_user()` levanta
+   `AuthApiError` em token inválido (confirmado contra o Supabase real antes
+   de implementar); qualquer exceção aqui vira fallback silencioso, nunca
+   401 — isto é resolução de identidade pra escrita, não gate de acesso.
+
+**`X-API-Key` continua sendo o gate de acesso ao endpoint, sem nenhuma
+mudança.** `Authorization: Bearer` é aditivo, não substitui: um pedido sem
+`X-API-Key` válida continua recebendo 401 antes de qualquer coisa (mesma
+`verificar_api_key` de sempre), autenticado ou não via Supabase. Isso é
+deliberado — "esta etapa só HABILITA o caminho novo em paralelo ao antigo",
+os 4 amigos não precisam criar conta pra continuar usando exatamente como
+hoje.
+
+**As 3 funções de persistência ganharam `user_id: str | None = None`, não
+passaram a exigi-lo.** `salvar_exercicio`, `salvar_explicacao_posicao`,
+`inserir_partida` continuam utilizáveis sem esse argumento (os scripts
+interativos de linha de comando em `revisar_exercicio_avulso.py` e
+`analisar_pgn_avulso.py` chamam essas funções sem sessão HTTP nenhuma pra
+resolver — `None` cai no `obter_default_user_id()` de sempre, zero mudança
+de comportamento pra eles). Só `api_server.py` passa o `user_id` resolvido
+explicitamente nos 3 endpoints de escrita (`/revisar-avulso/salvar`,
+`/explicar-posicao`, `/analisar-pgn`).
+
+**Frontend: um único método assíncrono de headers, só nos 3 métodos que
+escrevem tabela raiz.** `RevisaoAvulsaService.headersComChaveEAuth()` monta
+`X-API-Key` (sempre) + `Authorization: Bearer` (só se
+`AuthService.autenticado()` E existir um `access_token` de verdade — sessão
+pode ter expirado entre as duas checagens, tratado sem quebrar). Aplicado só
+em `salvar()`, `explicarPosicao()` e `submeterPartidaPgn()` — os métodos de
+leitura (`revisar`, `listarPartidasRecentes`, etc.) continuam com
+`headersComChave()` de sempre, porque não escrevem em tabela raiz e portanto
+não têm o que atribuir.
+
+**Consequência.** Testado de ponta a ponta com uma conta real, pelo
+Laboratório de verdade (Stockfish + Gemini reais, não mock): logado, a linha
+nasceu com `user_id` = UUID da conta de teste; no mesmo navegador mas em
+contexto sem sessão (só `X-API-Key`), a linha nasceu com `user_id` =
+`DEFAULT_USER_ID`, igual a antes desta fase. Os dois caminhos coexistiram na
+mesma sessão de teste sem nenhum conflito. Conta de teste e as 2 linhas de
+teste apagadas ao final.
+
+**O que isto NÃO faz ainda.** Não filtra leitura por usuário — `GET
+/revisoes-avulsas/recentes` (e os equivalentes de Explicador/Analisador)
+continuam devolvendo o histórico inteiro pra qualquer chave válida,
+independente de quem gravou cada linha. Migrar os 4 amigos pra conta própria,
+e filtrar leitura por dono, é decisão de uma fase seguinte — não desta.
+
+---
+
+## D-18 — Leitura filtrada pelo dono real da sessão (Fase B.3, primeira parte)
+
+**Problema.** D-17 resolveu a *escrita*: cada exercício, explicação ou
+partida passou a nascer com o `user_id` de quem realmente estava logado. Mas
+a *leitura* — `GET /revisoes-avulsas/recentes`, `GET
+/explicacoes-posicao/recentes`, `GET /partidas/recentes` — continuava sem
+filtro nenhum: qualquer `X-API-Key` válida via o histórico inteiro, dos 4
+amigos e do dono, misturado. O multi-tenant ficava pela metade: dado
+corretamente atribuído na escrita, mas exposto por igual a todo mundo na
+leitura.
+
+**Decisão.** Os 3 endpoints de leitura passaram a receber `request: Request`
+e a filtrar a query com `.eq("user_id", resolver_user_id_para_escrita(request))`
+— a mesma função de resolução de identidade de D-17, reaproveitada sem
+alteração: sessão real via `Authorization: Bearer` quando presente e válida,
+senão `DEFAULT_USER_ID` (o comportamento de sempre, preservado para quem
+ainda não migrou). Nomeadamente reaproveitada, não uma variante nova, porque
+"quem é o dono de uma leitura" e "quem é o dono de uma escrita" é a mesma
+pergunta — resolver das duas formas seria duplicar a mesma lógica de fallback
+em dois lugares (o princípio de "um fato, um só lar").
+
+**RLS não foi tocado.** O filtro está na query do backend, não numa política
+do banco. Isso é suficiente porque hoje só o backend acessa essas 3 tabelas,
+e sempre com a `service role key` — que ignora RLS por definição. Se algum
+dia outro cliente passar a falar direto com o Postgres/PostgREST usando a
+sessão do usuário (não a service role), esse filtro de aplicação deixa de ser
+suficiente sozinho e vira a hora de revisitar RLS com isolamento de verdade —
+não antes.
+
+**Consequência, testado com 2 contas reais.** Duas contas de teste
+(`teste-d18-conta-a`, `teste-d18-conta-b`) criadas via Admin API, cada uma
+salvando um exercício em `/revisar-avulso/salvar` com sua própria sessão.
+`GET /revisoes-avulsas/recentes` da conta A devolveu só o próprio exercício;
+da conta B, idem — nenhuma viu a linha da outra. Confirmado por SQL direto
+que os dois `user_id` gravados batem exatamente com os UUIDs reais das duas
+contas em `auth.users`. Repetido sem `Authorization` (só `X-API-Key`): a
+listagem voltou a mostrar exclusivamente o histórico sob `DEFAULT_USER_ID` —
+nem uma das duas linhas de teste apareceu ali, confirmando que o caminho
+antigo continua isolado do novo. Contas e linhas de teste apagadas ao final.
+
+**O que isto NÃO faz ainda.** Não migra os 4 amigos de `X-API-Key` pra conta
+própria — enquanto eles não tiverem sessão, toda leitura e escrita deles
+continua caindo no `DEFAULT_USER_ID` compartilhado, exatamente como sempre
+foi. Essa migração é o próximo passo da Fase B.3, fora do escopo daqui.
 
 ---
 

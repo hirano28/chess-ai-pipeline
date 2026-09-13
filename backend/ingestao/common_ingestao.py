@@ -10,6 +10,8 @@ from typing import Any, Callable, TypeVar
 import requests
 from supabase import Client, create_client
 
+from backend.common.tenant import obter_default_user_id
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "ingestao.log"
@@ -84,4 +86,6 @@ def already_exists(client: Client, external_id: str) -> bool:
 def insert_game(client: Client, record: dict[str, Any]) -> None:
     """Insere um registro de partida na tabela partidas."""
 
-    client.table("partidas").insert(record).execute()
+    client.table("partidas").insert(
+        {**record, "user_id": obter_default_user_id()}
+    ).execute()

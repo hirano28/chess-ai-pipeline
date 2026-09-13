@@ -2,7 +2,7 @@
 doc: BANCO.md
 escopo: schema do Supabase, vocabulário controlado, invariantes e regras de migração
 nao_contem: contagem de linhas nem estado dos dados (ver ESTADO.md)
-verificado_em: 2026-09-11
+verificado_em: 2026-09-13
 fonte: introspecção direta do projeto Supabase pmzmershonrqzwbmhaco
 ---
 
@@ -14,7 +14,7 @@ fonte: introspecção direta do projeto Supabase pmzmershonrqzwbmhaco
 
 | Tabela | Colunas relevantes | Papel |
 |---|---|---|
-| `partidas` | `id`, `plataforma`, `external_id`, `pgn`, `data_partida`, `resultado`, `cor_jogada`, `rating_proprio`, `rating_oponente`, `eco_abertura`, `status_processamento`, `created_at` | toda partida coletada |
+| `partidas` | `id`, `plataforma`, `external_id`, `pgn`, `data_partida`, `resultado`, `cor_jogada`, `rating_proprio`, `rating_oponente`, `eco_abertura`, `abertura_normalizada`, `status_processamento`, `created_at` | toda partida coletada |
 | `lances_criticos` | `partida_id`, `numero_lance`, `numero_lance_fim`, `tipo_evento`, `gravidade_cpl`, `queda_win_percent` | lances e janelas ruins achados pelo Stockfish |
 | `diagnosticos` | `lance_id`, `tags_falha[]`, `diagnostico_mecanico`, `tipo_erro` | causa do erro, gerada pelo Gemini |
 | `analises_hexagono` | `data_analise`, `metricas` (jsonb), `narrativa`, `gargalo_sistemico_atual` | saída do Agente 2 |
@@ -24,7 +24,7 @@ fonte: introspecção direta do projeto Supabase pmzmershonrqzwbmhaco
 
 | Tabela | Colunas relevantes | Papel |
 |---|---|---|
-| `metricas_lichess_partida` | `partida_id`, `precisao_propria`, `precisao_oponente`, `acpl`, `fase_abertura_fim`, `fase_meiojogo_fim` | métricas que o próprio Lichess já calcula. **Só Lichess** — a API do Chess.com não expõe equivalente |
+| `metricas_lichess_partida` | `partida_id`, `precisao_propria`, `precisao_oponente`, `acpl`, `fase_abertura_fim`, `fase_meiojogo_fim`, `precisao_abertura`, `precisao_meiojogo`, `precisao_final` | métricas que o próprio Lichess já calcula. **Só Lichess** — a API do Chess.com não expõe equivalente. As 3 últimas colunas vêm de `players.<cor>.analysis.phases` (lado próprio) e só existem para partidas enriquecidas a partir de agora — sem reprocessamento retroativo automático das partidas já enriquecidas antes |
 | `tempos_lance` | `partida_id`, `numero_lance`, `cor`, `tempo_restante_seg`, `tempo_gasto_seg` | relógio por lance; habilita a tag `gestao_de_tempo_ruim` |
 | `anotacoes_pensamento` | `partida_id`, `numero_lance`, `texto_pensamento`, `origem` | o que o jogador escreveu, importado de um Lichess Study |
 | `perguntas_pendentes` | `lance_id`, `pergunta_texto`, `status` | perguntas retroativas para lances sem anotação |
@@ -45,6 +45,23 @@ fonte: introspecção direta do projeto Supabase pmzmershonrqzwbmhaco
 |---|---|---|
 | `livros_chunks` | `livro`, `capitulo`, `pagina_aprox`, `conteudo`, `embedding` (vector) | trechos vetorizados dos livros |
 | `indice_conceitual` | `conceito`, `livro`, `capitulo`, `pagina_aprox` | mapa **manual** conceito → localização |
+
+### Dono do dado (`user_id`) — Fase A do multi-tenant
+
+Estas **6 tabelas raiz** têm `user_id uuid not null`, porque são as únicas sem
+pai natural: `partidas`, `analises_hexagono`, `sessoes_treino`,
+`explicacoes_posicao`, `puzzle_atividade`, `revisao_exercicio_avulso`.
+
+Toda tabela filha **herda o dono pela cadeia de FK** que já existe
+(`lances_criticos.partida_id`, `diagnosticos.lance_id`, etc.) e por isso
+**não** tem coluna `user_id` — duplicar o fato criaria divergência possível.
+Ver D-14 em `DECISOES.md` antes de acrescentar a coluna em qualquer outra
+tabela. `livros_chunks` e `indice_conceitual` ficam de fora por serem corpus
+compartilhado, não dado de usuário.
+
+O valor vem de `DEFAULT_USER_ID` (obrigatória), lida por
+`backend/common/tenant.py`. A FK para `auth.users` ainda **não** existe — ver
+P-11 em `ESTADO.md`.
 
 ## 2. Vocabulário controlado — as 16 tags de falha
 
@@ -94,6 +111,15 @@ mapeamento tag → categoria.
 - **Não apague partida antiga sem anotação.** Ela segue válida para a estatística
   do hexágono; só não tem `tipo_erro` nem `checklist_rotina` preenchidos, e isso
   é esperado, não é defeito.
+- **`abertura_normalizada` agrupa por família, não é o nome completo da linha.**
+  Preenchida por `backend/agentes/normalizar_aberturas.py`, que resolve o nome
+  cru de um jeito diferente por plataforma (tag `[ECOUrl]` no Chess.com, tag
+  `[Opening]` quando presente, ou a API do Lichess quando nenhuma das duas
+  tem o nome) e só agrupa em família (`"Siciliana"`, `"Francesa"`, ...) quando
+  reconhece um padrão do dicionário em `MAPEAMENTO_FAMILIAS`; sem
+  correspondência, grava o nome original completo (nunca inventa uma família).
+  Rode o script de novo a cada leva nova de partidas — ele só processa linhas
+  com a coluna ainda `null`.
 
 ## 5. Migrações
 
@@ -111,3 +137,15 @@ qualquer portador da chave `anon`, que é pública no bundle do frontend:
 Habilitar RLS sem criar policies bloqueia todo o acesso, inclusive o dos scripts
 que usam a service role. Tratar como decisão do dono do projeto, não como
 correção automática. Ver pendência em `ESTADO.md`.
+
+**Policy de RLS é por role, não por condição.** Uma policy criada com
+`to anon using (true)` só vale pra quem conecta como `anon` — a role
+`authenticated` (usuário logado via Supabase Auth) cai em negação por
+padrão se não existir NENHUMA policy própria pra ela, mesmo a de `anon`
+tendo `using(true)`. `analises_hexagono`, `lances_criticos`, `partidas`,
+`resumo_partida`, `revisao_exercicio_avulso` e `sessoes_treino` tinham
+exatamente esse problema (descoberto testando a Fase B.1 do Auth — D-15) e
+ganharam uma 2ª policy de SELECT `to authenticated`, mesmo `using(true)`,
+sem mexer nas de `anon` (D-16). Ao criar uma tabela nova com RLS, decida a
+lista de roles de propósito — `to public` cobre as duas de uma vez; `to
+anon` sozinho é isso aqui de novo, só que ainda não descoberto.

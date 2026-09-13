@@ -51,6 +51,9 @@ from backend.agentes.explicador_posicao import (  # noqa: E402
     explicar_posicao,
     salvar_explicacao_posicao,
 )
+from backend.agentes.insights_repertorio import (  # noqa: E402
+    calcular_insights_repertorio,
+)
 from backend.agentes.revisar_exercicio_avulso import (  # noqa: E402
     EngineIndisponivelError,
     configure_console_logger,
@@ -68,6 +71,7 @@ from backend.analise_engine.analisar_partidas import (  # noqa: E402
     update_status,
 )
 from backend.common.progress import log_and_print  # noqa: E402
+from backend.common.tenant import obter_default_user_id  # noqa: E402
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
 
 DEFAULT_ALLOWED_ORIGINS = (
@@ -442,6 +446,49 @@ def verificar_api_key(
     return nome
 
 
+def resolver_user_id_da_sessao(token: str) -> str | None:
+    """Valida um token de sessão do Supabase Auth via `auth.get_user()`.
+
+    Devolve o `user.id` real quando o token é válido; `None` em qualquer
+    outro caso (token expirado/malformado, banco indisponível) — nunca
+    levanta exceção, porque isto é só o primeiro passo de uma resolução com
+    fallback (ver `resolver_user_id_para_escrita`, Fase B.2, D-17).
+    """
+
+    client = _state.get("supabase_client")
+    if not client:
+        return None
+    try:
+        resposta = client.auth.get_user(token)
+    except Exception:
+        return None
+    user = getattr(resposta, "user", None) if resposta else None
+    return user.id if user else None
+
+
+def resolver_user_id_para_escrita(request: Request) -> str:
+    """Resolve o dono de uma escrita nas tabelas raiz (D-14): sessão Supabase
+    Auth real quando presente e válida, com fallback pro `DEFAULT_USER_ID` de
+    sempre (Fase B.2 — D-17).
+
+    Header `Authorization: Bearer <token>` presente e válido -> `user.id`
+    real. Caso contrário (sem header, token inválido/expirado) ->
+    `DEFAULT_USER_ID` — o mesmo comportamento de antes desta fase, para quem
+    só usa X-API-Key e nunca criou conta continuar funcionando exatamente
+    como funcionava. `X-API-Key` continua controlando o ACESSO ao endpoint
+    (via `verificar_api_key`); esta função só decide QUEM é o dono da linha.
+    """
+
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header[len("Bearer ") :].strip()
+        if token:
+            user_id = resolver_user_id_da_sessao(token)
+            if user_id:
+                return user_id
+    return obter_default_user_id()
+
+
 @app.post(
     "/revisar-avulso",
     response_model=RevisarAvulsoResponse,
@@ -506,7 +553,9 @@ def resolver_fen_endpoint(posicao: str) -> ResolverFenResponse:
     response_model=SalvarAvulsoResponse,
     dependencies=[Depends(verificar_api_key)],
 )
-def revisar_avulso_salvar(payload: SalvarAvulsoRequest) -> SalvarAvulsoResponse:
+def revisar_avulso_salvar(
+    payload: SalvarAvulsoRequest, request: Request
+) -> SalvarAvulsoResponse:
     """Persiste um exercício já revisado em revisao_exercicio_avulso."""
 
     resultado = {
@@ -519,7 +568,11 @@ def revisar_avulso_salvar(payload: SalvarAvulsoRequest) -> SalvarAvulsoResponse:
     }
     try:
         novo_id = salvar_exercicio(
-            _state["supabase_client"], payload.fen, payload.texto_pensamento, resultado
+            _state["supabase_client"],
+            payload.fen,
+            payload.texto_pensamento,
+            resultado,
+            user_id=resolver_user_id_para_escrita(request),
         )
     except Exception as error:
         raise HTTPException(
@@ -534,8 +587,16 @@ def revisar_avulso_salvar(payload: SalvarAvulsoRequest) -> SalvarAvulsoResponse:
     response_model=list[RevisaoAvulsaRecenteItem],
     dependencies=[Depends(verificar_api_key)],
 )
-def listar_revisoes_avulsas_recentes(limite: int = 20) -> list[RevisaoAvulsaRecenteItem]:
-    """Retorna o histórico de exercícios avulsos já salvos manualmente (revisao_exercicio_avulso)."""
+def listar_revisoes_avulsas_recentes(
+    request: Request, limite: int = 20
+) -> list[RevisaoAvulsaRecenteItem]:
+    """Retorna o histórico de exercícios avulsos já salvos manualmente (revisao_exercicio_avulso).
+
+    Filtrado pelo dono real da sessão quando há `Authorization: Bearer` válido;
+    sem sessão, mantém o comportamento de sempre e filtra pelo `DEFAULT_USER_ID`
+    (Fase B.3 — D-18). O `service role` usado pelo backend ignora RLS, então
+    este filtro é o único isolamento entre contas nesta rota hoje.
+    """
     client = _state.get("supabase_client")
     if not client:
         raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
@@ -548,6 +609,7 @@ def listar_revisoes_avulsas_recentes(limite: int = 20) -> list[RevisaoAvulsaRece
                 "texto_pensamento, qualidade_lance, qualidade_raciocinio, "
                 "feedback_texto, created_at"
             )
+            .eq("user_id", resolver_user_id_para_escrita(request))
             .order("created_at", desc=True)
             .limit(min(limite, 50))
             .execute()
@@ -568,6 +630,7 @@ def listar_revisoes_avulsas_recentes(limite: int = 20) -> list[RevisaoAvulsaRece
 )
 def explicar_posicao_endpoint(
     payload: ExplicarPosicaoRequest,
+    request: Request,
 ) -> ExplicarPosicaoResponse:
     """Analisa uma posição (FEN ou PGN) e explica didaticamente o porquê de ser vencedora/perdida."""
     try:
@@ -594,7 +657,11 @@ def explicar_posicao_endpoint(
     # se salvar falhar, o usuário ainda recebe a explicação que pediu (só sem
     # id, então o frontend não marca este resultado como "ativo" no histórico).
     try:
-        resultado["id"] = salvar_explicacao_posicao(_state["supabase_client"], resultado)
+        resultado["id"] = salvar_explicacao_posicao(
+            _state["supabase_client"],
+            resultado,
+            user_id=resolver_user_id_para_escrita(request),
+        )
     except Exception as error:
         logger = _state.get("logger")
         if logger:
@@ -609,8 +676,14 @@ def explicar_posicao_endpoint(
     response_model=list[ExplicacaoPosicaoRecenteItem],
     dependencies=[Depends(verificar_api_key)],
 )
-def listar_explicacoes_recentes(limite: int = 20) -> list[ExplicacaoPosicaoRecenteItem]:
-    """Retorna o histórico de explicações de posição já geradas (explicacoes_posicao)."""
+def listar_explicacoes_recentes(
+    request: Request, limite: int = 20
+) -> list[ExplicacaoPosicaoRecenteItem]:
+    """Retorna o histórico de explicações de posição já geradas (explicacoes_posicao).
+
+    Filtrado pelo dono real da sessão, com fallback pro `DEFAULT_USER_ID`
+    (Fase B.3 — D-18); ver `listar_revisoes_avulsas_recentes`.
+    """
     client = _state.get("supabase_client")
     if not client:
         raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
@@ -619,6 +692,7 @@ def listar_explicacoes_recentes(limite: int = 20) -> list[ExplicacaoPosicaoRecen
         resp = (
             client.table("explicacoes_posicao")
             .select("id, fen, lado_analisado, resultado, created_at")
+            .eq("user_id", resolver_user_id_para_escrita(request))
             .order("created_at", desc=True)
             .limit(min(limite, 50))
             .execute()
@@ -726,6 +800,7 @@ def _executar_analise_pgn_background(partida_id: str) -> None:
 def analisar_pgn_endpoint(
     payload: AnalisarPgnRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
 ) -> AnalisarPgnResponse:
     """Recebe um PGN, insere a partida e agenda a análise completa em segundo plano.
 
@@ -749,7 +824,9 @@ def analisar_pgn_endpoint(
     external_id = gerar_external_id(pgn_text)
     try:
         client = _state["supabase_client"]
-        partida_id = inserir_partida(client, pgn_text, game, cor)
+        partida_id = inserir_partida(
+            client, pgn_text, game, cor, user_id=resolver_user_id_para_escrita(request)
+        )
     except Exception as error:
         raise HTTPException(
             status_code=500, detail=f"Falha ao registrar partida: {error}"
@@ -817,8 +894,14 @@ def obter_resumo_partida_endpoint(partida_id: str) -> ResumoPartidaResponse:
     response_model=list[PartidaRecenteItem],
     dependencies=[Depends(verificar_api_key)],
 )
-def listar_partidas_recentes(limite: int = 20) -> list[PartidaRecenteItem]:
-    """Retorna o histórico de partidas analisadas manualmente."""
+def listar_partidas_recentes(
+    request: Request, limite: int = 20
+) -> list[PartidaRecenteItem]:
+    """Retorna o histórico de partidas analisadas manualmente.
+
+    Filtrado pelo dono real da sessão, com fallback pro `DEFAULT_USER_ID`
+    (Fase B.3 — D-18); ver `listar_revisoes_avulsas_recentes`.
+    """
     client = _state.get("supabase_client")
     if not client:
         raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
@@ -831,6 +914,7 @@ def listar_partidas_recentes(limite: int = 20) -> list[PartidaRecenteItem]:
                 "eco_abertura, data_partida, created_at, pgn"
             )
             .eq("plataforma", "MANUAL")
+            .eq("user_id", resolver_user_id_para_escrita(request))
             .order("created_at", desc=True)
             .limit(min(limite, 50))
             .execute()
@@ -902,6 +986,27 @@ def reprocessar_partida_endpoint(
 
     return AnalisarPgnResponse(partida_id=partida_id, external_id=external_id)
 
+
+@app.get(
+    "/insights/repertorio",
+    dependencies=[Depends(verificar_api_key)],
+)
+def insights_repertorio_endpoint() -> dict[str, Any]:
+    """Agregações de repertório: taxa de vitória, precisão e padrão de erro por abertura.
+
+    Cálculo puro sobre dado já persistido (sem Stockfish nem Gemini) — ver
+    backend/agentes/insights_repertorio.py e D-12/D-13 em DECISOES.md.
+    """
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        return calcular_insights_repertorio(client)
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao calcular insights de repertório: {error}"
+        ) from error
 
 
 @app.get("/guia-passos")

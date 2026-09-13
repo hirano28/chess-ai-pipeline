@@ -298,6 +298,9 @@ def montar_metricas(
     # division.middle/end são índices de PLY (não número de lance).
     fase_abertura_fim_ply = division.get("middle")
     fase_meiojogo_fim_ply = division.get("end")
+    # players.<cor>.analysis.phases já vem calculado pelo Lichess, na mesma
+    # resposta JSON: 3 precisões (0-100) da própria análise, uma por fase.
+    fases = proprio.get("phases") or {}
 
     return {
         "partida_id": partida_id,
@@ -309,6 +312,9 @@ def montar_metricas(
         "acpl": proprio.get("acpl"),
         "fase_abertura_fim": fase_abertura_fim_ply,
         "fase_meiojogo_fim": fase_meiojogo_fim_ply,
+        "precisao_abertura": fases.get("opening"),
+        "precisao_meiojogo": fases.get("middlegame"),
+        "precisao_final": fases.get("endgame"),
     }
 
 

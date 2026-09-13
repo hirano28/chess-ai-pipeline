@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import unittest
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import chess
 
@@ -410,6 +411,66 @@ class ProcessarRevisaoSequenciaTest(unittest.TestCase):
 class SalvarExercicioTest(unittest.TestCase):
     """salvar_exercicio precisa devolver o id da linha criada (usado pelo
     frontend para marcar o exercício salvo como "ativo" no histórico)."""
+
+    USER_ID_TESTE = "11111111-2222-3333-4444-555555555555"
+
+    def setUp(self) -> None:
+        # revisao_exercicio_avulso é tabela raiz: user_id é NOT NULL (D-14).
+        self._env = patch.dict(
+            os.environ, {"DEFAULT_USER_ID": self.USER_ID_TESTE}
+        )
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
+    def test_grava_o_user_id_do_ambiente_no_payload(self) -> None:
+        client = MagicMock()
+        resp = MagicMock()
+        resp.data = [{"id": "exercicio-novo-789"}]
+        client.table.return_value.insert.return_value.execute.return_value = resp
+
+        salvar_exercicio(
+            client,
+            chess.Board().fen(),
+            "Abro o centro.",
+            {
+                "lance_jogado": "e4",
+                "melhor_lance": "e4",
+                "queda_win_percent": 0.0,
+                "qualidade_lance": "BOM",
+                "qualidade_raciocinio": "SOLIDO",
+                "feedback_texto": "ok",
+            },
+        )
+
+        payload = client.table.return_value.insert.call_args[0][0]
+        self.assertEqual(payload["user_id"], self.USER_ID_TESTE)
+
+    def test_user_id_explicito_sobrepoe_o_default_do_ambiente(self) -> None:
+        # Fase B.2 (D-17): dono real da sessão, resolvido em api_server.py,
+        # sobrepõe o fallback DEFAULT_USER_ID.
+        user_id_sessao = "99999999-8888-7777-6666-555555555555"
+        client = MagicMock()
+        resp = MagicMock()
+        resp.data = [{"id": "exercicio-novo-999"}]
+        client.table.return_value.insert.return_value.execute.return_value = resp
+
+        salvar_exercicio(
+            client,
+            chess.Board().fen(),
+            "Abro o centro.",
+            {
+                "lance_jogado": "e4",
+                "melhor_lance": "e4",
+                "queda_win_percent": 0.0,
+                "qualidade_lance": "BOM",
+                "qualidade_raciocinio": "SOLIDO",
+                "feedback_texto": "ok",
+            },
+            user_id=user_id_sessao,
+        )
+
+        payload = client.table.return_value.insert.call_args[0][0]
+        self.assertEqual(payload["user_id"], user_id_sessao)
 
     def test_retorna_o_id_da_linha_criada(self) -> None:
         client = MagicMock()

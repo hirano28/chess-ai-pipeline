@@ -29,6 +29,19 @@
     >
       Analisador de Partida
     </a>
+
+    @if (authService.autenticado()) {
+      <span class="ml-auto flex items-center gap-3 text-xs text-[#8fa5a7]">
+        {{ authService.usuario()?.email }}
+        <button
+          type="button"
+          class="rounded-md border border-[#40565c] px-3 py-1.5 font-semibold text-[#b9c7c8] transition-colors hover:border-[#dea34c] hover:text-[#dea34c]"
+          (click)="sair()"
+        >
+          Sair
+        </button>
+      </span>
+    }
   </div>
 </nav>
 <router-outlet />

@@ -49,6 +49,7 @@ from backend.common.notacao_pt import (  # noqa: E402
     traduzir_san_para_lance_pt,
 )
 from backend.common.progress import configurar_encoding_utf8  # noqa: E402
+from backend.common.tenant import obter_default_user_id  # noqa: E402
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
 
 configurar_encoding_utf8()
@@ -589,8 +590,16 @@ def salvar_exercicio(
     fen: str,
     texto_pensamento: str,
     resultado: dict[str, Any],
+    user_id: str | None = None,
 ) -> str | None:
     """Insere o exercício avulso revisado em revisao_exercicio_avulso.
+
+    `user_id`: dono real da escrita. Quando `None` (chamada do script
+    interativo, ou endpoint sem sessão Supabase Auth válida), usa o
+    `DEFAULT_USER_ID` de sempre — mesmo comportamento de antes da Fase B.2.
+    Quando informado (resolvido a partir de um token de sessão real via
+    `api_server.resolver_user_id_para_escrita`), grava o dono verdadeiro —
+    ver D-17 em DECISOES.md.
 
     Retorna o id da linha criada (usado pelo frontend para marcar o exercício
     salvo como o "item ativo" no histórico, sobrevivendo a um F5), ou None se
@@ -610,6 +619,7 @@ def salvar_exercicio(
                 "qualidade_raciocinio": resultado["qualidade_raciocinio"],
                 "feedback_texto": resultado["feedback_texto"],
                 "origem": "GUESS_THE_MOVE",
+                "user_id": user_id or obter_default_user_id(),
             }
         )
         .execute()

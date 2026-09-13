@@ -40,6 +40,7 @@ from backend.analise_engine.analisar_partidas import (
     evaluation_to_cp,
 )
 from backend.common.chess_math import centipawns_para_win_percent
+from backend.common.tenant import obter_default_user_id
 
 NOME_PECA_PT: dict[chess.PieceType, str] = {
     chess.PAWN: "Peão",
@@ -888,7 +889,9 @@ def explicar_posicao(
     }
 
 
-def salvar_explicacao_posicao(client: Any, resultado: dict[str, Any]) -> str | None:
+def salvar_explicacao_posicao(
+    client: Any, resultado: dict[str, Any], user_id: str | None = None
+) -> str | None:
     """Persiste o resultado completo de explicar_posicao() em explicacoes_posicao.
 
     Fecha a pendência P-10 (ESTADO.md): antes desta função, nenhuma explicação
@@ -896,6 +899,9 @@ def salvar_explicacao_posicao(client: Any, resultado: dict[str, Any]) -> str | N
     explicar_posicao() e é gravado por completo em jsonb - fen e lado_analisado
     também viram colunas próprias só para filtrar/exibir sem desempacotar o
     jsonb. Retorna o id da linha criada, ou None se a resposta não trouxer id.
+
+    `user_id`: dono real da escrita (sessão Supabase Auth, Fase B.2 — D-17);
+    `None` usa o `DEFAULT_USER_ID` de sempre.
     """
 
     resposta = (
@@ -905,6 +911,7 @@ def salvar_explicacao_posicao(client: Any, resultado: dict[str, Any]) -> str | N
                 "fen": resultado["fen"],
                 "lado_analisado": resultado["lado_analisado"],
                 "resultado": resultado,
+                "user_id": user_id or obter_default_user_id(),
             }
         )
         .execute()

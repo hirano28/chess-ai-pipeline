@@ -52,12 +52,16 @@ jobs:
             backend.agentes.test_explicador_posicao \
             backend.agentes.test_gerar_perguntas_pendentes \
             backend.agentes.test_gerar_resumo_partida \
+            backend.agentes.test_insights_repertorio \
+            backend.agentes.test_normalizar_aberturas \
             backend.agentes.test_revisar_exercicio_avulso \
             backend.agentes.test_revisar_pensamento \
             backend.analise_engine.test_analisar_partidas \
             backend.api.test_api_server \
             backend.common.test_chess_math \
-            backend.common.test_notacao_pt
+            backend.common.test_notacao_pt \
+            backend.common.test_tenant \
+            backend.ingestao.test_enriquecer_partidas_lichess
 
       - name: Autenticar no Google Cloud
         uses: google-github-actions/auth@v2
@@ -91,12 +95,19 @@ jobs:
 
       - name: Deploy da nova revisao no Cloud Run
         run: |
+          # Sem o secret, --update-env-vars gravaria string vazia e o backend
+          # quebraria em toda escrita nas tabelas raiz (user_id NOT NULL).
+          if [ -z "${{ secrets.DEFAULT_USER_ID }}" ]; then
+            echo "Secret DEFAULT_USER_ID ausente no repositorio. Cadastre em Settings > Secrets and variables > Actions." >&2
+            exit 1
+          fi
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
             --region "${{ env.GCP_REGION }}" \
             --memory 2Gi \
             --cpu 2 \
             --no-cpu-throttling \
+            --update-env-vars "DEFAULT_USER_ID=${{ secrets.DEFAULT_USER_ID }}" \
             --quiet
 
 

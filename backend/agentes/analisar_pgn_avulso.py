@@ -64,6 +64,7 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.common.tenant import obter_default_user_id  # noqa: E402
 
 configurar_encoding_utf8()
 
@@ -254,9 +255,17 @@ def gerar_external_id(pgn_text: str) -> str:
 # ---------------------------------------------------------------------------
 
 def inserir_partida(
-    client: Client, pgn_text: str, game: chess.pgn.Game, cor: str
+    client: Client,
+    pgn_text: str,
+    game: chess.pgn.Game,
+    cor: str,
+    user_id: str | None = None,
 ) -> str:
     """Insere a partida na tabela partidas com upsert por external_id.
+
+    `user_id`: dono real da escrita (sessão Supabase Auth, Fase B.2 — D-17);
+    `None` usa o `DEFAULT_USER_ID` de sempre (script interativo, ou endpoint
+    sem sessão válida).
 
     Retorna o ID interno da partida (gerado pelo Supabase).
     """
@@ -273,6 +282,7 @@ def inserir_partida(
         "pgn": pgn_text.strip(),
         "cor_jogada": cor,
         "status_processamento": "pendente",
+        "user_id": user_id or obter_default_user_id(),
     }
     # Campos opcionais — só inclui se extraiu algo
     if resultado:

@@ -20,6 +20,7 @@ from supabase import Client, create_client
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from backend.common.progress import configurar_encoding_utf8, log_and_print  # noqa: E402
+from backend.common.tenant import obter_default_user_id  # noqa: E402
 
 configurar_encoding_utf8()
 
@@ -331,6 +332,7 @@ def salvar_analise(
             "metricas": metrics,
             "narrativa": narrativa,
             "gargalo_sistemico_atual": metrics["gargalo_sistemico_atual"],
+            "user_id": obter_default_user_id(),
         }
     ).execute()
 

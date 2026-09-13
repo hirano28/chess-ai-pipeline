@@ -21,6 +21,8 @@ from backend.agentes.revisar_pensamento import Settings
 from backend.api import api_server
 
 CHAVE_CORRETA = "chave-secreta-de-teste"
+# Dono dos dados nas tabelas raiz (Fase A do multi-tenant — ver D-14).
+USER_ID_TESTE = "11111111-2222-3333-4444-555555555555"
 
 
 def _fake_settings() -> Settings:
@@ -358,6 +360,90 @@ def chess_fen_inicial() -> str:
     return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 
+def _request_com_authorization(valor: str | None) -> Request:
+    """Request mínimo do Starlette só pra exercitar leitura de header."""
+
+    headers = [(b"authorization", valor.encode())] if valor else []
+    return Request({"type": "http", "headers": headers})
+
+
+class ResolverUserIdParaEscritaTest(unittest.TestCase):
+    """Identidade real por sessão com fallback pro DEFAULT_USER_ID (Fase B.2, D-17)."""
+
+    USER_ID_DEFAULT = "11111111-2222-3333-4444-555555555555"
+    USER_ID_SESSAO = "99999999-8888-7777-6666-555555555555"
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        self._env = patch.dict(os.environ, {"DEFAULT_USER_ID": self.USER_ID_DEFAULT})
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_sem_header_authorization_usa_default(self) -> None:
+        resultado = api_server.resolver_user_id_para_escrita(
+            _request_com_authorization(None)
+        )
+        self.assertEqual(resultado, self.USER_ID_DEFAULT)
+
+    def test_header_bearer_com_token_valido_usa_user_id_da_sessao(self) -> None:
+        mock_client = MagicMock()
+        mock_resposta = MagicMock()
+        mock_resposta.user.id = self.USER_ID_SESSAO
+        mock_client.auth.get_user.return_value = mock_resposta
+        api_server._state["supabase_client"] = mock_client
+
+        resultado = api_server.resolver_user_id_para_escrita(
+            _request_com_authorization("Bearer token-valido")
+        )
+
+        self.assertEqual(resultado, self.USER_ID_SESSAO)
+        mock_client.auth.get_user.assert_called_once_with("token-valido")
+
+    def test_header_bearer_com_token_invalido_cai_no_default(self) -> None:
+        # auth.get_user levanta AuthApiError de verdade em token inválido/expirado
+        # (confirmado contra o Supabase real antes de implementar) — qualquer
+        # exceção aqui tem que resultar em fallback silencioso, não 500.
+        mock_client = MagicMock()
+        mock_client.auth.get_user.side_effect = Exception("invalid JWT")
+        api_server._state["supabase_client"] = mock_client
+
+        resultado = api_server.resolver_user_id_para_escrita(
+            _request_com_authorization("Bearer token-invalido")
+        )
+
+        self.assertEqual(resultado, self.USER_ID_DEFAULT)
+
+    def test_get_user_retornando_none_cai_no_default(self) -> None:
+        mock_client = MagicMock()
+        mock_client.auth.get_user.return_value = None
+        api_server._state["supabase_client"] = mock_client
+
+        resultado = api_server.resolver_user_id_para_escrita(
+            _request_com_authorization("Bearer algum-token")
+        )
+        self.assertEqual(resultado, self.USER_ID_DEFAULT)
+
+    def test_header_sem_prefixo_bearer_e_ignorado(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+
+        resultado = api_server.resolver_user_id_para_escrita(
+            _request_com_authorization("token-sem-prefixo-bearer")
+        )
+
+        self.assertEqual(resultado, self.USER_ID_DEFAULT)
+        mock_client.auth.get_user.assert_not_called()
+
+    def test_sem_supabase_client_disponivel_cai_no_default(self) -> None:
+        resultado = api_server.resolver_user_id_para_escrita(
+            _request_com_authorization("Bearer algum-token")
+        )
+        self.assertEqual(resultado, self.USER_ID_DEFAULT)
+
+
 class ExplicarPosicaoEndpointTest(unittest.TestCase):
     def setUp(self) -> None:
         api_server._state.clear()
@@ -408,6 +494,10 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
         api_server._state["settings"] = _fake_settings()
         api_server._state["logger"] = logging.getLogger("test_api")
         api_server._state["engine_lock"] = threading.Lock()
+        # explicacoes_posicao é tabela raiz: a persistência exige user_id (D-14).
+        self._env = patch.dict(os.environ, {"DEFAULT_USER_ID": USER_ID_TESTE})
+        self._env.start()
+        self.addCleanup(self._env.stop)
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -509,6 +599,35 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
         )
         self.assertEqual(payload_inserido["lado_analisado"], "BRANCAS")
         self.assertIn("resultado", payload_inserido)
+        # Sem Authorization: Bearer, cai no fallback DEFAULT_USER_ID (D-17).
+        self.assertEqual(payload_inserido["user_id"], USER_ID_TESTE)
+
+    def test_explicar_posicao_com_sessao_valida_usa_user_id_real(self) -> None:
+        # Fase B.2 (D-17): com Authorization: Bearer válido, a linha nasce
+        # com o dono real da sessão, não o DEFAULT_USER_ID de sempre.
+        user_id_sessao = "99999999-8888-7777-6666-555555555555"
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [{"id": "explicacao-nova-456"}]
+        mock_client.table.return_value.insert.return_value.execute.return_value = resp_mock
+        mock_user_response = MagicMock()
+        mock_user_response.user.id = user_id_sessao
+        mock_client.auth.get_user.return_value = mock_user_response
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post(
+            "/explicar-posicao",
+            json={
+                "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                "lado": "BRANCAS",
+            },
+            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        mock_client.auth.get_user.assert_called_once_with("token-da-sessao")
+        payload_inserido = mock_client.table.return_value.insert.call_args[0][0]
+        self.assertEqual(payload_inserido["user_id"], user_id_sessao)
 
     def test_explicar_posicao_retorna_200_mesmo_se_persistencia_falhar(self) -> None:
         # A persistência é um efeito colateral: se salvar falhar, o usuário
@@ -553,6 +672,11 @@ class ExplicacoesPosicaoRecentesEndpointTest(unittest.TestCase):
         api_server._state.clear()
         api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
+        # Leitura agora filtra por dono (Fase B.3 — D-18); sem Authorization
+        # Bearer nestes testes, cai no fallback DEFAULT_USER_ID de sempre.
+        self._env = patch.dict(os.environ, {"DEFAULT_USER_ID": USER_ID_TESTE})
+        self._env.start()
+        self.addCleanup(self._env.stop)
 
     def tearDown(self) -> None:
         api_server._state.clear()
@@ -595,7 +719,7 @@ class ExplicacoesPosicaoRecentesEndpointTest(unittest.TestCase):
                 "created_at": "2026-09-11T10:00:00Z",
             }
         ]
-        mock_client.table.return_value.select.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
         api_server._state["supabase_client"] = mock_client
 
         resposta = self.client.get(
@@ -612,6 +736,32 @@ class ExplicacoesPosicaoRecentesEndpointTest(unittest.TestCase):
         # chamada de rede (não existe endpoint "buscar por id" nesta API).
         self.assertEqual(
             itens[0]["resultado"]["explicacao"]["veredito"], "Posição equilibrada."
+        )
+        # Sem Authorization: Bearer, o filtro cai no DEFAULT_USER_ID (D-18).
+        mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+            "user_id", USER_ID_TESTE
+        )
+
+    def test_filtra_pelo_user_id_da_sessao_quando_autorizacao_valida(self) -> None:
+        # Fase B.3 (D-18): a listagem também respeita a sessão real, não só a escrita.
+        user_id_sessao = "99999999-8888-7777-6666-555555555555"
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = []
+        mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        mock_user_response = MagicMock()
+        mock_user_response.user.id = user_id_sessao
+        mock_client.auth.get_user.return_value = mock_user_response
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/explicacoes-posicao/recentes",
+            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+            "user_id", user_id_sessao
         )
 
     def test_banco_indisponivel_retorna_503(self) -> None:
@@ -739,6 +889,10 @@ class RevisarAvulsoSalvarEndpointTest(unittest.TestCase):
     def setUp(self) -> None:
         api_server._state.clear()
         api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        # revisao_exercicio_avulso é tabela raiz: o insert exige user_id (D-14).
+        self._env = patch.dict(os.environ, {"DEFAULT_USER_ID": USER_ID_TESTE})
+        self._env.start()
+        self.addCleanup(self._env.stop)
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -772,6 +926,42 @@ class RevisarAvulsoSalvarEndpointTest(unittest.TestCase):
         self.assertEqual(dados["status"], "salvo")
         self.assertEqual(dados["id"], "revisao-nova-456")
         mock_client.table.assert_any_call("revisao_exercicio_avulso")
+        # Ponta a ponta pela API: a linha nova nasce com o dono preenchido.
+        payload = mock_client.table.return_value.insert.call_args[0][0]
+        self.assertEqual(payload["user_id"], USER_ID_TESTE)
+
+    def test_salvar_com_sessao_valida_usa_user_id_real(self) -> None:
+        # Fase B.2 (D-17): Authorization: Bearer válido sobrepõe o DEFAULT_USER_ID.
+        user_id_sessao = "99999999-8888-7777-6666-555555555555"
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [{"id": "revisao-nova-789"}]
+        mock_client.table.return_value.insert.return_value.execute.return_value = resp_mock
+        mock_user_response = MagicMock()
+        mock_user_response.user.id = user_id_sessao
+        mock_client.auth.get_user.return_value = mock_user_response
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post(
+            "/revisar-avulso/salvar",
+            json={
+                "lance_jogado": "e4",
+                "melhor_lance": "e4",
+                "queda_win_percent": 0.0,
+                "qualidade_lance": "BOM",
+                "qualidade_raciocinio": "SOLIDO",
+                "feedback_texto": "ok",
+                "analise_mestre": "ok",
+                "fen": chess_fen_inicial(),
+                "texto_pensamento": "x",
+            },
+            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        mock_client.auth.get_user.assert_called_once_with("token-da-sessao")
+        payload = mock_client.table.return_value.insert.call_args[0][0]
+        self.assertEqual(payload["user_id"], user_id_sessao)
 
     def test_falha_ao_salvar_retorna_500(self) -> None:
         mock_client = MagicMock()
@@ -806,6 +996,11 @@ class RevisoesAvulsasRecentesEndpointTest(unittest.TestCase):
         api_server._state.clear()
         api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
+        # Leitura agora filtra por dono (Fase B.3 — D-18); sem Authorization
+        # Bearer nestes testes, cai no fallback DEFAULT_USER_ID de sempre.
+        self._env = patch.dict(os.environ, {"DEFAULT_USER_ID": USER_ID_TESTE})
+        self._env.start()
+        self.addCleanup(self._env.stop)
 
     def tearDown(self) -> None:
         api_server._state.clear()
@@ -831,7 +1026,7 @@ class RevisoesAvulsasRecentesEndpointTest(unittest.TestCase):
                 "created_at": "2026-09-11T10:00:00Z",
             }
         ]
-        mock_client.table.return_value.select.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
         api_server._state["supabase_client"] = mock_client
 
         resposta = self.client.get(
@@ -845,6 +1040,32 @@ class RevisoesAvulsasRecentesEndpointTest(unittest.TestCase):
         self.assertEqual(itens[0]["id"], "rev-1")
         self.assertEqual(itens[0]["lance_jogado"], "e4")
         self.assertEqual(itens[0]["qualidade_lance"], "BOM")
+        # Sem Authorization: Bearer, o filtro cai no DEFAULT_USER_ID (D-18).
+        mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+            "user_id", USER_ID_TESTE
+        )
+
+    def test_filtra_pelo_user_id_da_sessao_quando_autorizacao_valida(self) -> None:
+        # Fase B.3 (D-18): a listagem também respeita a sessão real, não só a escrita.
+        user_id_sessao = "99999999-8888-7777-6666-555555555555"
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = []
+        mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        mock_user_response = MagicMock()
+        mock_user_response.user.id = user_id_sessao
+        mock_client.auth.get_user.return_value = mock_user_response
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/revisoes-avulsas/recentes",
+            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+            "user_id", user_id_sessao
+        )
 
     def test_banco_indisponivel_retorna_503(self) -> None:
         resposta = self.client.get(
@@ -852,6 +1073,81 @@ class RevisoesAvulsasRecentesEndpointTest(unittest.TestCase):
             headers={"X-API-Key": CHAVE_CORRETA},
         )
         self.assertEqual(resposta.status_code, 503)
+
+
+class InsightsRepertorioEndpointTest(unittest.TestCase):
+    """Testes do endpoint GET /insights/repertorio.
+
+    O cálculo das 4 agregações já é testado a fundo com dados sintéticos em
+    backend/agentes/test_insights_repertorio.py; aqui só verificamos que a
+    rota autentica, delega pra `calcular_insights_repertorio` e serializa o
+    resultado, sem reimplementar aquele cálculo com um MagicMock encadeado
+    de 4 tabelas diferentes.
+    """
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_sem_api_key_recebe_401(self) -> None:
+        resposta = self.client.get("/insights/repertorio")
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_banco_indisponivel_retorna_503(self) -> None:
+        resposta = self.client.get(
+            "/insights/repertorio",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+        self.assertEqual(resposta.status_code, 503)
+
+    @patch("backend.api.api_server.calcular_insights_repertorio")
+    def test_retorna_o_payload_calculado(self, mock_calcular: MagicMock) -> None:
+        payload_esperado = {
+            "taxa_vitoria_por_cor": {
+                "BRANCAS": {"total": 10, "vitorias": 6, "taxa_vitoria_pct": 60.0}
+            },
+            "por_abertura_e_cor": [
+                {
+                    "abertura_normalizada": "Francesa",
+                    "cor_jogada": "BRANCAS",
+                    "total": 20,
+                    "vitorias": 12,
+                    "taxa_vitoria_pct": 60.0,
+                    "precisao_media_abertura": None,
+                    "precisao_media_meiojogo": None,
+                    "precisao_media_final": None,
+                }
+            ],
+            "lance_pico_por_abertura": [],
+            "categorias_por_abertura": {},
+        }
+        mock_calcular.return_value = payload_esperado
+        api_server._state["supabase_client"] = MagicMock()
+
+        resposta = self.client.get(
+            "/insights/repertorio",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json(), payload_esperado)
+        mock_calcular.assert_called_once_with(api_server._state["supabase_client"])
+
+    @patch("backend.api.api_server.calcular_insights_repertorio")
+    def test_falha_no_calculo_retorna_500(self, mock_calcular: MagicMock) -> None:
+        mock_calcular.side_effect = RuntimeError("consulta falhou")
+        api_server._state["supabase_client"] = MagicMock()
+
+        resposta = self.client.get(
+            "/insights/repertorio",
+            headers={"X-API-Key": CHAVE_CORRETA},
+        )
+
+        self.assertEqual(resposta.status_code, 500)
 
 
 class AnalisarPgnEndpointTest(unittest.TestCase):
@@ -879,6 +1175,11 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         api_server._state["engine_lock"] = threading.Lock()
         # Mock logger isola completamente a saída de testes de prints/logs
         api_server._state["logger"] = MagicMock()
+        # partidas é tabela raiz: inserir_partida exige user_id (D-14); sem
+        # Authorization Bearer nestes testes, cai no fallback DEFAULT_USER_ID (D-17).
+        self._env = patch.dict(os.environ, {"DEFAULT_USER_ID": USER_ID_TESTE})
+        self._env.start()
+        self.addCleanup(self._env.stop)
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -940,6 +1241,39 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         _, kwargs = mock_executar_pipeline.call_args
         self.assertEqual(kwargs["partida_id"], "partida_999")
         self.assertIsNotNone(kwargs["engine_lock"])
+        # Sem Authorization: Bearer, cai no fallback DEFAULT_USER_ID (D-17).
+        _, kwargs_inserir = mock_inserir.call_args
+        self.assertEqual(kwargs_inserir["user_id"], USER_ID_TESTE)
+
+    @patch("backend.api.api_server.load_analysis_settings")
+    @patch("backend.api.api_server.load_linter_settings")
+    @patch("backend.api.api_server.executar_pipeline_partida")
+    def test_analisar_pgn_com_sessao_valida_usa_user_id_real(
+        self, mock_executar_pipeline, mock_linter, mock_analysis
+    ) -> None:
+        # Fase B.2 (D-17): Authorization: Bearer válido sobrepõe o
+        # DEFAULT_USER_ID — aqui SEM mockar inserir_partida, pra provar a
+        # amarração de ponta a ponta até o payload que vai pro Supabase.
+        user_id_sessao = "99999999-8888-7777-6666-555555555555"
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [{"id": "partida-real-001"}]
+        mock_client.table.return_value.upsert.return_value.execute.return_value = resp_mock
+        mock_user_response = MagicMock()
+        mock_user_response.user.id = user_id_sessao
+        mock_client.auth.get_user.return_value = mock_user_response
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post(
+            "/analisar-pgn",
+            json={"pgn": self.PGN_TESTE, "cor": "BRANCAS"},
+            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
+        )
+
+        self.assertEqual(resposta.status_code, 202)
+        mock_client.auth.get_user.assert_called_once_with("token-da-sessao")
+        payload = mock_client.table.return_value.upsert.call_args[0][0]
+        self.assertEqual(payload["user_id"], user_id_sessao)
 
     @patch("backend.api.api_server.load_analysis_settings")
     @patch("backend.api.api_server.load_linter_settings")
@@ -959,8 +1293,9 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         self.assertEqual(dados["partida_id"], "partida_888")
         mock_inserir.assert_called_once()
         # Argumento cor passado para inserir_partida deve ser "BRANCAS"
-        args, _ = mock_inserir.call_args
+        args, kwargs = mock_inserir.call_args
         self.assertEqual(args[3], "BRANCAS")
+        self.assertEqual(kwargs["user_id"], USER_ID_TESTE)
 
         # Confirma que a tarefa de segundo plano foi agendada e executada
         mock_executar_pipeline.assert_called_once()
@@ -1076,7 +1411,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
                 "pgn": '[White "hirano28"]\n[Black "oponente"]\n\n1. e4 c5',
             }
         ]
-        mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
         api_server._state["supabase_client"] = mock_client
 
         resposta = self.client.get(
@@ -1090,6 +1425,32 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         self.assertEqual(itens[0]["status"], "processando")
         self.assertEqual(itens[0]["jogadores"], "hirano28 vs oponente")
         self.assertEqual(itens[0]["eco_abertura"], "B90")
+        # Sem Authorization: Bearer, o filtro cai no DEFAULT_USER_ID (D-18).
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.assert_called_once_with(
+            "user_id", USER_ID_TESTE
+        )
+
+    def test_listar_partidas_recentes_filtra_pelo_user_id_da_sessao(self) -> None:
+        # Fase B.3 (D-18): a listagem também respeita a sessão real, não só a escrita.
+        user_id_sessao = "99999999-8888-7777-6666-555555555555"
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = []
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        mock_user_response = MagicMock()
+        mock_user_response.user.id = user_id_sessao
+        mock_client.auth.get_user.return_value = mock_user_response
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/partidas/recentes",
+            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.assert_called_once_with(
+            "user_id", user_id_sessao
+        )
 
     def test_reprocessar_sem_api_key_recebe_401(self) -> None:
         resposta = self.client.post("/partidas/p123/reprocessar")

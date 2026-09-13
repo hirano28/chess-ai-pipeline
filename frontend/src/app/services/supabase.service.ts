@@ -79,6 +79,21 @@ export class SupabaseService {
     );
   }
 
+  /**
+   * Expõe `auth` do MESMO client usado por todas as queries deste serviço.
+   *
+   * Não existe "cliente autenticado" separado no supabase-js: uma vez que
+   * `AuthService` chama `signInWithPassword`/`signUp` neste `auth`, o client
+   * único passa a anexar o JWT da sessão em toda chamada `.from(...)`
+   * seguinte automaticamente. Os métodos abaixo (getUltimaAnaliseHexagono,
+   * getSessoesTreino, etc.) não precisam de nenhuma mudança para "usar a
+   * sessão autenticada" — é o mesmo client, só que agora com um token a
+   * mais. Ver D-15 em docs/DECISOES.md.
+   */
+  get auth() {
+    return this.client.auth;
+  }
+
   async getUltimaAnaliseHexagono(): Promise<AnaliseHexagonoMetricas | null> {
     const { data, error } = await this.client
       .from('analises_hexagono')

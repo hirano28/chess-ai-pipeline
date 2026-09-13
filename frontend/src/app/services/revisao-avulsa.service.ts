@@ -3,6 +3,7 @@ import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthLocalService } from './auth-local.service';
+import { AuthService } from './auth.service';
 
 export interface CandidatoMotor {
   lance: string;
@@ -251,6 +252,7 @@ const MENSAGEM_CHAVE_INVALIDA = 'Chave inválida, tente novamente.';
 export class RevisaoAvulsaService {
   private readonly http = inject(HttpClient);
   private readonly authLocalService = inject(AuthLocalService);
+  private readonly authService = inject(AuthService);
 
   async revisar(
     posicao: string,
@@ -332,7 +334,7 @@ export class RevisaoAvulsaService {
         this.http.post<ResultadoExplicadorPosicao>(
           `${environment.apiLocalUrl}/explicar-posicao`,
           payload,
-          { headers: this.headersComChave() }
+          { headers: await this.headersComChaveEAuth() }
         )
       );
       return { success: true, resultado };
@@ -358,7 +360,7 @@ export class RevisaoAvulsaService {
         this.http.post<{ partida_id: string; external_id: string }>(
           `${environment.apiLocalUrl}/analisar-pgn`,
           payload,
-          { headers: this.headersComChave() }
+          { headers: await this.headersComChaveEAuth() }
         )
       );
       return {
@@ -487,7 +489,7 @@ export class RevisaoAvulsaService {
         this.http.post<{ status: string; id?: string }>(
           `${environment.apiLocalUrl}/revisar-avulso/salvar`,
           { ...avaliacao, fen, texto_pensamento: textoPensamento },
-          { headers: this.headersComChave() }
+          { headers: await this.headersComChaveEAuth() }
         )
       );
       return { success: true, id: resposta.id };
@@ -503,6 +505,24 @@ export class RevisaoAvulsaService {
   private headersComChave(): HttpHeaders {
     const chave = this.authLocalService.getKey();
     return chave ? new HttpHeaders({ 'X-API-Key': chave }) : new HttpHeaders();
+  }
+
+  /**
+   * X-API-Key (como sempre, continua controlando o acesso ao endpoint) +
+   * Authorization: Bearer quando há sessão Supabase Auth ativa (Fase B.2 —
+   * D-17). Os dois convivem: Authorization só refina QUEM é o dono da
+   * escrita no banco (user_id real em vez de DEFAULT_USER_ID); quem só usa
+   * X-API-Key e nunca criou conta continua gravando exatamente como antes.
+   */
+  private async headersComChaveEAuth(): Promise<HttpHeaders> {
+    let headers = this.headersComChave();
+    if (this.authService.autenticado()) {
+      const token = await this.authService.obterAccessToken();
+      if (token) {
+        headers = headers.set('Authorization', `Bearer ${token}`);
+      }
+    }
+    return headers;
   }
 
   /** Busca só os títulos dos 8 passos do guia (endpoint público, sem chave). */

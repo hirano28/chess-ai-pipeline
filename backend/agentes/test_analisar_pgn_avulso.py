@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +17,7 @@ from backend.agentes.analisar_pgn_avulso import (
     extrair_resultado,
     gerar_external_id,
     inferir_cor_jogador,
+    inserir_partida,
     ler_pgn_de_arquivo,
     parse_pgn,
     resolver_cor,
@@ -358,6 +360,43 @@ class TestExecutarPipelinePartida(unittest.TestCase):
             )
 
         mock_update.assert_called_with(mock_client, "partida_com_erro", "falhou")
+
+
+class InserirPartidaUserIdTest(unittest.TestCase):
+    """user_id explícito (Fase B.2, D-17) vs. fallback DEFAULT_USER_ID (D-14)."""
+
+    USER_ID_DEFAULT = "11111111-2222-3333-4444-555555555555"
+    USER_ID_SESSAO = "99999999-8888-7777-6666-555555555555"
+
+    def setUp(self) -> None:
+        self._env = patch.dict(os.environ, {"DEFAULT_USER_ID": self.USER_ID_DEFAULT})
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
+    def _mock_client_com_id(self, partida_id: str) -> MagicMock:
+        client = MagicMock()
+        resp = MagicMock()
+        resp.data = [{"id": partida_id}]
+        client.table.return_value.upsert.return_value.execute.return_value = resp
+        return client
+
+    def test_sem_user_id_explicito_usa_default_user_id(self) -> None:
+        client = self._mock_client_com_id("partida-1")
+        game = parse_pgn(PGN_VALIDO)
+
+        inserir_partida(client, PGN_VALIDO, game, "BRANCAS")
+
+        payload = client.table.return_value.upsert.call_args[0][0]
+        self.assertEqual(payload["user_id"], self.USER_ID_DEFAULT)
+
+    def test_com_user_id_explicito_usa_o_dono_da_sessao(self) -> None:
+        client = self._mock_client_com_id("partida-2")
+        game = parse_pgn(PGN_VALIDO)
+
+        inserir_partida(client, PGN_VALIDO, game, "BRANCAS", user_id=self.USER_ID_SESSAO)
+
+        payload = client.table.return_value.upsert.call_args[0][0]
+        self.assertEqual(payload["user_id"], self.USER_ID_SESSAO)
 
 
 if __name__ == "__main__":

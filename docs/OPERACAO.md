@@ -2,7 +2,7 @@
 doc: OPERACAO.md
 escopo: comandos, execução de scripts, automação, variáveis de ambiente, troubleshooting
 nao_contem: arquitetura (ver ARQUITETURA.md), schema (ver BANCO.md), estado (ver ESTADO.md)
-verificado_em: 2026-09-11
+verificado_em: 2026-09-13
 ---
 
 # Operação
@@ -32,12 +32,16 @@ python -m unittest \
   backend.agentes.test_explicador_posicao \
   backend.agentes.test_gerar_perguntas_pendentes \
   backend.agentes.test_gerar_resumo_partida \
+  backend.agentes.test_insights_repertorio \
+  backend.agentes.test_normalizar_aberturas \
   backend.agentes.test_revisar_exercicio_avulso \
   backend.agentes.test_revisar_pensamento \
   backend.analise_engine.test_analisar_partidas \
   backend.api.test_api_server \
   backend.common.test_chess_math \
-  backend.common.test_notacao_pt
+  backend.common.test_notacao_pt \
+  backend.common.test_tenant \
+  backend.ingestao.test_enriquecer_partidas_lichess
 ```
 
 Para gerar a lista automaticamente e não esquecer nenhum módulo:
@@ -89,6 +93,7 @@ python backend/agentes/gerar_resumo_partida.py          # narrativa por partida
 python backend/agentes/gerar_perguntas_pendentes.py     # perguntas retroativas
 python backend/agentes/medir_eficacia.py                # fecha o loop adaptativo
 python backend/ingestao/backfill_eco_abertura.py        # ECO faltante (execução única)
+python backend/agentes/normalizar_aberturas.py          # abertura_normalizada (rode de novo a cada leva nova de partidas)
 ```
 
 ## 5. Processar um livro novo no RAG
@@ -132,10 +137,17 @@ commitados.
 `LICHESS_USERNAME`, `LICHESS_TOKEN`, `LICHESS_STUDY_TOKEN`,
 `LICHESS_GAMES_LIMIT`, `CHESSCOM_USERNAME`, `CHESSCOM_MONTHS_LIMIT`,
 `YOUTUBE_API_KEY`, `STOCKFISH_PATH`, `API_SECRET_KEY`, `API_SECRET_KEYS`,
-`ALLOWED_ORIGINS`, `EXERCICIO_AVULSO_SEARCHTIME_MS`.
+`ALLOWED_ORIGINS`, `EXERCICIO_AVULSO_SEARCHTIME_MS`, `DEFAULT_USER_ID`.
 
 `API_SECRET_KEYS` usa o formato `nome:chave,nome:chave` e convive com a
 `API_SECRET_KEY` antiga (chave única) por compatibilidade.
+
+`DEFAULT_USER_ID` é **obrigatória**: é o dono gravado em `user_id` nas 6
+tabelas raiz (ver D-14 em `DECISOES.md`). Sem ela, toda escrita nessas tabelas
+falha com `ValueError` — de propósito, para o erro aparecer na hora em vez de
+gravar linha órfã. Precisa estar em `.env` (local), `env.yaml` (Cloud Run) e
+como **secret do GitHub Actions**, porque o workflow de deploy a propaga com
+`--update-env-vars` e aborta se ela estiver vazia.
 
 Secrets do GitHub Actions: os mesmos acima mais `GCP_SA_KEY`.
 
@@ -154,3 +166,7 @@ Secrets do GitHub Actions: os mesmos acima mais `GCP_SA_KEY`.
 | Sprint cita sempre o mesmo livro | `indice_conceitual` só tem esse livro para a categoria | `select livro from indice_conceitual where conceito ilike '%tema%'` |
 | Números virando `***` no log do Actions | secret numérico curto mascarando dígitos coincidentes | mova o valor de Secret para Variable |
 | `ng build` avisa que o bundle passou de 500 kB | orçamento padrão do Angular | conhecido e aceito; não é regressão |
+| `ValueError: Variável de ambiente ausente: DEFAULT_USER_ID` | escrita numa das 6 tabelas raiz sem a variável definida | defina `DEFAULT_USER_ID` no `.env`/`env.yaml`/secret do Actions (D-14) |
+| `null value in column "user_id" violates not-null constraint` | caminho de escrita novo numa tabela raiz esqueceu o `user_id` | acrescente `obter_default_user_id()` ao payload (ver os 7 pontos em D-14) |
+| `OPTIONS ... 400 Bad Request` rodando `ng serve` numa porta diferente de 4200 | origem não está em `ALLOWED_ORIGINS` do backend local (default só libera `localhost:4200`) | suba o `uvicorn` com `ALLOWED_ORIGINS="http://localhost:SUA_PORTA,http://localhost:4200"` |
+| Escrita autenticada grava com `DEFAULT_USER_ID` em vez do dono real | `Authorization: Bearer` ausente, ou `auth.get_user()` rejeitou o token (expirado/malformado) | confira se `AuthService.autenticado()` é `true` no momento da chamada e se a sessão não expirou (D-17) |

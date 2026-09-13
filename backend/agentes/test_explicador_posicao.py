@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import unittest
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import chess
 
@@ -564,6 +565,16 @@ class ExplicarPosicaoEndToEndTest(unittest.TestCase):
 class SalvarExplicacaoPosicaoTest(unittest.TestCase):
     """Cobre a persistência que fecha a pendência P-10 (ESTADO.md)."""
 
+    USER_ID_TESTE = "11111111-2222-3333-4444-555555555555"
+
+    def setUp(self) -> None:
+        # explicacoes_posicao é tabela raiz: user_id é NOT NULL (D-14).
+        self._env = patch.dict(
+            os.environ, {"DEFAULT_USER_ID": self.USER_ID_TESTE}
+        )
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
     def _resultado_minimo(self) -> dict[str, Any]:
         return {
             "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -603,6 +614,21 @@ class SalvarExplicacaoPosicaoTest(unittest.TestCase):
         self.assertEqual(payload["fen"], resultado["fen"])
         self.assertEqual(payload["lado_analisado"], "BRANCAS")
         self.assertEqual(payload["resultado"], resultado)
+        self.assertEqual(payload["user_id"], self.USER_ID_TESTE)
+
+    def test_user_id_explicito_sobrepoe_o_default_do_ambiente(self) -> None:
+        # Fase B.2 (D-17): dono real da sessão, resolvido em api_server.py,
+        # sobrepõe o fallback DEFAULT_USER_ID.
+        user_id_sessao = "99999999-8888-7777-6666-555555555555"
+        client = MagicMock()
+        resp = MagicMock()
+        resp.data = [{"id": "novo-id-456"}]
+        client.table.return_value.insert.return_value.execute.return_value = resp
+
+        salvar_explicacao_posicao(client, self._resultado_minimo(), user_id=user_id_sessao)
+
+        payload = client.table.return_value.insert.call_args[0][0]
+        self.assertEqual(payload["user_id"], user_id_sessao)
 
     def test_retorna_none_se_resposta_nao_trouxer_dados(self) -> None:
         client = MagicMock()

@@ -31,6 +31,7 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.common.tenant import obter_default_user_id  # noqa: E402
 from backend.ingestao.common_ingestao import configure_logging, with_retry  # noqa: E402
 
 configurar_encoding_utf8()
@@ -132,7 +133,7 @@ def upsert_puzzle_atividade(client: Client, registro: dict[str, Any]) -> None:
     """Faz upsert de um registro em puzzle_atividade, sem duplicar."""
 
     client.table("puzzle_atividade").upsert(
-        registro, on_conflict="puzzle_id,data"
+        {**registro, "user_id": obter_default_user_id()}, on_conflict="puzzle_id,data"
     ).execute()
 
 
