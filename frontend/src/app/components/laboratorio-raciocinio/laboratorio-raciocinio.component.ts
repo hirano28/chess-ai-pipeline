@@ -7,7 +7,6 @@ import {
   RevisaoAvulsaRecenteItem,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
-import { AuthLocalService } from '../../services/auth-local.service';
 import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-preview.component';
 import {
   HistoricoAnaliseComponent,
@@ -86,15 +85,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
   );
 
   private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
-  private readonly authLocalService = inject(AuthLocalService);
 
-  readonly chaveConfigurada = signal(this.authLocalService.isConfigured());
-  readonly chaveInput = signal('');
-  readonly erroChave = signal<string | null>(null);
 
-  get chaveFormularioValido(): boolean {
-    return this.chaveInput().trim().length > 0;
-  }
 
   constructor() {
     // Observa `posicao` (digitação manual OU preenchimento via foto - mesmo
@@ -119,8 +111,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     }
 
     const resposta = await this.revisaoAvulsaService.resolverFen(texto);
-    if (resposta.chaveInvalida) {
-      this.tratarChaveInvalida();
+    if (resposta.sessaoExpirada) {
+      this.tratarSessaoExpirada();
       return;
     }
     if (resposta.success && resposta.fen) {
@@ -132,10 +124,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     this.guiaPassos.set(await this.revisaoAvulsaService.guiaPassos());
-    if (this.chaveConfigurada()) {
-      await this.carregarHistorico();
-      this.restaurarAtivoSalvo();
-    }
+    await this.carregarHistorico();
+    this.restaurarAtivoSalvo();
   }
 
   toggleGuia(): void {
@@ -146,8 +136,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     this.carregandoHistorico.set(true);
     try {
       const res = await this.revisaoAvulsaService.listarRevisoesAvulsasRecentes(20);
-      if (res.chaveInvalida) {
-        this.tratarChaveInvalida();
+      if (res.sessaoExpirada) {
+        this.tratarSessaoExpirada();
         return;
       }
       if (res.success && res.itens) {
@@ -193,21 +183,14 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     }
   }
 
-  salvarChave(): void {
-    if (!this.chaveFormularioValido) {
-      return;
-    }
-    this.authLocalService.setKey(this.chaveInput().trim());
-    this.chaveInput.set('');
-    this.erroChave.set(null);
-    this.chaveConfigurada.set(true);
-    void this.carregarHistorico();
-    this.restaurarAtivoSalvo();
-  }
 
-  private tratarChaveInvalida(): void {
-    this.chaveConfigurada.set(false);
-    this.erroChave.set('Chave inválida, tente novamente.');
+  /**
+   * 401 da API com a rota já protegida pelo authGuard só acontece se a sessão
+   * expirou no meio do uso (D-25). Não há mais chave pra reconfigurar: o
+   * caminho é entrar de novo.
+   */
+  private tratarSessaoExpirada(): void {
+    this.erro.set('Sua sessão expirou. Entre de novo para continuar.');
   }
 
   get formularioValido(): boolean {
@@ -241,8 +224,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
 
     try {
       const resposta = await this.revisaoAvulsaService.reconhecerPosicao(arquivo);
-      if (resposta.chaveInvalida) {
-        this.tratarChaveInvalida();
+      if (resposta.sessaoExpirada) {
+        this.tratarSessaoExpirada();
         return;
       }
       if (!resposta.success || !resposta.fen) {
@@ -281,8 +264,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
         this.lancesSequencia(),
         this.pensamento().trim()
       );
-      if (resposta.chaveInvalida) {
-        this.tratarChaveInvalida();
+      if (resposta.sessaoExpirada) {
+        this.tratarSessaoExpirada();
         return;
       }
       if (!resposta.success || !resposta.resultado) {
@@ -313,8 +296,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
         resultado!.fen,
         this.pensamento().trim()
       );
-      if (resposta.chaveInvalida) {
-        this.tratarChaveInvalida();
+      if (resposta.sessaoExpirada) {
+        this.tratarSessaoExpirada();
         return;
       }
       if (!resposta.success) {

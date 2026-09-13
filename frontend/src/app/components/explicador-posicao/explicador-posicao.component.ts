@@ -5,7 +5,6 @@ import {
   ResultadoExplicadorPosicao,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
-import { AuthLocalService } from '../../services/auth-local.service';
 import {
   HistoricoAnaliseComponent,
   HistoricoAnaliseItem
@@ -61,33 +60,24 @@ export class ExplicadorPosicaoComponent implements OnInit {
   );
 
   private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
-  private readonly authLocalService = inject(AuthLocalService);
 
-  readonly chaveConfigurada = signal(this.authLocalService.isConfigured());
-  readonly chaveInput = signal('');
-  readonly erroChave = signal<string | null>(null);
 
-  get chaveFormularioValido(): boolean {
-    return this.chaveInput().trim().length > 0;
-  }
 
   get formularioValido(): boolean {
     return this.posicao().trim().length > 0;
   }
 
   async ngOnInit(): Promise<void> {
-    if (this.chaveConfigurada()) {
-      await this.carregarHistorico();
-      this.restaurarAtivoSalvo();
-    }
+    await this.carregarHistorico();
+    this.restaurarAtivoSalvo();
   }
 
   async carregarHistorico(): Promise<void> {
     this.carregandoHistorico.set(true);
     try {
       const res = await this.revisaoAvulsaService.listarExplicacoesRecentes(20);
-      if (res.chaveInvalida) {
-        this.tratarChaveInvalida();
+      if (res.sessaoExpirada) {
+        this.tratarSessaoExpirada();
         return;
       }
       if (res.success && res.itens) {
@@ -132,21 +122,14 @@ export class ExplicadorPosicaoComponent implements OnInit {
     }
   }
 
-  salvarChave(): void {
-    if (!this.chaveFormularioValido) {
-      return;
-    }
-    this.authLocalService.setKey(this.chaveInput().trim());
-    this.chaveInput.set('');
-    this.erroChave.set(null);
-    this.chaveConfigurada.set(true);
-    void this.carregarHistorico();
-    this.restaurarAtivoSalvo();
-  }
 
-  private tratarChaveInvalida(): void {
-    this.chaveConfigurada.set(false);
-    this.erroChave.set('Chave inválida, tente novamente.');
+  /**
+   * 401 da API com a rota já protegida pelo authGuard só acontece se a sessão
+   * expirou no meio do uso (D-25). Não há mais chave pra reconfigurar: o
+   * caminho é entrar de novo.
+   */
+  private tratarSessaoExpirada(): void {
+    this.erro.set('Sua sessão expirou. Entre de novo para continuar.');
   }
 
   carregarExemplo(): void {
@@ -173,8 +156,8 @@ export class ExplicadorPosicaoComponent implements OnInit {
         this.posicao().trim(),
         ladoParam
       );
-      if (resposta.chaveInvalida) {
-        this.tratarChaveInvalida();
+      if (resposta.sessaoExpirada) {
+        this.tratarSessaoExpirada();
         return;
       }
       if (!resposta.success || !resposta.resultado) {

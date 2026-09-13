@@ -628,6 +628,355 @@ temporários foram removidos ao final, mantendo a conta do Edson intacta.
 
 ---
 
+## D-20 — Deploy automático sincroniza env vars do Cloud Run com os GitHub Secrets
+
+**Problema.** `deploy-backend.yml` só propagava `DEFAULT_USER_ID` via
+`--update-env-vars`; as demais variáveis (`SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `API_SECRET_KEYS`) dependiam de
+alguém lembrar de rodar manualmente `gcloud run deploy
+--env-vars-file=env.yaml` sempre que um valor mudasse. Isso já causou dois
+incidentes reais nesta mesma sessão de trabalho: `DEFAULT_USER_ID` precisou
+ser criado como secret na primeira vez que passou a ser exigido (D-14), e
+depois, quando D-19 trocou o valor de `DEFAULT_USER_ID` no `.env`/`env.yaml`
+para o UUID real do Edson, o deploy automático seguinte continuou gravando o
+UUID antigo no Cloud Run — o secret do GitHub não tinha sido atualizado junto,
+e nada no workflow avisava disso. `env.yaml` local parecia a fonte de
+verdade, mas não era: era só o que um comando manual, se alguém lembrasse de
+rodar, levaria para produção.
+
+**Decisão.** O deploy automático passa a gerar, a cada execução, um arquivo
+de env vars a partir dos GitHub Secrets e usá-lo com `--env-vars-file` — a
+mesma flag do comando manual documentado, não `--update-env-vars`. A escolha
+de `--env-vars-file` (que **substitui por completo** as env vars do serviço,
+confirmado via `gcloud run deploy --help`) em vez de `--update-env-vars`/
+`--set-env-vars` inline é deliberada por dois motivos:
+
+1. **Substituição total, não mescla.** `--update-env-vars` só atualiza as
+   chaves citadas e deixa as demais como estavam — exatamente o mecanismo que
+   permitiu o UUID antigo sobreviver ao deploy de D-19 sem ninguém perceber.
+   Com `--env-vars-file`, o conjunto de env vars do Cloud Run é sempre
+   exatamente o que os Secrets dizem hoje, nunca um resquício de um deploy
+   manual antigo.
+2. **Evita quebrar valores com vírgula.** `API_SECRET_KEYS` usa o formato
+   `nome:chave,nome:chave` — a vírgula interna quebraria o parsing de
+   `--update-env-vars="K1=V1,K2=V2"` (a vírgula seria lida como separador
+   entre variáveis). Um arquivo YAML não tem esse problema; confirmado
+   gerando o arquivo e recarregando com PyYAML antes de aplicar a mudança.
+
+O novo step (`Gerar arquivo de env vars para o Cloud Run a partir dos GitHub
+Secrets`) valida antes de gerar o arquivo que todos os 5 secrets necessários
+estão presentes (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+`GEMINI_API_KEY`, `API_SECRET_KEYS`, `DEFAULT_USER_ID`) e falha o job com uma
+mensagem acionável se faltar algum, em vez de deployar com valor vazio.
+`STOCKFISH_PATH` foi deliberadamente deixado fora dessa lista: ele já vem
+gravado na imagem via `ENV` no `Dockerfile`, não depende de secret nenhum, e
+`--env-vars-file` substitui só as env vars do *serviço* Cloud Run — não afeta
+o que a imagem do container já define internamente.
+
+**`env.yaml` local não foi removido**, mas seu papel mudou: continua servindo
+de referência rápida de quais nomes importam e para deploys manuais
+pontuais, mas deixou de ser a fonte de verdade de produção — essa fonte agora
+são os GitHub Secrets, únicos que o workflow automático realmente lê. Editar
+só o arquivo local, sem atualizar o secret correspondente, não tem mais
+nenhum efeito no próximo deploy.
+
+**Consequência.** Validado localmente: o script de geração do arquivo
+produz um YAML sintaticamente válido (parseado de volta com PyYAML) e
+preserva corretamente um valor com vírgula interna (`API_SECRET_KEYS`) como
+uma única string — confirmando que o problema de parsing do
+`--update-env-vars` inline realmente existiria e realmente é evitado por
+este formato. Consultei também o serviço Cloud Run real
+(`gcloud run services describe`) para confirmar que os 5 valores hoje em
+produção batem com `env.yaml` local — o que era verdade só porque alguém
+rodou o comando manual depois do incidente, exatamente a dependência que
+esta decisão elimina daqui pra frente.
+
+---
+
+## D-22 — Fechamento das tabelas sem RLS nenhum (incidente de vazamento)
+
+> Não existe D-21: o número foi pulado deliberadamente, não é entrada perdida.
+
+**Problema.** A varredura de `pg_class` + `pg_policies` (feita agora, não de
+memória) encontrou **9** tabelas sem política nenhuma — não as 6 que a P-2
+catalogava. Dessas, **6 estavam com `rls_ligado = false`**, e RLS desligado no
+Postgres significa acesso irrestrito: qualquer portador da chave `anon` — que
+é **pública e vai no bundle do frontend** — lia as tabelas inteiras. Entre elas,
+texto pessoal: `perguntas_pendentes.pergunta_texto`,
+`anotacoes_pensamento.texto_pensamento`, `revisoes_pensamento.texto_pensamento`.
+
+Confirmado por curl real antes de qualquer correção, com duas contas de teste
+(A, com dado próprio semeado; B, sem dado nenhum) — as três identidades
+recebiam exatamente as **mesmas** linhas:
+
+| Tabela | anon | conta B (sem dado) | conta A (dona) |
+|---|---|---|---|
+| `perguntas_pendentes` | 7 | 7 | 7 |
+| `anotacoes_pensamento` | 24 | 24 | 24 |
+| `revisoes_pensamento` | 24 | 24 | 24 |
+| `tempos_lance` | 200+ | 200+ | 200+ |
+| `metricas_lichess_partida` | 5 | 5 | 5 |
+| `puzzle_atividade` | 200+ | 200+ | 200+ |
+
+O vazamento chegava ao navegador de verdade: numa sessão com conta de teste em
+produção, o `GET perguntas_pendentes` voltou HTTP 200 com o texto íntegro de
+uma pergunta do dono. A tela não pintava isso por **acidente** — o embed
+`lances_criticos(...)` já era filtrado por D-19, voltava `null`, e o `.map()`
+do `SupabaseService` descartava a linha. O dado saía do banco mesmo assim.
+
+**Decisão.** `backend/db/rls_tabelas_sem_politica.sql` liga RLS nas 6 e aplica
+o mesmo padrão de D-19 — raiz filtra por `user_id = auth.uid()`, filha por
+`exists` subindo a cadeia de FK até `partidas.user_id`:
+
+- `puzzle_atividade` (raiz, tem `user_id`): condição direta.
+- `anotacoes_pensamento`, `revisoes_pensamento`, `tempos_lance`,
+  `metricas_lichess_partida`: `exists` via `partida_id`.
+- `perguntas_pendentes` (neta): `exists` via `lance_id` →
+  `lances_criticos.partida_id` → `partidas.user_id`.
+
+**Nenhuma policy de `anon` foi criada, de propósito.** Manter `using(true)`
+para `anon` seria manter exatamente o vazamento que motivou a correção — as 6
+são tabelas de dado pessoal, nenhuma tem conteúdo público. Consequência
+deliberada: o cartão "Perguntas pendentes" passa a **exigir login**. Para
+visitante anônimo ele fica vazio, sem erro (verificado no navegador: zero
+respostas 4xx/5xx e zero erros de console no dashboard anônimo).
+
+**Duas dessas tabelas precisaram de policy de escrita, não só de leitura.**
+`perguntas_pendentes` (UPDATE) e `anotacoes_pensamento` (INSERT + UPDATE) são o
+único ponto onde o frontend escreve direto no Postgres, sem passar pelo
+FastAPI: o fluxo `responderPergunta` faz upsert da anotação e marca a pergunta
+como `RESPONDIDA`. As policies de escrita carregam a mesma condição de dono no
+`with check`, então ninguém anota numa partida que não é sua.
+
+**Consequência, validada por curl depois da migration.** Em todas as 6:
+`anon` → 0 linhas, conta B → 0 linhas, conta A → exatamente a linha dela (as
+linhas de `tempos_lance`/`metricas_lichess_partida`/`puzzle_atividade` foram
+conferidas uma a uma pelo `partida_id`/`user_id`, porque a heurística do
+harness dava falso positivo nelas). O fluxo do dono continua inteiro: SELECT
+com join embutido preenchido, upsert HTTP 200, update de status HTTP 200. E a
+tentativa da conta B de inserir anotação numa partida da conta A voltou
+**HTTP 403 — `new row violates row-level security policy`**. O pipeline não foi
+afetado: ele fala com o banco pela service role key, que ignora RLS
+(reconferido: as 6 tabelas seguem legíveis por ela).
+
+**Três tabelas da varredura NÃO foram mexidas, e isso é decisão, não
+esquecimento.** `explicacoes_posicao`, `livros_chunks` e `indice_conceitual`
+aparecem com RLS ligado e zero policies — o que **nega tudo por padrão**, não
+vaza (confirmado por curl: 0 linhas para as três identidades). Ficam fechadas:
+o histórico do Explicador chega pelo FastAPI (service role), e
+`livros_chunks`/`indice_conceitual` são corpus de RAG sem dono por linha — não
+têm `user_id` nem caminho até `partidas`, então isolamento por usuário não se
+aplica a elas.
+
+**O que isto NÃO resolve.** Sobram **7 tabelas com policy de `anon`
+`using(true)`**, herdadas de D-16 e preservadas por D-19: `partidas` (215
+linhas, PGN completo), `lances_criticos` (525), `diagnosticos` (525),
+`analises_hexagono` (3), `sessoes_treino` (3), `revisao_exercicio_avulso` (12)
+e `resumo_partida` (4). Confirmado por curl com a chave anon pura: elas ainda
+entregam o corpus do dono para qualquer visitante. É a mesma classe de
+exposição, mantida de propósito enquanto o dashboard sem login for um fluxo
+suportado — fechá-las esvazia o dashboard anônimo por completo, que é uma
+decisão de produto, não de correção de incidente.
+
+---
+
+## D-23 — Fase B efetivamente concluída: login obrigatório + zero acesso anônimo
+
+**Problema.** D-22 fechou P-2 (tabelas sem RLS nenhum). A pendência que sobrou
+dela, **P-13**, era diferente: 7 tabelas (`partidas`, `lances_criticos`,
+`diagnosticos`, `revisao_exercicio_avulso`, `resumo_partida`,
+`analises_hexagono`, `sessoes_treino`) continuavam com policy `to anon
+using(true)` — não por RLS desligado, mas por decisão explícita de D-16, pra
+sustentar um dashboard que funcionava sem login. Enquanto essas policies
+existissem e o `authGuard` (implementado desde D-15, nunca ligado) ficasse
+fora de `app.routes.ts`, o isolamento por dono de D-19/D-22 era opcional: bastava
+não logar pra ver o corpus inteiro do dono.
+
+**Decisão.** Duas mudanças na mesma leva, porque uma sem a outra não fecha
+nada:
+
+1. **`backend/db/rls_remove_anon_dashboard.sql`** remove as 7 policies `to
+   anon using(true)`. As policies de `authenticated` isoladas por dono (D-19)
+   não mudam.
+2. **`app.routes.ts`** aplica `authGuard` nas 4 rotas do dashboard (`/`,
+   `/laboratorio`, `/explicador`, `/analisador`). Visitante sem sessão é
+   redirecionado pra `/login?returnUrl=...`.
+
+**Achado durante a migration: `sessoes_treino` tinha um UPDATE anônimo sem
+equivalente `authenticated`.** A policy `"Permitir atualizar data_concluida"`
+(`to anon`, `using(true)`, `with_check(true)`) sustentava o botão "Marcar como
+concluída" — e nenhuma policy de UPDATE pra `authenticated` jamais existiu,
+porque até agora ninguém usava o dashboard logado de verdade. Sem substituir,
+o botão quebraria pra todo mundo assim que o anon caísse. Corrigido na mesma
+migration: policy nova `to authenticated using/with check (user_id =
+auth.uid())`.
+
+**Confirmado com o usuário antes de aplicar: travar as 4 rotas é intencional,
+não efeito colateral.** Os 4 amigos que hoje só têm `X-API-Key` nomeada (D-7),
+sem conta Supabase Auth, ficam sem acesso ao Laboratório/Explicador/Analisador
+pela tela do Vercel até migrarem — a pendência "migrar os 4 amigos", registrada
+em P-11 desde D-17/D-18 como deliberadamente não feita, deixa de ser opcional a
+partir daqui. Levantei a contradição explicitamente (mesmo padrão de D-15)
+antes de mexer no código, e a resposta confirmou a intenção.
+
+**Não corrigido aqui, e por quê.** `revisao_exercicio_avulso` ainda tem uma
+policy de INSERT `to anon` com `with_check(true)` (`"Permitir insercao publica
+de revisao_exercicio_avulso"`) — não é o mesmo problema (não vaza leitura,
+frontend nunca insere nessa tabela direto, toda escrita passa pelo FastAPI que
+já resolve o dono via D-17), mas é escrita anônima direta no Postgres
+bypassando o backend por completo. Registrado como achado separado, não
+tratado nesta migration.
+
+**Consequência, validada por curl e por navegador de verdade.**
+
+Por curl, antes × depois da migration, chave anon pura nas 7 tabelas:
+
+| Tabela | Antes | Depois |
+|---|---|---|
+| `partidas` | 215 | **0** |
+| `lances_criticos` | 525 | **0** |
+| `diagnosticos` | 525 | **0** |
+| `revisao_exercicio_avulso` | 12 | **0** |
+| `resumo_partida` | 4 | **0** |
+| `analises_hexagono` | 3 | **0** |
+| `sessoes_treino` | 3 | **0** |
+
+Logado com a **conta oficial real** (`edson.hirano.dev@gmail.com` — senha
+fornecida pelo usuário só pra este teste, usada em memória, nunca escrita em
+arquivo): as mesmas 7 tabelas voltaram a mostrar exatamente as mesmas
+contagens de antes (215/525/525/12/4/3/3) — nenhuma linha perdida pro dono.
+`UPDATE` em `sessoes_treino` testado e confirmado funcionando via JWT
+autenticado (capturei o valor original de uma sessão real antes do teste e
+restaurei depois — zero dado de produção alterado permanentemente).
+
+No navegador (Playwright, `ng serve` local — mudança de rota só existe depois
+de build/deploy, não dava pra validar contra produção ainda): as 4 rotas do
+dashboard, em contexto sem sessão, redirecionaram pra `/login?returnUrl=...`
+correspondente, consistente em duas execuções. Logado, as 4 rotas carregaram
+normalmente — screenshot do "Meu Hexágono" e do "Analisador de Partida"
+idênticos ao que sempre foram, com todos os cartões, gráfico do hexágono e
+sessões de treino presentes.
+
+**Consequência para P-11.** Com D-22 (zero tabela sem RLS) + D-23 (zero
+policy `anon` no dashboard + login obrigatório), a Fase B do multi-tenant está
+efetivamente concluída: identidade real em toda escrita (D-17), leitura
+filtrada por dono em todo lugar que importa (D-18, D-19, D-22), e agora acesso
+condicionado a essa identidade (D-23) — não sobra mais nenhum caminho anônimo
+pro dado pessoal do dono. O que falta a partir daqui é migração de usuário
+(os 4 amigos), não mais arquitetura de isolamento.
+
+---
+
+## D-24 — Remoção do INSERT anônimo residual em revisao_exercicio_avulso
+
+**Problema.** O achado registrado em D-23 ("Não corrigido aqui, e por quê"):
+`revisao_exercicio_avulso` tinha uma policy `"Permitir insercao publica de
+revisao_exercicio_avulso"` (`to anon`, `with_check(true)`) que sobrevivia às
+duas migrations anteriores porque não era leitura — não vazava dado, mas
+permitia qualquer portador da chave pública inserir linha direto no Postgres
+via PostgREST, sem passar pelo FastAPI e sem nenhuma das validações de
+`/revisar-avulso/salvar` (resolução de dono real via D-17, etc.).
+
+**Confirmado antes de remover que nenhum fluxo real dependia dela:** busca
+por `.from('revisao_exercicio_avulso')` em todo `frontend/src` não encontrou
+nenhuma ocorrência — a tela do Laboratório escreve exclusivamente via
+`POST /revisar-avulso/salvar` (backend, `service role`, que ignora RLS por
+definição). A policy não tinha consumidor legítimo.
+
+**Decisão.** `drop policy "Permitir insercao publica de revisao_exercicio_avulso"`
+— sem substituir por nenhuma policy de `authenticated`, porque não existe
+fluxo (hoje ou planejado) em que o frontend deva inserir nessa tabela direto;
+continua sendo responsabilidade exclusiva do FastAPI.
+
+**Consequência, validada por curl.** INSERT com a chave anon pura →
+**HTTP 401, `new row violates row-level security policy`** (antes: `HTTP 201`,
+inserção bem-sucedida). Confirmado via `service role` que nada foi de fato
+gravado. O fluxo real — INSERT via `service role`, o mesmo caminho que o
+FastAPI usa — continua funcionando (`HTTP 201`); linha de teste removida ao
+final.
+
+Com isso, `revisao_exercicio_avulso` não tem mais nenhuma policy `to anon` —
+nem leitura (D-19), nem escrita (D-24) — fechando o único vestígio de acesso
+anônimo que ainda restava depois de D-23.
+
+---
+
+## D-25 — Autenticação unificada: sessão JWT como único gate, X-API-Key aposentada
+
+**Problema.** Depois de D-23 o dashboard já exigia login, mas a API ainda tinha
+**duas** autenticações com papéis diferentes: `X-API-Key` era a porta de
+entrada de todos os 12 endpoints (`verificar_api_key`), e a sessão do Supabase
+Auth era um bônus opcional por cima, só pra refinar o dono da escrita (D-17).
+Isso significava que quem tivesse uma chave — os 4 amigos, ou qualquer um com
+a chave vazada — continuava com acesso pleno à API mesmo sem conta, e que todo
+caminho de escrita precisava de um fallback pro `DEFAULT_USER_ID` pra dar
+conta de "requisição autenticada por chave, sem dono real".
+
+**Decisão.** Um mecanismo só: a sessão.
+
+1. **`verificar_sessao(request)`** substitui `verificar_api_key` como
+   dependency dos **12** endpoints (levantados por grep no código, não de
+   memória). Exige `Authorization: Bearer`, valida reaproveitando
+   `resolver_user_id_da_sessao` (a mesma função de D-17, sem duplicar lógica) e
+   levanta `401` na hora — mesmo princípio de "falha antes do trabalho caro"
+   que justificava a dependency antiga: token ruim não chega a tocar
+   Stockfish, Gemini ou banco.
+2. **O `user_id` vira injeção, não re-resolução.** As 6 rotas que precisam do
+   dono declaram `user_id: str = Depends(verificar_sessao)` e recebem o valor
+   já validado. Antes, cada uma chamava `resolver_user_id_para_escrita(request)`
+   no corpo, o que faria uma **segunda** ida ao `auth.get_user()` por
+   requisição agora que a dependency já valida. `resolver_user_id_para_escrita`
+   foi removida por não ter mais chamador.
+3. **Fim do fallback pro `DEFAULT_USER_ID` nos caminhos de API.** Quem passa
+   do gate tem dono garantido e real. Os scripts de CLI standalone
+   (`analisar_pgn_avulso.py` e afins) **não** mudaram: continuam chamando
+   `salvar_exercicio`/`inserir_partida` sem o parâmetro, e o
+   `user_id or obter_default_user_id()` dentro dessas funções segue intacto
+   pra eles — era exatamente pra isso que o parâmetro nasceu opcional em D-17.
+4. **Frontend: um único método de header.** `headersComSessao()` substitui
+   `headersComChave()` + `headersComChaveEAuth()` e vale pra **todos** os
+   métodos do `RevisaoAvulsaService`, não só os 3 de escrita. A tela de "Chave
+   de acesso" saiu das 3 telas interativas, e `AuthLocalService` foi removido
+   por ficar sem nenhum consumidor. O flag `chaveInvalida` virou
+   `sessaoExpirada`: com a rota já protegida pelo guard, um 401 da API só pode
+   ser sessão expirada no meio do uso — não há mais chave pra reconfigurar.
+
+**`/guia-passos` continua público**, junto de `/health`. É conteúdo estático
+(os títulos dos 8 passos da rubrica), sem nada de usuário, e o Laboratório o
+consome antes mesmo de qualquer interação — proteger não acrescentaria
+segurança e só criaria um acoplamento a mais.
+
+**O que ficou de propósito, sem uso.** `verificar_api_key`,
+`_resolver_api_keys()` e a exigência de `API_SECRET_KEYS` no startup
+continuam no código, agora sem nenhuma rota dependendo delas. Não é descuido:
+a limpeza dessas variáveis está registrada como pendência em `ESTADO.md` e foi
+deliberadamente adiada — `DEFAULT_USER_ID`, em particular, **ainda serve** o
+fluxo de CLI standalone e não pode sumir.
+
+**Consequência, validada por curl e por navegador.** Com o backend novo
+rodando local, os 12 endpoints devolveram `401` em duas condições: sem header
+nenhum, e **com uma `X-API-Key` válida** — provando que o mecanismo antigo não
+abre mais porta alguma. `/health` e `/guia-passos` seguiram em `200`. Com a
+sessão real do Edson, os mesmos endpoints responderam `200` com os dados dele
+(12 revisões, 5 partidas, 7 explicações). Uma escrita real em
+`/revisar-avulso/salvar` gravou a linha com o `user_id` da sessão (a prova de
+que o valor vem do token, e não de um fallback coincidente, está no teste
+unitário, que usa um UUID diferente do `DEFAULT_USER_ID`).
+
+No navegador (Playwright, `ng serve` local apontado pro backend novo), logado
+com a conta real: as 4 telas abriram sem pedir chave em lugar nenhum
+(`pedeChave=false` nas quatro), toda chamada à API saiu com
+`Authorization: Bearer` e **nenhuma** com `X-API-Key`, zero respostas 4xx/5xx
+e zero erros de console. Um `401` transitório que apareceu numa das execuções
+veio do Supabase, não da API — é o `PGRST303` de skew de relógio já
+diagnosticado nesta mesma sessão, não regressão desta mudança.
+
+**Consequência para os 4 amigos.** A porta que D-23 fechou na interface, esta
+decisão fecha também na API: `X-API-Key` não dá mais acesso a nada. A migração
+deles pra conta própria deixou de ser só recomendada — virou pré-requisito.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

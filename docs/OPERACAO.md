@@ -140,16 +140,34 @@ commitados.
 `ALLOWED_ORIGINS`, `EXERCICIO_AVULSO_SEARCHTIME_MS`, `DEFAULT_USER_ID`.
 
 `API_SECRET_KEYS` usa o formato `nome:chave,nome:chave` e convive com a
-`API_SECRET_KEY` antiga (chave única) por compatibilidade.
+`API_SECRET_KEY` antiga (chave única) por compatibilidade. **Desde D-25 as
+duas não controlam mais acesso nenhum**: o gate da API é o
+`Authorization: Bearer` da sessão do Supabase Auth. Elas continuam sendo lidas
+no startup (o servidor ainda aborta sem elas) só porque a limpeza foi
+deliberadamente adiada — ver a pendência em `ESTADO.md`.
 
 `DEFAULT_USER_ID` é **obrigatória**: é o dono gravado em `user_id` nas 6
 tabelas raiz (ver D-14 em `DECISOES.md`). Sem ela, toda escrita nessas tabelas
 falha com `ValueError` — de propósito, para o erro aparecer na hora em vez de
-gravar linha órfã. Precisa estar em `.env` (local), `env.yaml` (Cloud Run) e
-como **secret do GitHub Actions**, porque o workflow de deploy a propaga com
-`--update-env-vars` e aborta se ela estiver vazia.
+gravar linha órfã. Depois de D-25 ela vale **só para os scripts de CLI
+standalone**: nos endpoints da API o dono vem sempre da sessão, sem fallback.
+Por isso ela **não** entra na limpeza citada acima.
 
-Secrets do GitHub Actions: os mesmos acima mais `GCP_SA_KEY`.
+**`deploy-backend.yml` é a fonte de verdade em produção, não `env.yaml`
+local (D-20).** A cada deploy automático, o workflow gera um arquivo de env
+vars a partir dos secrets do repositório (`SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `API_SECRET_KEYS`,
+`DEFAULT_USER_ID`) e sobe o Cloud Run com `--env-vars-file`, que **substitui
+por completo** as env vars do serviço — nada fica órfão de um deploy manual
+antigo. `env.yaml` local ainda existe só como referência de quais nomes
+importam e para rodar `gcloud run deploy` manualmente se precisar; editar só
+ele, sem também atualizar o secret correspondente no GitHub, não tem efeito
+nenhum no próximo deploy automático. `STOCKFISH_PATH` fica de fora dessa
+lista de propósito: vem gravado na imagem Docker (`ENV` no `Dockerfile`), não
+depende de nenhum secret.
+
+Secrets do GitHub Actions: os mesmos acima (exceto `STOCKFISH_PATH`, que não
+é secret) mais `GCP_SA_KEY`.
 
 ## 8. Troubleshooting — erros já vistos neste projeto
 
@@ -169,4 +187,6 @@ Secrets do GitHub Actions: os mesmos acima mais `GCP_SA_KEY`.
 | `ValueError: Variável de ambiente ausente: DEFAULT_USER_ID` | escrita numa das 6 tabelas raiz sem a variável definida | defina `DEFAULT_USER_ID` no `.env`/`env.yaml`/secret do Actions (D-14) |
 | `null value in column "user_id" violates not-null constraint` | caminho de escrita novo numa tabela raiz esqueceu o `user_id` | acrescente `obter_default_user_id()` ao payload (ver os 7 pontos em D-14) |
 | `OPTIONS ... 400 Bad Request` rodando `ng serve` numa porta diferente de 4200 | origem não está em `ALLOWED_ORIGINS` do backend local (default só libera `localhost:4200`) | suba o `uvicorn` com `ALLOWED_ORIGINS="http://localhost:SUA_PORTA,http://localhost:4200"` |
-| Escrita autenticada grava com `DEFAULT_USER_ID` em vez do dono real | `Authorization: Bearer` ausente, ou `auth.get_user()` rejeitou o token (expirado/malformado) | confira se `AuthService.autenticado()` é `true` no momento da chamada e se a sessão não expirou (D-17) |
+| `401` em toda chamada à API, mesmo com `X-API-Key` correta | esperado desde D-25: a chave foi aposentada como gate; só `Authorization: Bearer` da sessão abre a API | faça login; para testar por `curl`, pegue um `access_token` via `POST /auth/v1/token?grant_type=password` no Supabase |
+| `401` só depois de um tempo usando a aplicação | sessão expirou no meio do uso (o `authGuard` só checa na navegação) | entre de novo; a tela mostra "Sua sessão expirou" (D-25) |
+| Produção usando um valor de env var diferente do `env.yaml` local | `env.yaml` foi editado mas o secret correspondente no GitHub não — o deploy automático lê dos Secrets, não do arquivo local | atualize o secret em Settings > Secrets and variables > Actions e rode o deploy de novo (D-20) |

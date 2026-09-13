@@ -5,7 +5,6 @@ import {
   ResumoPartidaData,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
-import { AuthLocalService } from '../../services/auth-local.service';
 import {
   HistoricoAnaliseComponent,
   HistoricoAnaliseItem
@@ -65,20 +64,14 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
   );
 
   private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
-  private readonly authLocalService = inject(AuthLocalService);
 
-  readonly chaveConfigurada = signal(this.authLocalService.isConfigured());
-  readonly chaveInput = signal('');
-  readonly erroChave = signal<string | null>(null);
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private timerSegundos: ReturnType<typeof setInterval> | null = null;
 
   async ngOnInit(): Promise<void> {
-    if (this.chaveConfigurada()) {
-      await this.carregarHistorico();
-      await this.restaurarPartidaAtivaSalva();
-    }
+    await this.carregarHistorico();
+    await this.restaurarPartidaAtivaSalva();
   }
 
   ngOnDestroy(): void {
@@ -86,31 +79,21 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
   }
 
 
-  get chaveFormularioValido(): boolean {
-    return this.chaveInput().trim().length > 0;
-  }
 
   get formularioValido(): boolean {
     return this.pgn().trim().length > 0;
   }
 
-  salvarChave(): void {
-    if (!this.chaveFormularioValido) {
-      return;
-    }
-    this.authLocalService.setKey(this.chaveInput().trim());
-    this.chaveInput.set('');
-    this.erroChave.set(null);
-    this.chaveConfigurada.set(true);
-    void this.carregarHistorico();
-    void this.restaurarPartidaAtivaSalva();
-  }
 
-  private tratarChaveInvalida(): void {
+  /**
+   * 401 da API com a rota já protegida pelo authGuard só acontece se a sessão
+   * expirou no meio do uso (D-25). Não há mais chave pra reconfigurar: o
+   * caminho é entrar de novo.
+   */
+  private tratarSessaoExpirada(): void {
     this.pararTimers();
-    this.chaveConfigurada.set(false);
-    this.erroChave.set('Chave inválida, tente novamente.');
     this.estado.set('INICIAL');
+    this.erro.set('Sua sessão expirou. Entre de novo para continuar.');
   }
 
   carregarExemplo(): void {
@@ -134,8 +117,8 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
     this.carregandoHistorico.set(true);
     try {
       const res = await this.revisaoAvulsaService.listarPartidasRecentes(20);
-      if (res.chaveInvalida) {
-        this.tratarChaveInvalida();
+      if (res.sessaoExpirada) {
+        this.tratarSessaoExpirada();
         return;
       }
       if (res.success && res.partidas) {
@@ -177,8 +160,8 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
     try {
       const resultado = await this.revisaoAvulsaService.consultarStatusPartida(partidaId);
 
-      if (resultado.chaveInvalida) {
-        this.tratarChaveInvalida();
+      if (resultado.sessaoExpirada) {
+        this.tratarSessaoExpirada();
         return;
       }
 
@@ -220,8 +203,8 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
 
     try {
       const res = await this.revisaoAvulsaService.reprocessarPartida(id);
-      if (res.chaveInvalida) {
-        this.tratarChaveInvalida();
+      if (res.sessaoExpirada) {
+        this.tratarSessaoExpirada();
         return;
       }
       if (!res.success) {
@@ -254,8 +237,8 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
         corParam
       );
 
-      if (resposta.chaveInvalida) {
-        this.tratarChaveInvalida();
+      if (resposta.sessaoExpirada) {
+        this.tratarSessaoExpirada();
         return;
       }
 
@@ -289,8 +272,8 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
       try {
         const resultado = await this.revisaoAvulsaService.consultarStatusPartida(partidaId);
 
-        if (resultado.chaveInvalida) {
-          this.tratarChaveInvalida();
+        if (resultado.sessaoExpirada) {
+          this.tratarSessaoExpirada();
           return;
         }
 

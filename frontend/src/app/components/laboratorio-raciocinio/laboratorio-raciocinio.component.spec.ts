@@ -12,13 +12,11 @@ import {
   RevisaoAvulsaRecenteItem,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
-import { AuthLocalService } from '../../services/auth-local.service';
 
 describe('LaboratorioRaciocinioComponent', () => {
   let component: LaboratorioRaciocinioComponent;
   let fixture: ComponentFixture<LaboratorioRaciocinioComponent>;
   let revisaoService: RevisaoAvulsaService;
-  let authService: AuthLocalService;
 
   const avaliacaoMock: AvaliacaoSequenciaItem = {
     indice_na_sequencia: 1,
@@ -64,9 +62,6 @@ describe('LaboratorioRaciocinioComponent', () => {
     fixture = TestBed.createComponent(LaboratorioRaciocinioComponent);
     component = fixture.componentInstance;
     revisaoService = TestBed.inject(RevisaoAvulsaService);
-    authService = TestBed.inject(AuthLocalService);
-    authService.setKey('chave-teste');
-    component.chaveConfigurada.set(true);
     vi.spyOn(revisaoService, 'guiaPassos').mockResolvedValue([]);
   });
 

@@ -93,21 +93,51 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Deploy da nova revisao no Cloud Run
+      - name: Gerar arquivo de env vars para o Cloud Run a partir dos GitHub Secrets
+        # Fonte de verdade passa a ser os Secrets do repositorio, não mais o
+        # env.yaml local que só o comando manual lia (ver D-20 em DECISOES.md).
+        # Esta lista tem que continuar batendo com o que o servidor realmente
+        # exige em runtime: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/GEMINI_API_KEY
+        # (load_settings() em revisar_pensamento.py), API_SECRET_KEYS
+        # (_resolver_api_keys() em api_server.py) e DEFAULT_USER_ID
+        # (obter_default_user_id() em backend/common/tenant.py). STOCKFISH_PATH
+        # não entra aqui: vem gravado na imagem via ENV no Dockerfile.
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          API_SECRET_KEYS: ${{ secrets.API_SECRET_KEYS }}
+          DEFAULT_USER_ID: ${{ secrets.DEFAULT_USER_ID }}
         run: |
-          # Sem o secret, --update-env-vars gravaria string vazia e o backend
-          # quebraria em toda escrita nas tabelas raiz (user_id NOT NULL).
-          if [ -z "${{ secrets.DEFAULT_USER_ID }}" ]; then
-            echo "Secret DEFAULT_USER_ID ausente no repositorio. Cadastre em Settings > Secrets and variables > Actions." >&2
+          ARQUIVO_ENV="$RUNNER_TEMP/cloud-run-env.yaml"
+          FALTANTES=""
+          for NOME in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY GEMINI_API_KEY API_SECRET_KEYS DEFAULT_USER_ID; do
+            if [ -z "${!NOME}" ]; then
+              FALTANTES="$FALTANTES $NOME"
+            fi
+          done
+          if [ -n "$FALTANTES" ]; then
+            echo "Secret(s) ausente(s) no repositorio:$FALTANTES. Cadastre em Settings > Secrets and variables > Actions." >&2
             exit 1
           fi
+          {
+            echo "SUPABASE_URL: \"${SUPABASE_URL}\""
+            echo "SUPABASE_SERVICE_ROLE_KEY: \"${SUPABASE_SERVICE_ROLE_KEY}\""
+            echo "GEMINI_API_KEY: \"${GEMINI_API_KEY}\""
+            echo "API_SECRET_KEYS: \"${API_SECRET_KEYS}\""
+            echo "DEFAULT_USER_ID: \"${DEFAULT_USER_ID}\""
+          } > "$ARQUIVO_ENV"
+          echo "CLOUD_RUN_ENV_FILE=$ARQUIVO_ENV" >> "$GITHUB_ENV"
+
+      - name: Deploy da nova revisao no Cloud Run
+        run: |
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image "${{ env.IMAGE_NAME }}:${{ github.sha }}" \
             --region "${{ env.GCP_REGION }}" \
             --memory 2Gi \
             --cpu 2 \
             --no-cpu-throttling \
-            --update-env-vars "DEFAULT_USER_ID=${{ secrets.DEFAULT_USER_ID }}" \
+            --env-vars-file="${{ env.CLOUD_RUN_ENV_FILE }}" \
             --quiet
 
 

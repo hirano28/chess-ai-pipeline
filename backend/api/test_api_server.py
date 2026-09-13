@@ -1,9 +1,9 @@
-"""Testes do gate de autenticação (X-API-Key) do servidor da API.
+"""Testes do servidor da API, incluindo o gate de sessão do Supabase Auth (D-25).
 
 Não aciona o startup real (Stockfish/Gemini/Supabase): a TestClient só
 dispara os eventos de lifespan dentro de um bloco `with`, então chamamos as
-rotas sem entrar nesse bloco e populamos `_state["api_keys"]` manualmente,
-garantindo que nenhuma credencial real é necessária.
+rotas sem entrar nesse bloco e populamos `_state` manualmente, garantindo que
+nenhuma credencial real é necessária.
 """
 
 import json
@@ -11,9 +11,11 @@ import logging
 import os
 import threading
 import unittest
+from contextlib import contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -23,6 +25,38 @@ from backend.api import api_server
 CHAVE_CORRETA = "chave-secreta-de-teste"
 # Dono dos dados nas tabelas raiz (Fase A do multi-tenant — ver D-14).
 USER_ID_TESTE = "11111111-2222-3333-4444-555555555555"
+TOKEN_TESTE = "token-de-sessao-de-teste"
+HEADERS_SESSAO = {"Authorization": f"Bearer {TOKEN_TESTE}"}
+
+
+def setUpModule() -> None:
+    """Desde D-25 toda rota exige sessão do Supabase Auth.
+
+    Os testes de endpoint não estão testando o gate em si (isso é o
+    `VerificarSessaoTest`), então injetam um dono fixo pelo mecanismo que o
+    próprio FastAPI oferece — assim nenhum deles precisa mockar `auth.get_user`.
+    """
+
+    api_server.app.dependency_overrides[api_server.verificar_sessao] = (
+        lambda: USER_ID_TESTE
+    )
+
+
+def tearDownModule() -> None:
+    api_server.app.dependency_overrides.clear()
+
+
+@contextmanager
+def gate_de_sessao_real():
+    """Desliga o override para exercitar o gate de verdade (401 e afins)."""
+
+    api_server.app.dependency_overrides.pop(api_server.verificar_sessao, None)
+    try:
+        yield
+    finally:
+        api_server.app.dependency_overrides[api_server.verificar_sessao] = (
+            lambda: USER_ID_TESTE
+        )
 
 
 def _fake_settings() -> Settings:
@@ -37,147 +71,190 @@ def _fake_settings() -> Settings:
     )
 
 
-class ApiKeyAuthTest(unittest.TestCase):
+class SessaoAuthTest(unittest.TestCase):
+    """Gate de acesso da API: sessão do Supabase Auth, e só ela (D-25).
+
+    Roda com `gate_de_sessao_real()` — sem o override de módulo — porque aqui o
+    objeto em teste É o gate, não o endpoint.
+    """
+
+    PAYLOAD_REVISAR = {
+        "posicao": "8/8/8/8/8/8/8/8 w - - 0 1",
+        "lance": "e4",
+        "pensamento": "x",
+    }
+
     def setUp(self) -> None:
         api_server._state.clear()
+        # Chave de API ainda configurada de propósito: provar que ela NÃO abre
+        # mais porta nenhuma, nem quando é a chave certa.
         api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
         api_server._state.clear()
 
-    def test_sem_header_recebe_401(self) -> None:
-        resposta = self.client.post(
-            "/revisar-avulso",
-            json={"posicao": "8/8/8/8/8/8/8/8 w - - 0 1", "lance": "e4", "pensamento": "x"},
-        )
+    def test_sem_header_authorization_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.post("/revisar-avulso", json=self.PAYLOAD_REVISAR)
 
         self.assertEqual(resposta.status_code, 401)
 
-    def test_header_com_chave_errada_recebe_401(self) -> None:
-        resposta = self.client.post(
-            "/revisar-avulso",
-            json={"posicao": "8/8/8/8/8/8/8/8 w - - 0 1", "lance": "e4", "pensamento": "x"},
-            headers={"X-API-Key": "chave-errada"},
-        )
+    def test_x_api_key_valida_sozinha_nao_abre_mais_porta_nenhuma(self) -> None:
+        """O mecanismo antigo foi aposentado: chave correta sem sessão = 401."""
+
+        with gate_de_sessao_real():
+            resposta = self.client.post(
+                "/revisar-avulso",
+                json=self.PAYLOAD_REVISAR,
+                headers={"X-API-Key": CHAVE_CORRETA},
+            )
+
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_token_invalido_recebe_401(self) -> None:
+        mock_client = MagicMock()
+        mock_client.auth.get_user.side_effect = RuntimeError("token podre")
+        api_server._state["supabase_client"] = mock_client
+
+        with gate_de_sessao_real():
+            resposta = self.client.post(
+                "/revisar-avulso",
+                json=self.PAYLOAD_REVISAR,
+                headers={"Authorization": "Bearer token-invalido"},
+            )
 
         self.assertEqual(resposta.status_code, 401)
 
     def test_401_nao_executa_logica_de_negocio(self) -> None:
         # Sem "engine"/"gemini_client"/"supabase_client" em _state, qualquer
         # tentativa de uso lançaria KeyError em vez de retornar 401 limpo.
-        # Se este teste passar com 401, a rota nunca chegou a tocar nisso.
-        resposta = self.client.post(
-            "/revisar-avulso",
-            json={"posicao": "8/8/8/8/8/8/8/8 w - - 0 1", "lance": "e4", "pensamento": "x"},
-        )
+        with gate_de_sessao_real():
+            resposta = self.client.post("/revisar-avulso", json=self.PAYLOAD_REVISAR)
 
         self.assertEqual(resposta.status_code, 401)
         self.assertNotIn("engine", api_server._state)
         self.assertNotIn("gemini_client", api_server._state)
         self.assertNotIn("supabase_client", api_server._state)
 
-    def test_health_retorna_200_sem_necessidade_de_chave(self) -> None:
-        resposta = self.client.get("/health")
+    def test_todos_os_endpoints_protegidos_exigem_sessao(self) -> None:
+        """Varre as rotas de verdade em vez de confiar numa lista escrita à mão."""
+
+        publicas = {
+            "/health",
+            "/guia-passos",
+            "/openapi.json",
+            "/docs",
+            "/docs/oauth2-redirect",
+            "/redoc",
+        }
+        verificadas = 0
+        with gate_de_sessao_real():
+            for rota in api_server.app.routes:
+                caminho = getattr(rota, "path", "")
+                metodos = getattr(rota, "methods", set()) - {"HEAD", "OPTIONS"}
+                if not metodos or caminho in publicas or "{" in caminho:
+                    continue
+                for metodo in metodos:
+                    resposta = self.client.request(metodo, caminho, json={})
+                    self.assertEqual(
+                        resposta.status_code,
+                        401,
+                        f"{metodo} {caminho} deveria exigir sessão",
+                    )
+                    verificadas += 1
+
+        self.assertGreaterEqual(verificadas, 8)
+
+    def test_health_continua_publico(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/health")
+
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(resposta.json(), {"status": "ok"})
 
-    def test_endpoint_salvar_tambem_exige_chave(self) -> None:
-        resposta = self.client.post(
-            "/revisar-avulso/salvar",
-            json={
-                "lance_jogado": "e4",
-                "melhor_lance": "e4",
-                "queda_win_percent": 0.0,
-                "qualidade_lance": "BOM",
-                "qualidade_raciocinio": "SOLIDO",
-                "feedback_texto": "ok",
-                "analise_mestre": "ok",
-                "fen": "8/8/8/8/8/8/8/8 w - - 0 1",
-                "texto_pensamento": "x",
-            },
-        )
+    def test_sessao_valida_passa_do_gate(self) -> None:
+        mock_client = MagicMock()
+        mock_client.auth.get_user.return_value.user.id = USER_ID_TESTE
+        api_server._state["supabase_client"] = mock_client
 
-        self.assertEqual(resposta.status_code, 401)
-        self.assertNotIn("supabase_client", api_server._state)
-
-    def test_explicar_posicao_sem_header_recebe_401(self) -> None:
-        resposta = self.client.post(
-            "/explicar-posicao",
-            json={"posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"},
-        )
-        self.assertEqual(resposta.status_code, 401)
-
-    def test_explicar_posicao_chave_errada_recebe_401(self) -> None:
-        resposta = self.client.post(
-            "/explicar-posicao",
-            json={"posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"},
-            headers={"X-API-Key": "chave-errada"},
-        )
-        self.assertEqual(resposta.status_code, 401)
-
-    def test_header_correto_passa_do_gate_de_autenticacao(self) -> None:
-        # FEN/lance válidos passam pela resolução de posição; sem "engine" em
-        # _state, a rota falha com 500 (KeyError) em vez de 401 - prova que o
-        # gate de autenticação deixou a requisição passar.
-        resposta = self.client.post(
-            "/revisar-avulso",
-            json={
-                "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-                "lance": "e4",
-                "pensamento": "x",
-            },
-            headers={"X-API-Key": CHAVE_CORRETA},
-        )
+        with gate_de_sessao_real():
+            # FEN válida passa da resolução de posição; sem "engine" em _state a
+            # rota falha depois — o que importa é não ser 401.
+            resposta = self.client.post(
+                "/revisar-avulso",
+                json={
+                    "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                    "lance": "e4",
+                    "pensamento": "x",
+                },
+                headers=HEADERS_SESSAO,
+            )
 
         self.assertNotEqual(resposta.status_code, 401)
+        mock_client.auth.get_user.assert_called_once_with(TOKEN_TESTE)
 
-    def test_multiplas_chaves_validas_sao_aceitas(self) -> None:
-        api_server._state["api_keys"] = {
-            "chave-da-ana": "ana",
-            "chave-do-bruno": "bruno",
-        }
-        payload = {
-            "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-            "lance": "e4",
-            "pensamento": "x",
-        }
 
-        resposta_ana = self.client.post(
-            "/revisar-avulso", json=payload, headers={"X-API-Key": "chave-da-ana"}
+class VerificarSessaoTest(unittest.TestCase):
+    """A dependency isolada: o que ela aceita, o que rejeita e o que devolve."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _request(self, authorization: str | None) -> Request:
+        headers = (
+            [(b"authorization", authorization.encode())] if authorization else []
         )
-        resposta_bruno = self.client.post(
-            "/revisar-avulso", json=payload, headers={"X-API-Key": "chave-do-bruno"}
-        )
+        return Request(scope={"type": "http", "headers": headers})
 
-        self.assertNotEqual(resposta_ana.status_code, 401)
-        self.assertNotEqual(resposta_bruno.status_code, 401)
+    def test_token_valido_devolve_user_id_e_guarda_no_request_state(self) -> None:
+        mock_client = MagicMock()
+        mock_client.auth.get_user.return_value.user.id = USER_ID_TESTE
+        api_server._state["supabase_client"] = mock_client
+        request = self._request(f"Bearer {TOKEN_TESTE}")
 
-    def test_chave_inexistente_entre_multiplas_recebe_401(self) -> None:
-        api_server._state["api_keys"] = {
-            "chave-da-ana": "ana",
-            "chave-do-bruno": "bruno",
-        }
+        user_id = api_server.verificar_sessao(request)
 
-        resposta = self.client.post(
-            "/revisar-avulso",
-            json={"posicao": "8/8/8/8/8/8/8/8 w - - 0 1", "lance": "e4", "pensamento": "x"},
-            headers={"X-API-Key": "chave-que-nao-existe"},
-        )
+        self.assertEqual(user_id, USER_ID_TESTE)
+        self.assertEqual(request.state.user_id, USER_ID_TESTE)
 
-        self.assertEqual(resposta.status_code, 401)
+    def test_sem_header_levanta_401(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            api_server.verificar_sessao(self._request(None))
 
-    def test_verificar_api_key_guarda_nome_no_request_state_e_retorna(self) -> None:
-        # Chama a dependency diretamente (fora do ciclo de request do FastAPI) para
-        # verificar que ela guarda o nome em request.state E o retorna, cobrindo
-        # as duas formas de acesso mencionadas nos requisitos.
-        api_server._state["api_keys"] = {"chave-da-ana": "ana"}
-        request = Request(scope={"type": "http", "headers": []})
+        self.assertEqual(ctx.exception.status_code, 401)
 
-        nome = api_server.verificar_api_key(request=request, x_api_key="chave-da-ana")
+    def test_header_sem_prefixo_bearer_levanta_401(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            api_server.verificar_sessao(self._request(TOKEN_TESTE))
 
-        self.assertEqual(nome, "ana")
-        self.assertEqual(request.state.api_key_nome, "ana")
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_bearer_vazio_levanta_401(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            api_server.verificar_sessao(self._request("Bearer   "))
+
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_get_user_retornando_none_levanta_401(self) -> None:
+        mock_client = MagicMock()
+        mock_client.auth.get_user.return_value.user = None
+        api_server._state["supabase_client"] = mock_client
+
+        with self.assertRaises(HTTPException) as ctx:
+            api_server.verificar_sessao(self._request(f"Bearer {TOKEN_TESTE}"))
+
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_sem_supabase_client_levanta_401(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            api_server.verificar_sessao(self._request(f"Bearer {TOKEN_TESTE}"))
+
+        self.assertEqual(ctx.exception.status_code, 401)
+
 
 
 class ResolverApiKeysTest(unittest.TestCase):
@@ -257,19 +334,20 @@ class ResolverFenEndpointTest(unittest.TestCase):
     def tearDown(self) -> None:
         api_server._state.clear()
 
-    def test_sem_api_key_recebe_401(self) -> None:
-        resposta = self.client.get(
-            "/resolver-fen",
-            params={"posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"},
-        )
-        self.assertEqual(resposta.status_code, 401)
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get(
+                "/resolver-fen",
+                params={"posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"},
+            )
+            self.assertEqual(resposta.status_code, 401)
 
     def test_fen_direta_retorna_a_mesma_posicao(self) -> None:
         fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
         resposta = self.client.get(
             "/resolver-fen",
             params={"posicao": fen},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(resposta.json(), {"fen": fen})
@@ -278,7 +356,7 @@ class ResolverFenEndpointTest(unittest.TestCase):
         resposta = self.client.get(
             "/resolver-fen",
             params={"posicao": "1. e4 e5 2. Nf3 Nc6"},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(
@@ -290,7 +368,7 @@ class ResolverFenEndpointTest(unittest.TestCase):
         resposta = self.client.get(
             "/resolver-fen",
             params={"posicao": "isso nao e uma posicao valida"},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 400)
 
@@ -346,7 +424,7 @@ class RevisarAvulsoLanceInterpretadoTest(unittest.TestCase):
                     "lance": "Cf3",
                     "pensamento": "Desenvolvo o cavalo.",
                 },
-                headers={"X-API-Key": CHAVE_CORRETA},
+                headers=HEADERS_SESSAO,
             )
 
         self.assertEqual(resposta.status_code, 200)
@@ -359,89 +437,6 @@ class RevisarAvulsoLanceInterpretadoTest(unittest.TestCase):
 def chess_fen_inicial() -> str:
     return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-
-def _request_com_authorization(valor: str | None) -> Request:
-    """Request mínimo do Starlette só pra exercitar leitura de header."""
-
-    headers = [(b"authorization", valor.encode())] if valor else []
-    return Request({"type": "http", "headers": headers})
-
-
-class ResolverUserIdParaEscritaTest(unittest.TestCase):
-    """Identidade real por sessão com fallback pro DEFAULT_USER_ID (Fase B.2, D-17)."""
-
-    USER_ID_DEFAULT = "11111111-2222-3333-4444-555555555555"
-    USER_ID_SESSAO = "99999999-8888-7777-6666-555555555555"
-
-    def setUp(self) -> None:
-        api_server._state.clear()
-        self._env = patch.dict(os.environ, {"DEFAULT_USER_ID": self.USER_ID_DEFAULT})
-        self._env.start()
-        self.addCleanup(self._env.stop)
-
-    def tearDown(self) -> None:
-        api_server._state.clear()
-
-    def test_sem_header_authorization_usa_default(self) -> None:
-        resultado = api_server.resolver_user_id_para_escrita(
-            _request_com_authorization(None)
-        )
-        self.assertEqual(resultado, self.USER_ID_DEFAULT)
-
-    def test_header_bearer_com_token_valido_usa_user_id_da_sessao(self) -> None:
-        mock_client = MagicMock()
-        mock_resposta = MagicMock()
-        mock_resposta.user.id = self.USER_ID_SESSAO
-        mock_client.auth.get_user.return_value = mock_resposta
-        api_server._state["supabase_client"] = mock_client
-
-        resultado = api_server.resolver_user_id_para_escrita(
-            _request_com_authorization("Bearer token-valido")
-        )
-
-        self.assertEqual(resultado, self.USER_ID_SESSAO)
-        mock_client.auth.get_user.assert_called_once_with("token-valido")
-
-    def test_header_bearer_com_token_invalido_cai_no_default(self) -> None:
-        # auth.get_user levanta AuthApiError de verdade em token inválido/expirado
-        # (confirmado contra o Supabase real antes de implementar) — qualquer
-        # exceção aqui tem que resultar em fallback silencioso, não 500.
-        mock_client = MagicMock()
-        mock_client.auth.get_user.side_effect = Exception("invalid JWT")
-        api_server._state["supabase_client"] = mock_client
-
-        resultado = api_server.resolver_user_id_para_escrita(
-            _request_com_authorization("Bearer token-invalido")
-        )
-
-        self.assertEqual(resultado, self.USER_ID_DEFAULT)
-
-    def test_get_user_retornando_none_cai_no_default(self) -> None:
-        mock_client = MagicMock()
-        mock_client.auth.get_user.return_value = None
-        api_server._state["supabase_client"] = mock_client
-
-        resultado = api_server.resolver_user_id_para_escrita(
-            _request_com_authorization("Bearer algum-token")
-        )
-        self.assertEqual(resultado, self.USER_ID_DEFAULT)
-
-    def test_header_sem_prefixo_bearer_e_ignorado(self) -> None:
-        mock_client = MagicMock()
-        api_server._state["supabase_client"] = mock_client
-
-        resultado = api_server.resolver_user_id_para_escrita(
-            _request_com_authorization("token-sem-prefixo-bearer")
-        )
-
-        self.assertEqual(resultado, self.USER_ID_DEFAULT)
-        mock_client.auth.get_user.assert_not_called()
-
-    def test_sem_supabase_client_disponivel_cai_no_default(self) -> None:
-        resultado = api_server.resolver_user_id_para_escrita(
-            _request_com_authorization("Bearer algum-token")
-        )
-        self.assertEqual(resultado, self.USER_ID_DEFAULT)
 
 
 class ExplicarPosicaoEndpointTest(unittest.TestCase):
@@ -507,7 +502,7 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/explicar-posicao",
             json={"posicao": "string-totalmente-invalida"},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 400)
 
@@ -518,7 +513,7 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
                 "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
                 "lado": "AZUL",
             },
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 400)
 
@@ -527,7 +522,7 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/explicar-posicao",
             json={"posicao": fen, "lado": "BRANCAS"},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 200)
         dados = resposta.json()
@@ -547,7 +542,7 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/explicar-posicao",
             json={"posicao": pgn},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 200)
         dados = resposta.json()
@@ -565,7 +560,7 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
                 json={
                     "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
                 },
-                headers={"X-API-Key": CHAVE_CORRETA},
+                headers=HEADERS_SESSAO,
             )
             self.assertEqual(resposta.status_code, 503)
             self.assertIn("Servidor ocupado", resposta.json()["detail"])
@@ -586,7 +581,7 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
                 "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
                 "lado": "BRANCAS",
             },
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 200)
@@ -599,35 +594,36 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
         )
         self.assertEqual(payload_inserido["lado_analisado"], "BRANCAS")
         self.assertIn("resultado", payload_inserido)
-        # Sem Authorization: Bearer, cai no fallback DEFAULT_USER_ID (D-17).
+        # O dono vem da sessao (override do modulo injeta USER_ID_TESTE).
         self.assertEqual(payload_inserido["user_id"], USER_ID_TESTE)
 
     def test_explicar_posicao_com_sessao_valida_usa_user_id_real(self) -> None:
-        # Fase B.2 (D-17): com Authorization: Bearer válido, a linha nasce
-        # com o dono real da sessão, não o DEFAULT_USER_ID de sempre.
-        user_id_sessao = "99999999-8888-7777-6666-555555555555"
-        mock_client = MagicMock()
-        resp_mock = MagicMock()
-        resp_mock.data = [{"id": "explicacao-nova-456"}]
-        mock_client.table.return_value.insert.return_value.execute.return_value = resp_mock
-        mock_user_response = MagicMock()
-        mock_user_response.user.id = user_id_sessao
-        mock_client.auth.get_user.return_value = mock_user_response
-        api_server._state["supabase_client"] = mock_client
+        with gate_de_sessao_real():
+            # Fase B.2 (D-17): com Authorization: Bearer válido, a linha nasce
+            # com o dono real da sessão, não o DEFAULT_USER_ID de sempre.
+            user_id_sessao = "99999999-8888-7777-6666-555555555555"
+            mock_client = MagicMock()
+            resp_mock = MagicMock()
+            resp_mock.data = [{"id": "explicacao-nova-456"}]
+            mock_client.table.return_value.insert.return_value.execute.return_value = resp_mock
+            mock_user_response = MagicMock()
+            mock_user_response.user.id = user_id_sessao
+            mock_client.auth.get_user.return_value = mock_user_response
+            api_server._state["supabase_client"] = mock_client
 
-        resposta = self.client.post(
-            "/explicar-posicao",
-            json={
-                "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-                "lado": "BRANCAS",
-            },
-            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
-        )
+            resposta = self.client.post(
+                "/explicar-posicao",
+                json={
+                    "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                    "lado": "BRANCAS",
+                },
+                headers=HEADERS_SESSAO,
+            )
 
-        self.assertEqual(resposta.status_code, 200)
-        mock_client.auth.get_user.assert_called_once_with("token-da-sessao")
-        payload_inserido = mock_client.table.return_value.insert.call_args[0][0]
-        self.assertEqual(payload_inserido["user_id"], user_id_sessao)
+            self.assertEqual(resposta.status_code, 200)
+            mock_client.auth.get_user.assert_called_once_with(TOKEN_TESTE)
+            payload_inserido = mock_client.table.return_value.insert.call_args[0][0]
+            self.assertEqual(payload_inserido["user_id"], user_id_sessao)
 
     def test_explicar_posicao_retorna_200_mesmo_se_persistencia_falhar(self) -> None:
         # A persistência é um efeito colateral: se salvar falhar, o usuário
@@ -643,7 +639,7 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
             json={
                 "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
             },
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 200)
@@ -659,7 +655,7 @@ class ExplicarPosicaoEndpointTest(unittest.TestCase):
             json={
                 "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
             },
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 200)
         self.assertIsNone(resposta.json()["id"])
@@ -681,9 +677,10 @@ class ExplicacoesPosicaoRecentesEndpointTest(unittest.TestCase):
     def tearDown(self) -> None:
         api_server._state.clear()
 
-    def test_sem_api_key_recebe_401(self) -> None:
-        resposta = self.client.get("/explicacoes-posicao/recentes")
-        self.assertEqual(resposta.status_code, 401)
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/explicacoes-posicao/recentes")
+            self.assertEqual(resposta.status_code, 401)
 
     def test_lista_com_sucesso_embute_resultado_completo(self) -> None:
         mock_client = MagicMock()
@@ -724,7 +721,7 @@ class ExplicacoesPosicaoRecentesEndpointTest(unittest.TestCase):
 
         resposta = self.client.get(
             "/explicacoes-posicao/recentes",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 200)
@@ -743,31 +740,32 @@ class ExplicacoesPosicaoRecentesEndpointTest(unittest.TestCase):
         )
 
     def test_filtra_pelo_user_id_da_sessao_quando_autorizacao_valida(self) -> None:
-        # Fase B.3 (D-18): a listagem também respeita a sessão real, não só a escrita.
-        user_id_sessao = "99999999-8888-7777-6666-555555555555"
-        mock_client = MagicMock()
-        resp_mock = MagicMock()
-        resp_mock.data = []
-        mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
-        mock_user_response = MagicMock()
-        mock_user_response.user.id = user_id_sessao
-        mock_client.auth.get_user.return_value = mock_user_response
-        api_server._state["supabase_client"] = mock_client
+        with gate_de_sessao_real():
+            # Fase B.3 (D-18): a listagem também respeita a sessão real, não só a escrita.
+            user_id_sessao = "99999999-8888-7777-6666-555555555555"
+            mock_client = MagicMock()
+            resp_mock = MagicMock()
+            resp_mock.data = []
+            mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+            mock_user_response = MagicMock()
+            mock_user_response.user.id = user_id_sessao
+            mock_client.auth.get_user.return_value = mock_user_response
+            api_server._state["supabase_client"] = mock_client
 
-        resposta = self.client.get(
-            "/explicacoes-posicao/recentes",
-            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
-        )
+            resposta = self.client.get(
+                "/explicacoes-posicao/recentes",
+                headers=HEADERS_SESSAO,
+            )
 
-        self.assertEqual(resposta.status_code, 200)
-        mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
-            "user_id", user_id_sessao
-        )
+            self.assertEqual(resposta.status_code, 200)
+            mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+                "user_id", user_id_sessao
+            )
 
     def test_banco_indisponivel_retorna_503(self) -> None:
         resposta = self.client.get(
             "/explicacoes-posicao/recentes",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 503)
 
@@ -797,12 +795,13 @@ class ReconhecerPosicaoEndpointTest(unittest.TestCase):
         mock_client.models.generate_content.return_value = mock_response
         return mock_client
 
-    def test_sem_api_key_recebe_401(self) -> None:
-        resposta = self.client.post(
-            "/reconhecer-posicao",
-            files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
-        )
-        self.assertEqual(resposta.status_code, 401)
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.post(
+                "/reconhecer-posicao",
+                files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
+            )
+            self.assertEqual(resposta.status_code, 401)
 
     def test_arquivo_que_nao_e_imagem_recebe_400(self) -> None:
         resposta = self.client.post(
@@ -810,7 +809,7 @@ class ReconhecerPosicaoEndpointTest(unittest.TestCase):
             files={
                 "imagem": ("documento.pdf", b"%PDF-1.4 conteudo falso", "application/pdf")
             },
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 400)
 
@@ -818,7 +817,7 @@ class ReconhecerPosicaoEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/reconhecer-posicao",
             files={"imagem": ("foto.png", b"", "image/png")},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 400)
 
@@ -827,7 +826,7 @@ class ReconhecerPosicaoEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/reconhecer-posicao",
             files={"imagem": ("foto.png", dados_grandes, "image/png")},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 400)
 
@@ -837,7 +836,7 @@ class ReconhecerPosicaoEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/reconhecer-posicao",
             files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 422)
@@ -850,7 +849,7 @@ class ReconhecerPosicaoEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/reconhecer-posicao",
             files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 200)
@@ -863,7 +862,7 @@ class ReconhecerPosicaoEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/reconhecer-posicao",
             files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 200)
@@ -877,7 +876,7 @@ class ReconhecerPosicaoEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/reconhecer-posicao",
             files={"imagem": ("foto.png", self.IMAGEM_FAKE, "image/png")},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 500)
@@ -918,7 +917,7 @@ class RevisarAvulsoSalvarEndpointTest(unittest.TestCase):
                 "fen": chess_fen_inicial(),
                 "texto_pensamento": "x",
             },
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 200)
@@ -931,37 +930,38 @@ class RevisarAvulsoSalvarEndpointTest(unittest.TestCase):
         self.assertEqual(payload["user_id"], USER_ID_TESTE)
 
     def test_salvar_com_sessao_valida_usa_user_id_real(self) -> None:
-        # Fase B.2 (D-17): Authorization: Bearer válido sobrepõe o DEFAULT_USER_ID.
-        user_id_sessao = "99999999-8888-7777-6666-555555555555"
-        mock_client = MagicMock()
-        resp_mock = MagicMock()
-        resp_mock.data = [{"id": "revisao-nova-789"}]
-        mock_client.table.return_value.insert.return_value.execute.return_value = resp_mock
-        mock_user_response = MagicMock()
-        mock_user_response.user.id = user_id_sessao
-        mock_client.auth.get_user.return_value = mock_user_response
-        api_server._state["supabase_client"] = mock_client
+        with gate_de_sessao_real():
+            # Gate real: o user_id vem do token, validado por auth.get_user (D-25).
+            user_id_sessao = "99999999-8888-7777-6666-555555555555"
+            mock_client = MagicMock()
+            resp_mock = MagicMock()
+            resp_mock.data = [{"id": "revisao-nova-789"}]
+            mock_client.table.return_value.insert.return_value.execute.return_value = resp_mock
+            mock_user_response = MagicMock()
+            mock_user_response.user.id = user_id_sessao
+            mock_client.auth.get_user.return_value = mock_user_response
+            api_server._state["supabase_client"] = mock_client
 
-        resposta = self.client.post(
-            "/revisar-avulso/salvar",
-            json={
-                "lance_jogado": "e4",
-                "melhor_lance": "e4",
-                "queda_win_percent": 0.0,
-                "qualidade_lance": "BOM",
-                "qualidade_raciocinio": "SOLIDO",
-                "feedback_texto": "ok",
-                "analise_mestre": "ok",
-                "fen": chess_fen_inicial(),
-                "texto_pensamento": "x",
-            },
-            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
-        )
+            resposta = self.client.post(
+                "/revisar-avulso/salvar",
+                json={
+                    "lance_jogado": "e4",
+                    "melhor_lance": "e4",
+                    "queda_win_percent": 0.0,
+                    "qualidade_lance": "BOM",
+                    "qualidade_raciocinio": "SOLIDO",
+                    "feedback_texto": "ok",
+                    "analise_mestre": "ok",
+                    "fen": chess_fen_inicial(),
+                    "texto_pensamento": "x",
+                },
+                headers=HEADERS_SESSAO,
+            )
 
-        self.assertEqual(resposta.status_code, 200)
-        mock_client.auth.get_user.assert_called_once_with("token-da-sessao")
-        payload = mock_client.table.return_value.insert.call_args[0][0]
-        self.assertEqual(payload["user_id"], user_id_sessao)
+            self.assertEqual(resposta.status_code, 200)
+            mock_client.auth.get_user.assert_called_once_with(TOKEN_TESTE)
+            payload = mock_client.table.return_value.insert.call_args[0][0]
+            self.assertEqual(payload["user_id"], user_id_sessao)
 
     def test_falha_ao_salvar_retorna_500(self) -> None:
         mock_client = MagicMock()
@@ -983,7 +983,7 @@ class RevisarAvulsoSalvarEndpointTest(unittest.TestCase):
                 "fen": chess_fen_inicial(),
                 "texto_pensamento": "x",
             },
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 500)
@@ -1005,9 +1005,10 @@ class RevisoesAvulsasRecentesEndpointTest(unittest.TestCase):
     def tearDown(self) -> None:
         api_server._state.clear()
 
-    def test_sem_api_key_recebe_401(self) -> None:
-        resposta = self.client.get("/revisoes-avulsas/recentes")
-        self.assertEqual(resposta.status_code, 401)
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/revisoes-avulsas/recentes")
+            self.assertEqual(resposta.status_code, 401)
 
     def test_lista_com_sucesso(self) -> None:
         mock_client = MagicMock()
@@ -1031,7 +1032,7 @@ class RevisoesAvulsasRecentesEndpointTest(unittest.TestCase):
 
         resposta = self.client.get(
             "/revisoes-avulsas/recentes",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 200)
@@ -1046,31 +1047,32 @@ class RevisoesAvulsasRecentesEndpointTest(unittest.TestCase):
         )
 
     def test_filtra_pelo_user_id_da_sessao_quando_autorizacao_valida(self) -> None:
-        # Fase B.3 (D-18): a listagem também respeita a sessão real, não só a escrita.
-        user_id_sessao = "99999999-8888-7777-6666-555555555555"
-        mock_client = MagicMock()
-        resp_mock = MagicMock()
-        resp_mock.data = []
-        mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
-        mock_user_response = MagicMock()
-        mock_user_response.user.id = user_id_sessao
-        mock_client.auth.get_user.return_value = mock_user_response
-        api_server._state["supabase_client"] = mock_client
+        with gate_de_sessao_real():
+            # Fase B.3 (D-18): a listagem também respeita a sessão real, não só a escrita.
+            user_id_sessao = "99999999-8888-7777-6666-555555555555"
+            mock_client = MagicMock()
+            resp_mock = MagicMock()
+            resp_mock.data = []
+            mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+            mock_user_response = MagicMock()
+            mock_user_response.user.id = user_id_sessao
+            mock_client.auth.get_user.return_value = mock_user_response
+            api_server._state["supabase_client"] = mock_client
 
-        resposta = self.client.get(
-            "/revisoes-avulsas/recentes",
-            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
-        )
+            resposta = self.client.get(
+                "/revisoes-avulsas/recentes",
+                headers=HEADERS_SESSAO,
+            )
 
-        self.assertEqual(resposta.status_code, 200)
-        mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
-            "user_id", user_id_sessao
-        )
+            self.assertEqual(resposta.status_code, 200)
+            mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+                "user_id", user_id_sessao
+            )
 
     def test_banco_indisponivel_retorna_503(self) -> None:
         resposta = self.client.get(
             "/revisoes-avulsas/recentes",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 503)
 
@@ -1093,14 +1095,15 @@ class InsightsRepertorioEndpointTest(unittest.TestCase):
     def tearDown(self) -> None:
         api_server._state.clear()
 
-    def test_sem_api_key_recebe_401(self) -> None:
-        resposta = self.client.get("/insights/repertorio")
-        self.assertEqual(resposta.status_code, 401)
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/insights/repertorio")
+            self.assertEqual(resposta.status_code, 401)
 
     def test_banco_indisponivel_retorna_503(self) -> None:
         resposta = self.client.get(
             "/insights/repertorio",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 503)
 
@@ -1130,7 +1133,7 @@ class InsightsRepertorioEndpointTest(unittest.TestCase):
 
         resposta = self.client.get(
             "/insights/repertorio",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 200)
@@ -1144,7 +1147,7 @@ class InsightsRepertorioEndpointTest(unittest.TestCase):
 
         resposta = self.client.get(
             "/insights/repertorio",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
 
         self.assertEqual(resposta.status_code, 500)
@@ -1185,18 +1188,19 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
     def tearDown(self) -> None:
         api_server._state.clear()
 
-    def test_sem_header_recebe_401(self) -> None:
-        resposta = self.client.post(
-            "/analisar-pgn",
-            json={"pgn": self.PGN_TESTE},
-        )
-        self.assertEqual(resposta.status_code, 401)
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.post(
+                "/analisar-pgn",
+                json={"pgn": self.PGN_TESTE},
+            )
+            self.assertEqual(resposta.status_code, 401)
 
     def test_pgn_vazio_recebe_400(self) -> None:
         resposta = self.client.post(
             "/analisar-pgn",
             json={"pgn": "   "},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 400)
         self.assertIn("PGN não fornecido", resposta.json()["detail"])
@@ -1205,7 +1209,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/analisar-pgn",
             json={"pgn": "isso aqui nao e xadrez"},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 400)
 
@@ -1214,7 +1218,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/analisar-pgn",
             json={"pgn": self.PGN_SEM_USERNAMES, "cor": None},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 422)
         self.assertIn("informe a cor explicitamente", resposta.json()["detail"])
@@ -1229,7 +1233,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/analisar-pgn",
             json={"pgn": self.PGN_TESTE, "cor": "BRANCAS"},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 202)
         dados = resposta.json()
@@ -1241,7 +1245,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         _, kwargs = mock_executar_pipeline.call_args
         self.assertEqual(kwargs["partida_id"], "partida_999")
         self.assertIsNotNone(kwargs["engine_lock"])
-        # Sem Authorization: Bearer, cai no fallback DEFAULT_USER_ID (D-17).
+        # O dono vem da sessao (override do modulo injeta USER_ID_TESTE).
         _, kwargs_inserir = mock_inserir.call_args
         self.assertEqual(kwargs_inserir["user_id"], USER_ID_TESTE)
 
@@ -1251,9 +1255,8 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
     def test_analisar_pgn_com_sessao_valida_usa_user_id_real(
         self, mock_executar_pipeline, mock_linter, mock_analysis
     ) -> None:
-        # Fase B.2 (D-17): Authorization: Bearer válido sobrepõe o
-        # DEFAULT_USER_ID — aqui SEM mockar inserir_partida, pra provar a
-        # amarração de ponta a ponta até o payload que vai pro Supabase.
+        # Gate real (sem override), SEM mockar inserir_partida: prova a amarração
+        # de ponta a ponta, do token até o payload que vai pro Supabase (D-25).
         user_id_sessao = "99999999-8888-7777-6666-555555555555"
         mock_client = MagicMock()
         resp_mock = MagicMock()
@@ -1264,14 +1267,15 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         mock_client.auth.get_user.return_value = mock_user_response
         api_server._state["supabase_client"] = mock_client
 
-        resposta = self.client.post(
-            "/analisar-pgn",
-            json={"pgn": self.PGN_TESTE, "cor": "BRANCAS"},
-            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
-        )
+        with gate_de_sessao_real():
+            resposta = self.client.post(
+                "/analisar-pgn",
+                json={"pgn": self.PGN_TESTE, "cor": "BRANCAS"},
+                headers=HEADERS_SESSAO,
+            )
 
         self.assertEqual(resposta.status_code, 202)
-        mock_client.auth.get_user.assert_called_once_with("token-da-sessao")
+        mock_client.auth.get_user.assert_called_once_with(TOKEN_TESTE)
         payload = mock_client.table.return_value.upsert.call_args[0][0]
         self.assertEqual(payload["user_id"], user_id_sessao)
 
@@ -1286,7 +1290,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         resposta = self.client.post(
             "/analisar-pgn",
             json={"pgn": self.PGN_TESTE, "cor": None},
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 202)
         dados = resposta.json()
@@ -1322,9 +1326,10 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
 
         mock_update.assert_called_with(mock_client, "partida_falha", "falhou")
 
-    def test_obter_resumo_sem_api_key_recebe_401(self) -> None:
-        resposta = self.client.get("/partidas/partida_123/resumo")
-        self.assertEqual(resposta.status_code, 401)
+    def test_obter_resumo_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/partidas/partida_123/resumo")
+            self.assertEqual(resposta.status_code, 401)
 
     def test_obter_resumo_partida_inexistente_recebe_404(self) -> None:
         mock_client = MagicMock()
@@ -1335,7 +1340,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
 
         resposta = self.client.get(
             "/partidas/partida_inexistente/resumo",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 404)
         self.assertIn("não encontrada", resposta.json()["detail"])
@@ -1349,7 +1354,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
 
         resposta = self.client.get(
             "/partidas/p1/resumo",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 200)
         dados = resposta.json()
@@ -1381,7 +1386,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
 
         resposta = self.client.get(
             "/partidas/p2/resumo",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 200)
         dados = resposta.json()
@@ -1391,9 +1396,10 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         self.assertIn("Siciliana", dados["resumo"]["narrativa"])
         self.assertEqual(len(dados["resumo"]["pontos_criticos"]), 1)
 
-    def test_listar_partidas_recentes_sem_api_key_recebe_401(self) -> None:
-        resposta = self.client.get("/partidas/recentes")
-        self.assertEqual(resposta.status_code, 401)
+    def test_listar_partidas_recentes_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/partidas/recentes")
+            self.assertEqual(resposta.status_code, 401)
 
     def test_listar_partidas_recentes_sucesso(self) -> None:
         mock_client = MagicMock()
@@ -1416,7 +1422,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
 
         resposta = self.client.get(
             "/partidas/recentes",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 200)
         itens = resposta.json()
@@ -1431,30 +1437,32 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         )
 
     def test_listar_partidas_recentes_filtra_pelo_user_id_da_sessao(self) -> None:
-        # Fase B.3 (D-18): a listagem também respeita a sessão real, não só a escrita.
-        user_id_sessao = "99999999-8888-7777-6666-555555555555"
-        mock_client = MagicMock()
-        resp_mock = MagicMock()
-        resp_mock.data = []
-        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
-        mock_user_response = MagicMock()
-        mock_user_response.user.id = user_id_sessao
-        mock_client.auth.get_user.return_value = mock_user_response
-        api_server._state["supabase_client"] = mock_client
+        with gate_de_sessao_real():
+            # Fase B.3 (D-18): a listagem também respeita a sessão real, não só a escrita.
+            user_id_sessao = "99999999-8888-7777-6666-555555555555"
+            mock_client = MagicMock()
+            resp_mock = MagicMock()
+            resp_mock.data = []
+            mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+            mock_user_response = MagicMock()
+            mock_user_response.user.id = user_id_sessao
+            mock_client.auth.get_user.return_value = mock_user_response
+            api_server._state["supabase_client"] = mock_client
 
-        resposta = self.client.get(
-            "/partidas/recentes",
-            headers={"X-API-Key": CHAVE_CORRETA, "Authorization": "Bearer token-da-sessao"},
-        )
+            resposta = self.client.get(
+                "/partidas/recentes",
+                headers=HEADERS_SESSAO,
+            )
 
-        self.assertEqual(resposta.status_code, 200)
-        mock_client.table.return_value.select.return_value.eq.return_value.eq.assert_called_once_with(
-            "user_id", user_id_sessao
-        )
+            self.assertEqual(resposta.status_code, 200)
+            mock_client.table.return_value.select.return_value.eq.return_value.eq.assert_called_once_with(
+                "user_id", user_id_sessao
+            )
 
-    def test_reprocessar_sem_api_key_recebe_401(self) -> None:
-        resposta = self.client.post("/partidas/p123/reprocessar")
-        self.assertEqual(resposta.status_code, 401)
+    def test_reprocessar_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.post("/partidas/p123/reprocessar")
+            self.assertEqual(resposta.status_code, 401)
 
     def test_reprocessar_partida_inexistente_recebe_404(self) -> None:
         mock_client = MagicMock()
@@ -1465,7 +1473,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
 
         resposta = self.client.post(
             "/partidas/inexistente/reprocessar",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 404)
 
@@ -1490,7 +1498,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
 
         resposta = self.client.post(
             "/partidas/p-existente/reprocessar",
-            headers={"X-API-Key": CHAVE_CORRETA},
+            headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 202)
         dados = resposta.json()

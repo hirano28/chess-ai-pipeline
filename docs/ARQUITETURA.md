@@ -76,33 +76,39 @@ livro.
 
 ## 5. Superfície da API
 
-Todos os endpoints exigem header `X-API-Key`, exceto `/health` e `/guia-passos`.
-A autenticação aceita múltiplas chaves nomeadas via `API_SECRET_KEYS`
-(formato `nome:chave,nome:chave`) e registra em log quem chamou.
+**Todo endpoint marcado com 🎫 exige `Authorization: Bearer <token da sessão
+Supabase Auth>`** — é o único mecanismo de acesso da API desde D-25. Sem token,
+ou com token inválido/expirado, a resposta é `401` antes de qualquer trabalho
+caro (Stockfish, Gemini, banco), pela dependency `verificar_sessao`. Só
+`/health` e `/guia-passos` ficam fora: um é liveness probe do Cloud Run, o
+outro é conteúdo estático sem dado de usuário.
 
-**As 3 rotas de escrita marcadas com 🔑 abaixo** também aceitam
-`Authorization: Bearer <token da sessão Supabase Auth>`, além da
-`X-API-Key` de sempre (que continua obrigatória — o Bearer não substitui o
-gate de acesso, só resolve o dono real da linha; Fase B.2, D-17). Sem esse
-header (ou com token inválido/expirado), a escrita cai no `DEFAULT_USER_ID`
-de sempre — ver `resolver_user_id_para_escrita` em `api_server.py`.
+`X-API-Key` **foi aposentada como porta de entrada** e não abre mais nada —
+nem com a chave correta. `API_SECRET_KEYS` ainda é lida no startup e
+`verificar_api_key` continua no arquivo, sem nenhuma rota usando: a limpeza
+dessas duas está registrada como pendência em `ESTADO.md`, não foi feita.
+
+As rotas marcadas com 👤 recebem o `user_id` real por injeção
+(`user_id: str = Depends(verificar_sessao)`) e o usam como dono da escrita ou
+filtro da leitura — sem fallback nenhum, porque quem chega lá tem sessão
+garantida.
 
 | Método e rota | Função |
 |---|---|
 | `GET /health` | health check do Cloud Run (público) |
 | `GET /guia-passos` | títulos dos 8 passos da rubrica (público) |
-| `POST /revisar-avulso` | avalia lance único ou sequência a partir de FEN/PGN + texto do raciocínio |
-| `POST /revisar-avulso/salvar` 🔑 | persiste um exercício revisado; devolve o `id` da linha criada |
-| `GET /revisoes-avulsas/recentes` | histórico do Laboratório (só o que foi salvo manualmente; ainda não filtrado por dono — ver D-17) |
-| `POST /explicar-posicao` 🔑 | avaliação objetiva + explicação didática de uma posição; persiste em `explicacoes_posicao` e devolve o `id` (falha de persistência não derruba a resposta — ver D-11) |
-| `GET /explicacoes-posicao/recentes` | histórico do Explicador; cada item embute a resposta completa, sem endpoint "buscar por id" |
-| `GET /resolver-fen` | resolve FEN ou PGN para o FEN final; parsing puro, sem Gemini nem Stockfish |
-| `POST /reconhecer-posicao` | recebe foto de diagrama (multipart) e devolve o FEN, via Gemini multimodal |
-| `POST /analisar-pgn` 🔑 | dispara o pipeline completo de uma partida; responde `202` na hora e processa em `BackgroundTasks` |
-| `GET /partidas/{id}/resumo` | status do processamento + `resumo_partida` quando concluído |
-| `GET /partidas/recentes` | histórico para a tela do Analisador |
-| `POST /partidas/{id}/reprocessar` | reseta para `pendente` e reexecuta |
-| `GET /insights/repertorio` | agregações de repertório por abertura (taxa de vitória, precisão por fase, lance de PICO, categoria do hexágono) — cálculo puro em Python sobre dado já persistido, sem Stockfish nem Gemini; ver `backend/agentes/insights_repertorio.py` e D-13 em `DECISOES.md` |
+| `POST /revisar-avulso` 🎫 | avalia lance único ou sequência a partir de FEN/PGN + texto do raciocínio |
+| `POST /revisar-avulso/salvar` 🎫👤 | persiste um exercício revisado; devolve o `id` da linha criada |
+| `GET /revisoes-avulsas/recentes` 🎫👤 | histórico do Laboratório, filtrado pelo dono da sessão (D-18) |
+| `POST /explicar-posicao` 🎫👤 | avaliação objetiva + explicação didática de uma posição; persiste em `explicacoes_posicao` e devolve o `id` (falha de persistência não derruba a resposta — ver D-11) |
+| `GET /explicacoes-posicao/recentes` 🎫👤 | histórico do Explicador, filtrado pelo dono; cada item embute a resposta completa, sem endpoint "buscar por id" |
+| `GET /resolver-fen` 🎫 | resolve FEN ou PGN para o FEN final; parsing puro, sem Gemini nem Stockfish |
+| `POST /reconhecer-posicao` 🎫 | recebe foto de diagrama (multipart) e devolve o FEN, via Gemini multimodal |
+| `POST /analisar-pgn` 🎫👤 | dispara o pipeline completo de uma partida; responde `202` na hora e processa em `BackgroundTasks` |
+| `GET /partidas/{id}/resumo` 🎫 | status do processamento + `resumo_partida` quando concluído |
+| `GET /partidas/recentes` 🎫👤 | histórico para a tela do Analisador, filtrado pelo dono |
+| `POST /partidas/{id}/reprocessar` 🎫 | reseta para `pendente` e reexecuta |
+| `GET /insights/repertorio` 🎫 | agregações de repertório por abertura (taxa de vitória, precisão por fase, lance de PICO, categoria do hexágono) — cálculo puro em Python sobre dado já persistido, sem Stockfish nem Gemini; ver `backend/agentes/insights_repertorio.py` e D-13 em `DECISOES.md` |
 
 Recursos caros (Stockfish, cliente Gemini, cliente Supabase, `engine_lock`) são
 inicializados uma vez no startup e guardados em `_state`, um dict de módulo.
@@ -135,10 +141,8 @@ sobreviver a um F5 (`chess_analisador_partida_ativa`, `chess_explicador_ativo`,
 `chess_laboratorio_ativo`). `frontend/src/app/shared/data.ts` guarda o
 formatador de data compartilhado por todas elas.
 
-**Autenticação — dois sistemas paralelos, sem se misturar.** `AuthLocalService`
-guarda a `X-API-Key` do Laboratório/Explicador/Analisador no `localStorage`
-(D-7) e não tem relação nenhuma com o Supabase Auth. `AuthService`
-(`services/auth.service.ts`) é o Supabase Auth de verdade (Fase B.1 — D-15):
+**Autenticação — um sistema só, desde D-25.** `AuthService`
+(`services/auth.service.ts`) é o Supabase Auth, e é tudo que existe:
 expõe `usuario` (signal), `autenticado` (computed) e `sessaoPronta`
 (computed a partir de uma promise interna, usada pelo `authGuard` pra não
 decidir antes de `getSession()` responder). Não existe "client Supabase
@@ -147,20 +151,26 @@ autenticado" separado do anônimo — é o mesmo `SupabaseService.client`, e
 `hexagono-radar`, `narrativa-analise`, `sessoes-treino` e
 `perguntas-pendentes` (os únicos 4 componentes que leem Supabase direto,
 todos via `SupabaseService`) passam a carregar com a sessão automaticamente,
-sem precisar de nenhuma mudança de código. As 6 tabelas por trás desses 4
-componentes têm policy de SELECT tanto pra `anon` quanto pra `authenticated`
-(D-16, corrige o achado de D-15) — dashboard carrega o mesmo dado dos dois
-jeitos hoje. `authGuard` continua desligado de qualquer rota mesmo assim
-(decisão de B.1, ver P-11 em `ESTADO.md`).
+sem precisar de nenhuma mudança de código.
 
-**Os dois sistemas de autenticação se cruzam só nas 3 escritas de tabela
-raiz (Fase B.2 — D-17).** `RevisaoAvulsaService.headersComChaveEAuth()`
-monta `X-API-Key` (sempre, de `AuthLocalService`) e acrescenta
-`Authorization: Bearer <access_token>` (de `AuthService.obterAccessToken()`)
-só quando `AuthService.autenticado()` é `true` — usado só em `salvar()`,
-`explicarPosicao()` e `submeterPartidaPgn()`, os 3 métodos que escrevem em
-`revisao_exercicio_avulso`/`explicacoes_posicao`/`partidas`. Os métodos de
-leitura continuam com `headersComChave()` de sempre, sem Authorization.
+**Login passou a ser obrigatório pro dashboard (Fase B concluída — D-23).**
+`authGuard` está ligado nas 4 rotas (`/`, `/laboratorio`, `/explicador`,
+`/analisador`) em `app.routes.ts`; visitante sem sessão é redirecionado pra
+`/login`. As tabelas por trás dos 4 componentes acima não têm mais nenhuma
+policy `to anon` — só `authenticated`, isolada por dono (`user_id =
+auth.uid()`, direto ou via `exists` até `partidas`, ver D-19/D-22/D-23 em
+`DECISOES.md`). Consequência aceita: os 4 amigos que só têm `X-API-Key` (D-7),
+sem conta Supabase Auth, ficam sem acesso a nenhuma das 4 telas até migrarem —
+ver P-11 em `ESTADO.md`.
+
+**As chamadas ao FastAPI também passaram a usar a sessão, e só ela (D-25).**
+`RevisaoAvulsaService.headersComSessao()` monta `Authorization: Bearer
+<access_token>` e é usado em **todos** os métodos do serviço — não existe mais
+`headersComChave()`, nem `AuthLocalService` (o arquivo foi removido junto com
+a tela de "Chave de acesso" das 3 telas interativas). Um `401` da API agora
+só pode significar sessão expirada no meio do uso, já que a rota em si já
+exigiu login pelo guard; o serviço devolve `sessaoExpirada: true` e a tela
+mostra a mensagem pra entrar de novo.
 
 Convenções do frontend que não são óbvias:
 

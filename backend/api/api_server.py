@@ -71,7 +71,6 @@ from backend.analise_engine.analisar_partidas import (  # noqa: E402
     update_status,
 )
 from backend.common.progress import log_and_print  # noqa: E402
-from backend.common.tenant import obter_default_user_id  # noqa: E402
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
 
 DEFAULT_ALLOWED_ORIGINS = (
@@ -421,12 +420,14 @@ def encerrar_recursos() -> None:
 def verificar_api_key(
     request: Request, x_api_key: str | None = Header(default=None, alias="X-API-Key")
 ) -> str:
-    """Valida X-API-Key ANTES de qualquer rota executar (Stockfish/Gemini/Supabase).
+    """APOSENTADA como gate de acesso em D-25 — nenhuma rota depende mais dela.
 
-    Como dependency do FastAPI, roda antes do corpo da função da rota, garantindo
-    que requisições não autorizadas não consomem tempo de engine nem cota de API.
-    Aceita qualquer chave presente em api_keys; guarda o nome correspondente em
-    request.state e registra um log simples de quem fez a requisição autorizada.
+    Mantida de propósito, junto de `_resolver_api_keys()` e da validação de
+    `API_SECRET_KEYS` no startup: a limpeza dessas variáveis está registrada
+    como pendência futura em `ESTADO.md`, não foi feita ainda. Quem controla o
+    acesso hoje é `verificar_sessao` (JWT do Supabase Auth).
+
+    Valida X-API-Key e devolve o nome associado à chave; 401 se ausente/inválida.
     """
 
     api_keys: dict[str, str] = _state.get("api_keys", {})
@@ -452,7 +453,7 @@ def resolver_user_id_da_sessao(token: str) -> str | None:
     Devolve o `user.id` real quando o token é válido; `None` em qualquer
     outro caso (token expirado/malformado, banco indisponível) — nunca
     levanta exceção, porque isto é só o primeiro passo de uma resolução com
-    fallback (ver `resolver_user_id_para_escrita`, Fase B.2, D-17).
+    fallback (ver `verificar_sessao`, que transforma o `None` em 401).
     """
 
     client = _state.get("supabase_client")
@@ -466,33 +467,52 @@ def resolver_user_id_da_sessao(token: str) -> str | None:
     return user.id if user else None
 
 
-def resolver_user_id_para_escrita(request: Request) -> str:
-    """Resolve o dono de uma escrita nas tabelas raiz (D-14): sessão Supabase
-    Auth real quando presente e válida, com fallback pro `DEFAULT_USER_ID` de
-    sempre (Fase B.2 — D-17).
+def verificar_sessao(request: Request) -> str:
+    """Exige sessão real do Supabase Auth ANTES de qualquer rota executar.
 
-    Header `Authorization: Bearer <token>` presente e válido -> `user.id`
-    real. Caso contrário (sem header, token inválido/expirado) ->
-    `DEFAULT_USER_ID` — o mesmo comportamento de antes desta fase, para quem
-    só usa X-API-Key e nunca criou conta continuar funcionando exatamente
-    como funcionava. `X-API-Key` continua controlando o ACESSO ao endpoint
-    (via `verificar_api_key`); esta função só decide QUEM é o dono da linha.
+    Gate único de acesso da API desde D-25, no lugar de `verificar_api_key`.
+    Mesmo princípio de "falha rápido antes de trabalho caro" da dependency
+    antiga: rodando antes do corpo da rota, um token ausente ou inválido nunca
+    chega a consumir Stockfish, cota do Gemini ou banco.
+
+    Devolve o `user.id` real — as rotas que precisam do dono (escrita nas
+    tabelas raiz, leitura filtrada) recebem esse valor por injeção, sem
+    revalidar o token. Não existe mais fallback pro `DEFAULT_USER_ID` neste
+    caminho: quem chega aqui tem dono garantido e real.
     """
 
     auth_header = request.headers.get("Authorization")
+    token = ""
     if auth_header and auth_header.lower().startswith("bearer "):
         token = auth_header[len("Bearer ") :].strip()
-        if token:
-            user_id = resolver_user_id_da_sessao(token)
-            if user_id:
-                return user_id
-    return obter_default_user_id()
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Sessão ausente. Faça login para usar esta funcionalidade.",
+        )
+
+    user_id = resolver_user_id_da_sessao(token)
+    if not user_id:
+        raise HTTPException(
+            status_code=401, detail="Sessão inválida ou expirada. Faça login de novo."
+        )
+
+    request.state.user_id = user_id
+    timestamp = datetime.now(timezone.utc).isoformat()
+    mensagem = f"Requisição autorizada para o usuário {user_id} em {timestamp}"
+    logger = _state.get("logger")
+    if logger is not None:
+        log_and_print(logger, mensagem)
+    else:
+        print(mensagem)
+
+    return user_id
 
 
 @app.post(
     "/revisar-avulso",
     response_model=RevisarAvulsoResponse,
-    dependencies=[Depends(verificar_api_key)],
+    dependencies=[Depends(verificar_sessao)],
 )
 def revisar_avulso(payload: RevisarAvulsoRequest) -> RevisarAvulsoResponse:
     """Avalia um exercício avulso (lance único ou sequência) e retorna o feedback."""
@@ -530,7 +550,7 @@ def revisar_avulso(payload: RevisarAvulsoRequest) -> RevisarAvulsoResponse:
 @app.get(
     "/resolver-fen",
     response_model=ResolverFenResponse,
-    dependencies=[Depends(verificar_api_key)],
+    dependencies=[Depends(verificar_sessao)],
 )
 def resolver_fen_endpoint(posicao: str) -> ResolverFenResponse:
     """Converte uma FEN ou PGN em FEN final - só parsing local (sem Gemini/Stockfish).
@@ -548,15 +568,15 @@ def resolver_fen_endpoint(posicao: str) -> ResolverFenResponse:
     return ResolverFenResponse(fen=board.fen())
 
 
-@app.post(
-    "/revisar-avulso/salvar",
-    response_model=SalvarAvulsoResponse,
-    dependencies=[Depends(verificar_api_key)],
-)
+@app.post("/revisar-avulso/salvar", response_model=SalvarAvulsoResponse)
 def revisar_avulso_salvar(
-    payload: SalvarAvulsoRequest, request: Request
+    payload: SalvarAvulsoRequest, user_id: str = Depends(verificar_sessao)
 ) -> SalvarAvulsoResponse:
-    """Persiste um exercício já revisado em revisao_exercicio_avulso."""
+    """Persiste um exercício já revisado em revisao_exercicio_avulso.
+
+    O dono vem da sessão, garantido e real — `verificar_sessao` já barrou com
+    401 quem não tinha token válido (D-25).
+    """
 
     resultado = {
         "lance_jogado": payload.lance_jogado,
@@ -572,7 +592,7 @@ def revisar_avulso_salvar(
             payload.fen,
             payload.texto_pensamento,
             resultado,
-            user_id=resolver_user_id_para_escrita(request),
+            user_id=user_id,
         )
     except Exception as error:
         raise HTTPException(
@@ -582,20 +602,14 @@ def revisar_avulso_salvar(
     return SalvarAvulsoResponse(status="salvo", id=novo_id)
 
 
-@app.get(
-    "/revisoes-avulsas/recentes",
-    response_model=list[RevisaoAvulsaRecenteItem],
-    dependencies=[Depends(verificar_api_key)],
-)
+@app.get("/revisoes-avulsas/recentes", response_model=list[RevisaoAvulsaRecenteItem])
 def listar_revisoes_avulsas_recentes(
-    request: Request, limite: int = 20
+    limite: int = 20, user_id: str = Depends(verificar_sessao)
 ) -> list[RevisaoAvulsaRecenteItem]:
     """Retorna o histórico de exercícios avulsos já salvos manualmente (revisao_exercicio_avulso).
 
-    Filtrado pelo dono real da sessão quando há `Authorization: Bearer` válido;
-    sem sessão, mantém o comportamento de sempre e filtra pelo `DEFAULT_USER_ID`
-    (Fase B.3 — D-18). O `service role` usado pelo backend ignora RLS, então
-    este filtro é o único isolamento entre contas nesta rota hoje.
+    Filtrado pelo dono da sessão (D-18). O `service role` usado pelo backend
+    ignora RLS, então este filtro é o único isolamento entre contas nesta rota.
     """
     client = _state.get("supabase_client")
     if not client:
@@ -609,7 +623,7 @@ def listar_revisoes_avulsas_recentes(
                 "texto_pensamento, qualidade_lance, qualidade_raciocinio, "
                 "feedback_texto, created_at"
             )
-            .eq("user_id", resolver_user_id_para_escrita(request))
+            .eq("user_id", user_id)
             .order("created_at", desc=True)
             .limit(min(limite, 50))
             .execute()
@@ -623,14 +637,10 @@ def listar_revisoes_avulsas_recentes(
     return [RevisaoAvulsaRecenteItem(**row) for row in resp.data or []]
 
 
-@app.post(
-    "/explicar-posicao",
-    response_model=ExplicarPosicaoResponse,
-    dependencies=[Depends(verificar_api_key)],
-)
+@app.post("/explicar-posicao", response_model=ExplicarPosicaoResponse)
 def explicar_posicao_endpoint(
     payload: ExplicarPosicaoRequest,
-    request: Request,
+    user_id: str = Depends(verificar_sessao),
 ) -> ExplicarPosicaoResponse:
     """Analisa uma posição (FEN ou PGN) e explica didaticamente o porquê de ser vencedora/perdida."""
     try:
@@ -660,7 +670,7 @@ def explicar_posicao_endpoint(
         resultado["id"] = salvar_explicacao_posicao(
             _state["supabase_client"],
             resultado,
-            user_id=resolver_user_id_para_escrita(request),
+            user_id=user_id,
         )
     except Exception as error:
         logger = _state.get("logger")
@@ -671,18 +681,13 @@ def explicar_posicao_endpoint(
     return ExplicarPosicaoResponse(**resultado)
 
 
-@app.get(
-    "/explicacoes-posicao/recentes",
-    response_model=list[ExplicacaoPosicaoRecenteItem],
-    dependencies=[Depends(verificar_api_key)],
-)
+@app.get("/explicacoes-posicao/recentes", response_model=list[ExplicacaoPosicaoRecenteItem])
 def listar_explicacoes_recentes(
-    request: Request, limite: int = 20
+    limite: int = 20, user_id: str = Depends(verificar_sessao)
 ) -> list[ExplicacaoPosicaoRecenteItem]:
     """Retorna o histórico de explicações de posição já geradas (explicacoes_posicao).
 
-    Filtrado pelo dono real da sessão, com fallback pro `DEFAULT_USER_ID`
-    (Fase B.3 — D-18); ver `listar_revisoes_avulsas_recentes`.
+    Filtrado pelo dono da sessão (D-18); ver `listar_revisoes_avulsas_recentes`.
     """
     client = _state.get("supabase_client")
     if not client:
@@ -692,7 +697,7 @@ def listar_explicacoes_recentes(
         resp = (
             client.table("explicacoes_posicao")
             .select("id, fen, lado_analisado, resultado, created_at")
-            .eq("user_id", resolver_user_id_para_escrita(request))
+            .eq("user_id", user_id)
             .order("created_at", desc=True)
             .limit(min(limite, 50))
             .execute()
@@ -709,7 +714,7 @@ def listar_explicacoes_recentes(
 @app.post(
     "/reconhecer-posicao",
     response_model=ReconhecerPosicaoResponse,
-    dependencies=[Depends(verificar_api_key)],
+    dependencies=[Depends(verificar_sessao)],
 )
 def reconhecer_posicao_endpoint(
     imagem: UploadFile = File(...),
@@ -795,12 +800,11 @@ def _executar_analise_pgn_background(partida_id: str) -> None:
     "/analisar-pgn",
     status_code=202,
     response_model=AnalisarPgnResponse,
-    dependencies=[Depends(verificar_api_key)],
 )
 def analisar_pgn_endpoint(
     payload: AnalisarPgnRequest,
     background_tasks: BackgroundTasks,
-    request: Request,
+    user_id: str = Depends(verificar_sessao),
 ) -> AnalisarPgnResponse:
     """Recebe um PGN, insere a partida e agenda a análise completa em segundo plano.
 
@@ -825,7 +829,7 @@ def analisar_pgn_endpoint(
     try:
         client = _state["supabase_client"]
         partida_id = inserir_partida(
-            client, pgn_text, game, cor, user_id=resolver_user_id_para_escrita(request)
+            client, pgn_text, game, cor, user_id=user_id
         )
     except Exception as error:
         raise HTTPException(
@@ -840,7 +844,7 @@ def analisar_pgn_endpoint(
 @app.get(
     "/partidas/{partida_id}/resumo",
     response_model=ResumoPartidaResponse,
-    dependencies=[Depends(verificar_api_key)],
+    dependencies=[Depends(verificar_sessao)],
 )
 def obter_resumo_partida_endpoint(partida_id: str) -> ResumoPartidaResponse:
     """Retorna o status atual de processamento e a narrativa da partida se disponível."""
@@ -889,18 +893,13 @@ def obter_resumo_partida_endpoint(partida_id: str) -> ResumoPartidaResponse:
     )
 
 
-@app.get(
-    "/partidas/recentes",
-    response_model=list[PartidaRecenteItem],
-    dependencies=[Depends(verificar_api_key)],
-)
+@app.get("/partidas/recentes", response_model=list[PartidaRecenteItem])
 def listar_partidas_recentes(
-    request: Request, limite: int = 20
+    limite: int = 20, user_id: str = Depends(verificar_sessao)
 ) -> list[PartidaRecenteItem]:
     """Retorna o histórico de partidas analisadas manualmente.
 
-    Filtrado pelo dono real da sessão, com fallback pro `DEFAULT_USER_ID`
-    (Fase B.3 — D-18); ver `listar_revisoes_avulsas_recentes`.
+    Filtrado pelo dono da sessão (D-18); ver `listar_revisoes_avulsas_recentes`.
     """
     client = _state.get("supabase_client")
     if not client:
@@ -914,7 +913,7 @@ def listar_partidas_recentes(
                 "eco_abertura, data_partida, created_at, pgn"
             )
             .eq("plataforma", "MANUAL")
-            .eq("user_id", resolver_user_id_para_escrita(request))
+            .eq("user_id", user_id)
             .order("created_at", desc=True)
             .limit(min(limite, 50))
             .execute()
@@ -946,7 +945,7 @@ def listar_partidas_recentes(
     "/partidas/{partida_id}/reprocessar",
     status_code=202,
     response_model=AnalisarPgnResponse,
-    dependencies=[Depends(verificar_api_key)],
+    dependencies=[Depends(verificar_sessao)],
 )
 def reprocessar_partida_endpoint(
     partida_id: str,
@@ -989,7 +988,7 @@ def reprocessar_partida_endpoint(
 
 @app.get(
     "/insights/repertorio",
-    dependencies=[Depends(verificar_api_key)],
+    dependencies=[Depends(verificar_sessao)],
 )
 def insights_repertorio_endpoint() -> dict[str, Any]:
     """Agregações de repertório: taxa de vitória, precisão e padrão de erro por abertura.

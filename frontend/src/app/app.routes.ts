@@ -4,18 +4,19 @@ import { LaboratorioRaciocinioComponent } from './components/laboratorio-racioci
 import { ExplicadorPosicaoComponent } from './components/explicador-posicao/explicador-posicao.component';
 import { AnalisadorPartidaComponent } from './components/analisador-partida/analisador-partida.component';
 import { LoginComponent } from './components/login/login.component';
+import { authGuard } from './guards/auth.guard';
 
-// authGuard (./guards/auth.guard.ts) existe, funciona e tem teste, mas
-// DELIBERADAMENTE não está aplicado aqui ainda. Aplicá-lo bloquearia hoje o
-// acesso de qualquer pessoa sem conta no Supabase Auth - inclusive quem já
-// usa o Laboratório só com X-API-Key - o que contradiz o objetivo desta fase
-// B.1 (login sem travamento). Ligar o guard é decisão explícita de uma fase
-// futura. Ver D-15 em docs/DECISOES.md.
+// authGuard ligado nas 4 rotas do dashboard (Fase B efetivamente concluída —
+// ver D-23 em docs/DECISOES.md). Decisão explícita e confirmada: os 4 amigos
+// que hoje só têm X-API-Key nomeada (D-7), sem conta Supabase Auth, ficam
+// sem acesso a estas telas até migrarem — a migração citada como pendência
+// em P-11 deixa de ser opcional a partir daqui. Login continua sem guard,
+// óbvio, senão ninguém conseguiria entrar.
 export const routes: Routes = [
 	{ path: 'login', component: LoginComponent },
-	{ path: '', component: HexagonoRadarComponent },
-	{ path: 'laboratorio', component: LaboratorioRaciocinioComponent },
-	{ path: 'explicador', component: ExplicadorPosicaoComponent },
-	{ path: 'analisador', component: AnalisadorPartidaComponent },
+	{ path: '', component: HexagonoRadarComponent, canActivate: [authGuard] },
+	{ path: 'laboratorio', component: LaboratorioRaciocinioComponent, canActivate: [authGuard] },
+	{ path: 'explicador', component: ExplicadorPosicaoComponent, canActivate: [authGuard] },
+	{ path: 'analisador', component: AnalisadorPartidaComponent, canActivate: [authGuard] },
 	{ path: '**', redirectTo: '' }
 ];

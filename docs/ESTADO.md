@@ -16,8 +16,8 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **326**, todos passando, em 16 módulos |
-| Testes de frontend (Vitest) | **72**, todos passando, em 9 arquivos |
+| Testes de backend | **322**, todos passando, em 16 módulos |
+| Testes de frontend (Vitest) | **70**, todos passando, em 9 arquivos |
 | `ng build` de produção | passa; avisa excesso de bundle (~770 kB), conhecido e aceito |
 
 `.github/workflows/deploy-backend.yml` lista os 16 módulos de teste do backend
@@ -128,12 +128,74 @@ específica).
 foram compartilhadas em texto puro durante o desenvolvimento. **Prioridade nº 1
 em qualquer trabalho de segurança.**
 
-### P-2 — 6 tabelas sem RLS, expostas pela chave anon 🔴
+### P-2 — 6 tabelas sem RLS, expostas pela chave anon ✅ RESOLVIDA em 13/09/2026
 
-`metricas_lichess_partida`, `tempos_lance`, `anotacoes_pensamento`,
-`perguntas_pendentes`, `revisoes_pensamento`, `puzzle_atividade`. A chave `anon`
-é pública no bundle do frontend. Habilitar RLS sem policies bloqueia tudo — é
-decisão do dono, não correção automática. Detalhes em `BANCO.md`, seção 6.
+Eram `metricas_lichess_partida`, `tempos_lance`, `anotacoes_pensamento`,
+`perguntas_pendentes`, `revisoes_pensamento`, `puzzle_atividade` — todas com
+`rls_ligado = false`, isto é, acesso irrestrito para qualquer portador da chave
+`anon` (que é pública, vai no bundle do frontend). Tratada como incidente: o
+vazamento foi confirmado chegando ao navegador, com uma conta de teste em
+produção recebendo HTTP 200 com o texto íntegro de uma pergunta do dono.
+
+**Resolução (D-22 em `DECISOES.md`).**
+`backend/db/rls_tabelas_sem_politica.sql` ligou RLS nas 6 e aplicou o padrão de
+D-19 (raiz por `user_id = auth.uid()`, filha por `exists` até
+`partidas.user_id`), **sem criar policy de `anon`** — mantê-la seria manter o
+vazamento. Validado por curl real, tabela a tabela, com 2 contas de teste
+(A com dado próprio semeado, B sem dado):
+
+| Tabela | Caminho até o dono | anon | conta B | conta A (dona) |
+|---|---|---|---|---|
+| `perguntas_pendentes` | `lance_id` → `lances_criticos` → `partidas` | 0 | 0 | 1 (só a dela) |
+| `anotacoes_pensamento` | `partida_id` → `partidas` | 0 | 0 | 1 (só a dela) |
+| `revisoes_pensamento` | `partida_id` → `partidas` | 0 | 0 | 1 (só a dela) |
+| `tempos_lance` | `partida_id` → `partidas` | 0 | 0 | 1 (só a dela) |
+| `metricas_lichess_partida` | `partida_id` → `partidas` | 0 | 0 | 1 (só a dela) |
+| `puzzle_atividade` | `user_id` próprio | 0 | 0 | 1 (só a dela) |
+
+Antes da correção as três colunas traziam as **mesmas** linhas (7 / 24 / 24 /
+200+ / 5 / 200+). Testes de regressão: fluxo do dono íntegro (SELECT com join
+embutido, upsert e update todos HTTP 200); conta B tentando anotar na partida
+da conta A → **HTTP 403** (`new row violates row-level security policy`);
+pipeline intacto (service role ignora RLS). Dashboard anônimo segue renderizando
+sem nenhum 4xx/5xx nem erro de console — só o cartão "Perguntas pendentes"
+passou a exigir login, consequência deliberada.
+
+Hoje **nenhuma tabela do schema `public` está sem RLS** (varredura de
+`pg_class` reconferida após a migration).
+
+### P-13 — 7 tabelas ainda servem o corpus do dono para `anon` ✅ RESOLVIDA em 13/09/2026
+
+Era a mesma classe de exposição da P-2 — só que por policy explícita, não por
+RLS desligado. As policies `to anon using(true)` criadas em D-16 e preservadas
+em D-19 entregavam, para qualquer visitante com a chave pública: `partidas`
+(215 linhas, PGN completo), `lances_criticos` (525), `diagnosticos` (525),
+`revisao_exercicio_avulso` (12), `resumo_partida` (4), `analises_hexagono` (3),
+`sessoes_treino` (3).
+
+**Resolução (D-23 em `DECISOES.md`).**
+`backend/db/rls_remove_anon_dashboard.sql` removeu as 7 policies `to anon`, e
+`app.routes.ts` ligou o `authGuard` nas 4 rotas do dashboard — as duas coisas
+juntas, porque isolada nenhuma das duas fecha o buraco (RLS sem guard: dado
+some da tela mas nada exige login pra não ver; guard sem RLS: dado continua
+público pra quem chama a API direto). Confirmado por curl, antes × depois, chave
+anon pura: as 7 tabelas caíram de 215/525/525/12/4/3/3 linhas para **0 em
+todas**. Logado com a conta oficial real, as mesmas 7 voltaram às contagens de
+sempre — nenhuma linha perdida pro dono. Validado também no navegador
+(Playwright local): as 4 rotas redirecionam pra `/login` sem sessão, e
+carregam normalmente logado, com screenshot de conferência.
+
+Efeito colateral corrigido na mesma migration: `sessoes_treino` tinha um
+UPDATE anônimo (`"Permitir atualizar data_concluida"`) sem nenhum equivalente
+pra `authenticated` — o botão "Marcar como concluída" quebraria pra todo
+usuário logado assim que o anon caísse. Policy nova
+`user_id = auth.uid()` criada e testada (UPDATE via JWT real, valor restaurado
+depois).
+
+**Consequência aceita e confirmada com o usuário antes de aplicar:** os 4
+amigos que só têm `X-API-Key` (D-7), sem conta Supabase Auth, ficam sem acesso
+ao Laboratório/Explicador/Analisador pela tela do Vercel até migrarem — ver
+P-11.
 
 ### P-3 — O gargalo é cumulativo e está congelado em TATICA 🟡
 
@@ -209,7 +271,7 @@ componente e o mesmo padrão de persistência do item ativo em `localStorage`
 (sobrevive a F5) também foram levados para o Laboratório de Raciocínio, que já
 salvava em `revisao_exercicio_avulso` mas não tinha histórico navegável.
 
-### P-11 — Fase B do multi-tenant: Auth no frontend + RLS por usuário 🟡
+### P-11 — Fase B do multi-tenant: Auth no frontend + RLS por usuário ✅ Fase B concluída em 13/09/2026
 
 **Fase A concluída (11/09/2026).** `user_id NOT NULL` nas 6 tabelas raiz,
 backfill das 900 linhas existentes, `DEFAULT_USER_ID` preenchendo toda escrita
@@ -266,19 +328,91 @@ As policies de `authenticated` criadas com `using(true)` em D-16 foram substitu�
 - As policies de `anon` continuam intactas.
 - Testado e validado de ponta a ponta com 2 contas reais: isolamento mútuo total verificado (nenhum dado vaza entre usuários).
 
-Falta, para o sistema ser multiusuário de verdade (próximos passos de Auth):
+**Fase B concluída (13/09/2026) — login obrigatório + zero acesso anônimo ao
+dado pessoal (D-23).** As 2 peças que faltavam pra fechar de vez:
+`backend/db/rls_remove_anon_dashboard.sql` removeu as 7 policies `to anon
+using(true)` que ainda sobravam (`partidas`, `lances_criticos`,
+`diagnosticos`, `revisao_exercicio_avulso`, `resumo_partida`,
+`analises_hexagono`, `sessoes_treino` — ver P-13 abaixo); `app.routes.ts`
+ligou o `authGuard` (existia desde D-15, nunca tinha sido aplicado) nas 4
+rotas do dashboard (`/`, `/laboratorio`, `/explicador`, `/analisador`).
+Confirmado por curl que a chave anon pura agora recebe 0 linhas nas 7
+tabelas, e por navegador (Playwright local + screenshot) que visitante sem
+sessão é redirecionado pra `/login` em qualquer uma das 4 rotas, enquanto a
+conta oficial logada continua vendo e fazendo tudo exatamente como sempre —
+incluindo o UPDATE de "Marcar como concluída" em `sessoes_treino`, que
+ganhou policy própria pra `authenticated` nesta mesma migration (não existia
+antes; o fluxo logado nunca tinha sido exercitado de verdade).
 
-- **Migrar os 4 amigos para conta própria.** Enquanto eles só tiverem
-  `X-API-Key`, toda leitura e escrita deles continua caindo em
-  `DEFAULT_USER_ID` (que agora é o UUID do Edson) — migração deliberadamente
-  mantida para momento oportuno.
-- **Ligar o `authGuard`** nas rotas do dashboard, quando fizer sentido exigir
-  login de verdade para navegar.
+**Autenticação unificada (13/09/2026) — a API também passou a exigir a sessão
+(D-25).** Era a última fronteira que ainda aceitava o mecanismo antigo:
+`X-API-Key` continuava sendo a porta de entrada dos 12 endpoints do FastAPI,
+com a sessão servindo só de bônus opcional. Agora a dependency
+`verificar_sessao` substitui `verificar_api_key` em **todos** os 12; o
+`user_id` real chega por injeção nas 6 rotas que precisam dele; e o fallback
+pro `DEFAULT_USER_ID` sumiu dos caminhos de API (continua valendo **só** pro
+CLI standalone, que não passa pela API). No frontend, `headersComSessao()`
+substituiu os headers de chave em todos os métodos, a tela de "Chave de
+acesso" saiu das 3 telas interativas e `AuthLocalService` foi removido por
+ficar sem consumidor.
+
+Validado por curl: os 12 endpoints devolvem `401` sem header **e também com
+uma `X-API-Key` válida** — o mecanismo antigo não abre mais porta nenhuma;
+com a sessão real, respondem `200` com os dados do dono. E no navegador, com
+a conta real logada: as 4 telas abrem sem pedir chave em lugar nenhum, toda
+chamada sai com `Authorization: Bearer` e nenhuma com `X-API-Key`, sem 4xx/5xx
+nem erro de console.
+
+Com D-14 (dono em toda escrita) + D-17/D-18 (identidade real, leitura
+filtrada) + D-19/D-22 (RLS isolado, zero tabela sem policy) + D-23 (zero
+policy `anon`, login obrigatório) + D-25 (sessão como único gate da API),
+**não sobra mais nenhum caminho anônimo nem por chave pro dado pessoal do
+dono**. A Fase B está encerrada; o que resta é migração de usuário e limpeza,
+não arquitetura de isolamento:
+
+- **Migrar os 4 amigos para conta própria.** Agora é **pré-requisito**, não
+  recomendação: D-23 fechou a porta na interface e D-25 fechou na API, então
+  `X-API-Key` não dá mais acesso a nada. Ver D-25.
 - **Adicionar FK para `auth.users(id)`** nas 6 tabelas raiz (comentada no fim
   de `backend/db/user_id_tabelas_raiz.sql`).
+- **Limpeza candidata, NÃO fazer sem avaliar (registrado em D-25):**
+  `API_SECRET_KEYS`/`API_SECRET_KEY` não são mais gate de acesso — o
+  `verificar_api_key`, o `_resolver_api_keys()` e a exigência dessas variáveis
+  no startup ficaram sem uso e podem sair. Já `DEFAULT_USER_ID` **não pode ser
+  removida**: continua sendo o dono gravado pelos scripts de CLI standalone,
+  que não passam pela API. Sair de vez com a chave também implica revisar o
+  `deploy-backend.yml` (D-20), que hoje propaga `API_SECRET_KEYS` como secret
+  obrigatório e abortaria o deploy sem ela.
 
-Isto **não** resolve P-2 (6 tabelas sem RLS nenhum): as duas coisas se cruzam,
-e o certo é tratá-las na mesma passada.
+O INSERT anônimo residual em `revisao_exercicio_avulso` (achado em D-23) foi
+fechado em 13/09/2026 por D-24 — confirmado que nenhum fluxo real dependia
+dele (frontend nunca escreve nessa tabela direto, só via FastAPI/service
+role) e validado por curl que o INSERT anônimo agora recebe `HTTP 401`.
+
+P-2 e P-13 estão fechadas (D-22 e D-23). A frente de RLS/Auth deste projeto
+não tem mais pendência de segurança aberta — só a migração de usuário acima.
+
+### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
+
+Não era decisão deliberada, era lacuna: `deploy-backend.yml` só propagava
+`DEFAULT_USER_ID` via `--update-env-vars`; as demais variáveis
+(`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`,
+`API_SECRET_KEYS`) só chegavam ao Cloud Run se alguém lembrasse de rodar
+manualmente `gcloud run deploy --env-vars-file=env.yaml`. Causou 2 incidentes
+reais nesta sessão: a introdução de `DEFAULT_USER_ID` (D-14) e a mudança do
+seu valor pro UUID real do Edson (D-19) — nos dois casos o deploy automático
+seguinte continuou rodando com o valor antigo/vazio até alguém notar e
+propagar na mão.
+
+**Resolução (D-20 em `DECISOES.md`).** O workflow agora gera, a cada deploy,
+um arquivo de env vars a partir dos GitHub Secrets e sobe o Cloud Run com
+`--env-vars-file` (substituição total, não `--update-env-vars`/merge) — os 5
+valores em produção passam a ser sempre exatamente o que os Secrets dizem
+naquele momento, sem depender de ninguém rodar comando manual. Validado
+localmente: confirmado via `gcloud run services describe` que os 5 valores
+hoje em produção batem com `env.yaml`, e testada a geração do arquivo YAML
+(incluindo que `API_SECRET_KEYS`, que tem vírgula no valor, sobrevive intacto
+nesse formato — o que quebraria com `--update-env-vars` inline).
 
 ## 5. O que está validado e funcionando
 

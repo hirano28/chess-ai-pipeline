@@ -7,13 +7,11 @@ import {
   ResumoPartidaData,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
-import { AuthLocalService } from '../../services/auth-local.service';
 
 describe('AnalisadorPartidaComponent', () => {
   let component: AnalisadorPartidaComponent;
   let fixture: ComponentFixture<AnalisadorPartidaComponent>;
   let revisaoService: RevisaoAvulsaService;
-  let authService: AuthLocalService;
 
   const resumoMock: ResumoPartidaData = {
     narrativa: 'A partida iniciou com a Defesa Siciliana variante Najdorf. No lance 15, as brancas sacrificaram em f7 criando vantagem decisiva.',
@@ -41,9 +39,6 @@ describe('AnalisadorPartidaComponent', () => {
     fixture = TestBed.createComponent(AnalisadorPartidaComponent);
     component = fixture.componentInstance;
     revisaoService = TestBed.inject(RevisaoAvulsaService);
-    authService = TestBed.inject(AuthLocalService);
-    authService.setKey('chave-teste');
-    component.chaveConfigurada.set(true);
     fixture.detectChanges();
   });
 
@@ -103,28 +98,19 @@ describe('AnalisadorPartidaComponent', () => {
     expect(component.erro()).toBe('Não foi possível inferir a cor do jogador.');
   });
 
-  it('deve tratar chave inválida na submissão', async () => {
+  it('deve tratar sessão expirada na submissão', async () => {
     vi.spyOn(revisaoService, 'submeterPartidaPgn').mockResolvedValue({
       success: false,
-      chaveInvalida: true
+      sessaoExpirada: true
     });
 
     component.pgn.set('1. e4 e5 2. Nf3 Nc6');
     await component.analisar();
 
-    expect(component.chaveConfigurada()).toBe(false);
-    expect(component.erroChave()).toContain('Chave inválida');
+    expect(component.erro()).toContain('sessão expirou');
     expect(component.estado()).toBe('INICIAL');
   });
 
-  it('deve salvar nova chave de API', () => {
-    component.chaveInput.set('nova-chave-secreta');
-    component.salvarChave();
-
-    expect(authService.getKey()).toBe('nova-chave-secreta');
-    expect(component.chaveConfigurada()).toBe(true);
-    expect(component.chaveInput()).toBe('');
-  });
 
   it('deve resetar o estado ao chamar novaAnalise', () => {
     component.pgn.set('1. e4');

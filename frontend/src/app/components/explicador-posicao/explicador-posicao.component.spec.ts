@@ -11,13 +11,11 @@ import {
   ResultadoExplicadorPosicao,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
-import { AuthLocalService } from '../../services/auth-local.service';
 
 describe('ExplicadorPosicaoComponent', () => {
   let component: ExplicadorPosicaoComponent;
   let fixture: ComponentFixture<ExplicadorPosicaoComponent>;
   let revisaoService: RevisaoAvulsaService;
-  let authService: AuthLocalService;
 
   const resultadoMock: ResultadoExplicadorPosicao = {
     fen: 'r1bq1rk1/ppp2ppp/2np4/2b1p1N1/2B1P3/3P4/PPP2PPP/R1BQK2R w KQ - 0 8',
@@ -77,9 +75,6 @@ describe('ExplicadorPosicaoComponent', () => {
     fixture = TestBed.createComponent(ExplicadorPosicaoComponent);
     component = fixture.componentInstance;
     revisaoService = TestBed.inject(RevisaoAvulsaService);
-    authService = TestBed.inject(AuthLocalService);
-    authService.setKey('chave-teste');
-    component.chaveConfigurada.set(true);
     fixture.detectChanges();
   });
 
@@ -137,19 +132,18 @@ describe('ExplicadorPosicaoComponent', () => {
     expect(component.posicao()).toContain('r1bq1rk1');
   });
 
-  it('deve deslogar e pedir chave quando chave for inválida', async () => {
+  it('deve avisar quando a sessão expirar', async () => {
     vi.spyOn(revisaoService, 'explicarPosicao').mockResolvedValue({
       success: false,
-      chaveInvalida: true,
-      error: 'Chave inválida, tente novamente.'
+      sessaoExpirada: true,
+      error: 'Sua sessão expirou. Entre de novo para continuar.'
     });
 
     component.posicao.set('r1bq1rk1/ppp2ppp/2np4/2b1p1N1/2B1P3/3P4/PPP2PPP/R1BQK2R w KQ - 0 8');
     await component.analisar();
     fixture.detectChanges();
 
-    expect(component.chaveConfigurada()).toBe(false);
-    expect(component.erroChave()).toContain('Chave inválida');
+    expect(component.erro()).toContain('sessão expirou');
   });
 
   it('deve limpar estado ao chamar novaAnalise', () => {
@@ -172,17 +166,6 @@ describe('ExplicadorPosicaoComponent', () => {
     expect(component.corBadgeVencedor('EQUILIBRADO')).toContain('bg-[#332c14]');
   });
 
-  it('deve salvar nova chave de acesso', () => {
-    component.chaveConfigurada.set(false);
-    component.chaveInput.set('nova-chave-secreta');
-    expect(component.chaveFormularioValido).toBe(true);
-
-    component.salvarChave();
-
-    expect(component.chaveConfigurada()).toBe(true);
-    expect(component.chaveInput()).toBe('');
-    expect(authService.getKey()).toBe('nova-chave-secreta');
-  });
 
   describe('histórico de explicações (fecha P-10)', () => {
     const itemHistorico: ExplicacaoPosicaoRecenteItem = {

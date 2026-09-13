@@ -11,44 +11,6 @@
       </p>
     </header>
 
-    @if (!chaveConfigurada()) {
-      <section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8">
-        <h2 class="mb-2 text-lg font-semibold">Chave de acesso</h2>
-        <p class="mb-5 text-sm leading-6 text-[#b9c7c8]">
-          Este laboratório fala com o servidor Python local, que exige uma chave de API.
-          Informe-a para liberar a análise.
-        </p>
-
-        @if (erroChave()) {
-          <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
-            {{ erroChave() }}
-          </div>
-        }
-
-        <div class="mb-5">
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-            Chave de acesso
-          </label>
-          <input
-            type="password"
-            class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
-            placeholder="Cole a chave de API fornecida"
-            [value]="chaveInput()"
-            (input)="chaveInput.set($any($event.target).value)"
-            (keydown.enter)="salvarChave()"
-          />
-        </div>
-
-        <button
-          type="button"
-          class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-not-allowed disabled:opacity-60"
-          [disabled]="!chaveFormularioValido"
-          (click)="salvarChave()"
-        >
-          Salvar chave
-        </button>
-      </section>
-    } @else {
     <section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8">
       @if (visualizandoHistorico(); as item) {
         <!-- Registro salvo, reaberto do histórico: schema mais enxuto que o
@@ -348,10 +310,8 @@
       }
       }
     </section>
-    }
 
     <!-- SEÇÃO: Histórico de Exercícios Salvos -->
-    @if (chaveConfigurada()) {
       <app-historico-analise
         titulo="Histórico de Exercícios Salvos"
         [itens]="itensHistoricoComponent()"
@@ -360,7 +320,6 @@
         (itemClicado)="selecionarHistorico($event)"
         (atualizarClicado)="carregarHistorico()"
       />
-    }
   </section>
 </main>
 

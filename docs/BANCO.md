@@ -129,14 +129,19 @@ rode `NOTIFY pgrst, 'reload schema';` (regra R5) — sem isso a API REST devolve
 
 ## 6. Row Level Security
 
-Estas tabelas estão com **RLS desabilitado** e portanto legíveis e graváveis por
-qualquer portador da chave `anon`, que é pública no bundle do frontend:
-`metricas_lichess_partida`, `tempos_lance`, `anotacoes_pensamento`,
-`perguntas_pendentes`, `revisoes_pensamento`, `puzzle_atividade`.
+**Nenhuma tabela do schema `public` está com RLS desabilitado** (varredura de
+`pg_class` em 13/09/2026). As 6 que estavam — `metricas_lichess_partida`,
+`tempos_lance`, `anotacoes_pensamento`, `perguntas_pendentes`,
+`revisoes_pensamento`, `puzzle_atividade` — foram fechadas por D-22
+(`backend/db/rls_tabelas_sem_politica.sql`), com policies só de
+`authenticated` isoladas por dono e **nenhuma** de `anon`, já que era
+justamente o acesso anônimo que vazava dado pessoal.
 
-Habilitar RLS sem criar policies bloqueia todo o acesso, inclusive o dos scripts
-que usam a service role. Tratar como decisão do dono do projeto, não como
-correção automática. Ver pendência em `ESTADO.md`.
+Habilitar RLS sem criar policies **não** bloqueia os scripts do pipeline: eles
+usam a service role key, que ignora RLS por definição. Bloqueia só `anon` e
+`authenticated` — é assim que `explicacoes_posicao`, `livros_chunks` e
+`indice_conceitual` ficam fechadas de propósito (RLS ligado, zero policies),
+já que nenhuma tela lê essas três direto.
 
 **Policy de RLS é por role, não por condição.** Uma policy criada com
 `to anon using (true)` só vale pra quem conecta como `anon` — a role
@@ -149,8 +154,12 @@ paridade. Na Fase B.3 (D-19), essas policies foram substituídas por
   `partidas`, `revisao_exercicio_avulso`): `using (user_id = auth.uid())`.
 - Tabelas filhas sem `user_id` próprio (`lances_criticos`, `diagnosticos`,
   `resumo_partida`): `using (exists (select 1 from ... where ... partidas.user_id = auth.uid()))`.
-As policies `to anon` continuam intactas (`using(true)`), permitindo que o
-fluxo histórico sem login continue operando normalmente.
+**As policies `to anon` foram removidas dessas 7 tabelas (D-23, 13/09/2026),
+e o INSERT `to anon` residual de `revisao_exercicio_avulso` também (D-24,
+mesma data).** Não existe mais nenhuma policy `to anon` no schema `public`
+inteiro — o dashboard passou a exigir login (`authGuard` ligado em
+`app.routes.ts`), então o acesso anônimo que essas policies sustentavam
+deixou de fazer sentido.
 Ao criar uma tabela nova com RLS, decida a lista de roles de propósito —
 `to public` cobre as duas de uma vez; `to anon` sozinho exclui autenticados.
 
