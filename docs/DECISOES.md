@@ -1702,6 +1702,34 @@ o sistema nunca baixaria partidas nem geraria o hexágono.
 
 ---
 
+### D-37 — Automatização das rotinas de background no GitHub Actions e isolamento multi-tenant em medir_eficacia.py
+
+**Data:** 2026-09-14  
+**Contexto:** Seis scripts existiam no backend mas não estavam automatizados (P-6). Como consequência, métricas avançadas do Lichess paravam no tempo, o histórico de puzzles não atualizava sozinho e a eficácia de sprints concluídas nunca era calculada. Além disso, antes de automatizar `medir_eficacia.py`, foi descoberto um bug de isolamento multi-tenant na contagem de diagnósticos.
+
+**O que mudou:**
+
+1. **Correção multi-tenant em `backend/agentes/medir_eficacia.py`:**
+   - `buscar_sessoes_elegiveis` passou a selecionar `user_id` de `sessoes_treino`.
+   - `contar_diagnosticos_categoria` passou a receber `user_id` e a filtrar `.eq("lances_criticos.partidas.user_id", user_id)` via join `partidas!inner(data_partida, user_id)`.
+   - Evita que erros de um jogador afetem o cálculo de redução percentual da sprint de outro.
+   - Criada a suíte `backend/agentes/test_medir_eficacia.py` com 15 testes unitários.
+   - Módulo registrado em `docs/OPERACAO.md` e `.github/workflows/deploy-backend.yml` (Regra R8).
+
+2. **Automatização no `pipeline-diario.yml`:**
+   - Adicionadas as etapas com `continue-on-error: true`:
+     - `backend/ingestao/importar_puzzle_activity.py` (puzzles via OAuth de cada usuário conectado).
+     - `backend/ingestao/enriquecer_partidas_lichess.py` (clocks e precisão por fase).
+     - `backend/agentes/gerar_perguntas_pendentes.py` (perguntas reflexivas para lances críticos).
+     - `backend/agentes/gerar_resumo_partida.py` (narrativas pós-diagnóstico).
+   - Atualizado o sumário de falhas do workflow para relatar todas as novas etapas.
+
+3. **Automatização no `pipeline-semanal.yml`:**
+   - Adicionada a etapa `backend/agentes/medir_eficacia.py` com `continue-on-error: true` antes do Agente 2.
+   - Atualizado o sumário do workflow semanal.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

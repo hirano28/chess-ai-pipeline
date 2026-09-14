@@ -34,6 +34,7 @@ python -m unittest \
   backend.agentes.test_gerar_perguntas_pendentes \
   backend.agentes.test_gerar_resumo_partida \
   backend.agentes.test_insights_repertorio \
+  backend.agentes.test_medir_eficacia \
   backend.agentes.test_normalizar_aberturas \
   backend.agentes.test_revisar_exercicio_avulso \
   backend.agentes.test_revisar_pensamento \
@@ -88,20 +89,17 @@ python backend/agentes/agente2_analista.py             # estatística + narrativ
 python backend/agentes/agente3_prescritor.py           # sprint de treino
 ```
 
-### Scripts que existem mas não estão em nenhum workflow
+### Scripts que continuam manuais (fora dos workflows)
 
-Precisam ser rodados à mão hoje:
+Precisam ser rodados à mão quando necessário:
 
 ```bash
-python backend/ingestao/enriquecer_partidas_lichess.py  # precisão por fase + relógio
-python backend/ingestao/importar_puzzle_activity.py     # histórico de puzzles
-python backend/ingestao/importar_anotacoes_lichess.py   # anotações de Lichess Study
-python backend/agentes/gerar_resumo_partida.py          # narrativa por partida
-python backend/agentes/gerar_perguntas_pendentes.py     # perguntas retroativas
-python backend/agentes/medir_eficacia.py                # fecha o loop adaptativo
+python backend/ingestao/importar_anotacoes_lichess.py   # anotações de Lichess Study (precisa study:write)
 python backend/ingestao/backfill_eco_abertura.py        # ECO faltante (execução única)
-python backend/agentes/normalizar_aberturas.py          # abertura_normalizada (rode de novo a cada leva nova de partidas)
+python backend/agentes/normalizar_aberturas.py          # abertura_normalizada (após novas levas de partidas)
 ```
+
+Os scripts `importar_puzzle_activity.py`, `enriquecer_partidas_lichess.py`, `gerar_perguntas_pendentes.py` e `gerar_resumo_partida.py` foram automatizados no `pipeline-diario.yml`, e `medir_eficacia.py` no `pipeline-semanal.yml` (ver D-37 em `DECISOES.md`).
 
 ## 5. Processar um livro novo no RAG
 
@@ -128,8 +126,8 @@ chunking saiu errado e o RAG vai citar página errada.
 
 | Workflow | Agenda (UTC) | O que roda |
 |---|---|---|
-| `pipeline-diario.yml` | `0 9 * * *` | coleta Lichess + Chess.com, Stockfish, Agente 1 |
-| `pipeline-semanal.yml` | `0 10 * * 1` | Agente 2, Agente 3 |
+| `pipeline-diario.yml` | `0 9 * * *` | coleta Lichess + Chess.com, puzzles, enriquecimento Lichess, Stockfish, Agente 1, perguntas pendentes, resumos |
+| `pipeline-semanal.yml` | `0 10 * * 1` | medir eficácia de treinos, Agente 2, Agente 3 |
 | `deploy-backend.yml` | push na `main` em `backend/**` ou `Dockerfile` | testes, build, deploy no Cloud Run |
 
 Execução manual: GitHub → aba **Actions** → workflow → **Run workflow**.

@@ -1,12 +1,12 @@
 ---
 doc: ESTADO.md
 escopo: ÚNICO lugar do repositório onde mora estado factual (contagens, status, pendências)
-verificado_em: 2026-09-13
+verificado_em: 2026-09-14
 como_reverificar: rode as queries da seção 6 e os comandos da seção 1
 aviso: número sem data de verificação em qualquer outro documento deve ser tratado como suspeito
 ---
 
-# Estado verificado — 2026-09-13
+# Estado verificado — 2026-09-14
 
 Tudo nesta página foi conferido nesta data contra o banco real
 (`pmzmershonrqzwbmhaco`), o código e os workflows. Ao mudar qualquer fato aqui,
@@ -16,12 +16,12 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **411**, todos passando, em 23 módulos |
+| Testes de backend | **426**, todos passando, em 24 módulos |
 | Testes de frontend (Vitest) | **92**, todos passando, em 12 arquivos |
 | `ng build` de produção | passa; avisa excesso de bundle (~794 kB), conhecido e aceito |
 
-`.github/workflows/deploy-backend.yml` lista os 23 módulos de teste do backend
-à mão (incluindo `backend.common.test_lichess_oauth`,
+`.github/workflows/deploy-backend.yml` lista os 24 módulos de teste do backend
+à mão (incluindo `backend.agentes.test_medir_eficacia`, `backend.common.test_lichess_oauth`,
 `backend.ingestao.test_importar_puzzle_activity`, `backend.agentes.test_agente2_analista`,
 `backend.common.test_notacao_pt`, `backend.analise_engine.test_backfill_fen_lances_criticos`,
 `backend.ingestao.test_coletar_partidas`, `backend.ingestao.test_coletar_partidas_chesscom`
@@ -258,13 +258,13 @@ semanal. Falta também o botão de concluir sprint no dashboard.
 28/08 e 09/09 — justamente as mais recentes. `analisar_partidas.py` só busca
 `pendente`, então nada é retomado e nenhum alerta é emitido.
 
-### P-6 — 6 scripts existem mas não estão automatizados 🟡
+### P-6 — 6 scripts existem mas não estão automatizados ✅ 5 automatizados em 14/09/2026 (D-37)
 
-`enriquecer_partidas_lichess.py`, `importar_puzzle_activity.py`,
-`importar_anotacoes_lichess.py`, `gerar_resumo_partida.py`,
-`gerar_perguntas_pendentes.py`, `medir_eficacia.py`. Consequência direta nos
-números da seção 2: 4 linhas de métricas Lichess para 61 partidas, puzzles
-parados em 07/09.
+5 dos 6 scripts foram automatizados nos workflows do GitHub Actions:
+- `pipeline-diario.yml`: `importar_puzzle_activity.py` (puzzles via OAuth), `enriquecer_partidas_lichess.py` (clocks e fases), `gerar_perguntas_pendentes.py` (perguntas reflexivas) e `gerar_resumo_partida.py` (narrativas).
+- `pipeline-semanal.yml`: `medir_eficacia.py` (agora com isolamento multi-tenant).
+
+Apenas `importar_anotacoes_lichess.py` permanece manual por depender do escopo OAuth `study:write` (fora do escopo atual).
 
 ### P-7 — Repertório é ponto cego total (parcialmente mitigado em 11/09/2026) 🟡
 

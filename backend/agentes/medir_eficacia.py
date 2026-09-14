@@ -99,7 +99,7 @@ def buscar_sessoes_elegiveis(client: Client) -> list[dict[str, Any]]:
 
     response = (
         client.table("sessoes_treino")
-        .select("id, diagnostico_gargalo, data_concluida")
+        .select("id, diagnostico_gargalo, data_concluida, user_id")
         .not_.is_("data_concluida", "null")
         .is_("eficacia_medida", "null")
         .order("data_concluida")
@@ -113,6 +113,7 @@ def contar_diagnosticos_categoria(
     categoria: str,
     inicio: datetime,
     fim: datetime,
+    user_id: str | None = None,
 ) -> int:
     """Conta diagnósticos da categoria no intervalo temporal informado."""
 
@@ -121,18 +122,19 @@ def contar_diagnosticos_categoria(
     offset = 0
     select = (
         "id, tags_falha, "
-        "lances_criticos!inner(partidas!inner(data_partida))"
+        "lances_criticos!inner(partidas!inner(data_partida, user_id))"
     )
 
     while True:
-        response = (
+        query = (
             client.table("diagnosticos")
             .select(select)
             .gte("lances_criticos.partidas.data_partida", inicio.isoformat())
             .lt("lances_criticos.partidas.data_partida", fim.isoformat())
-            .range(offset, offset + PAGE_SIZE - 1)
-            .execute()
         )
+        if user_id:
+            query = query.eq("lances_criticos.partidas.user_id", user_id)
+        response = query.range(offset, offset + PAGE_SIZE - 1).execute()
         page = response.data or []
         total += sum(
             1
@@ -171,6 +173,7 @@ def processar_sessao(
     """Avalia uma sessão; retorna False quando ainda faltam dados."""
 
     sessao_id = sessao["id"]
+    user_id = sessao.get("user_id")
     categoria = extrair_categoria(str(sessao.get("diagnostico_gargalo") or ""))
     data_concluida = datetime.fromisoformat(
         str(sessao["data_concluida"]).replace("Z", "+00:00")
@@ -179,10 +182,10 @@ def processar_sessao(
     fim_depois = data_concluida + timedelta(days=WINDOW_DAYS)
 
     frequencia_antes = contar_diagnosticos_categoria(
-        client, categoria, inicio_antes, data_concluida
+        client, categoria, inicio_antes, data_concluida, user_id=user_id
     )
     frequencia_depois = contar_diagnosticos_categoria(
-        client, categoria, data_concluida, fim_depois
+        client, categoria, data_concluida, fim_depois, user_id=user_id
     )
 
     if frequencia_depois < MIN_POST_DIAGNOSTICS:

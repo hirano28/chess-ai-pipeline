@@ -29,6 +29,11 @@ jobs:
       - name: Instalar dependencias Python
         run: python -m pip install -r backend/requirements.txt
 
+      - name: Medir eficacia de treinos
+        id: medir_eficacia
+        continue-on-error: true
+        run: python backend/agentes/medir_eficacia.py
+
       - name: Executar Agente 2 - Analista
         id: agente2_analista
         run: python backend/agentes/agente2_analista.py
@@ -48,6 +53,7 @@ jobs:
             echo
             echo "| Etapa | Resultado |"
             echo "| --- | --- |"
+            echo "| Medir eficacia | ${{ steps.medir_eficacia.outcome || 'nao executada' }} |"
             echo "| Agente 2 | ${{ steps.agente2_analista.outcome || 'nao executada' }} |"
             echo "| Agente 3 | ${{ steps.agente3_prescritor.outcome || 'nao executada' }} |"
           } >> "$GITHUB_STEP_SUMMARY"

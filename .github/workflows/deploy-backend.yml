@@ -54,6 +54,7 @@ jobs:
             backend.agentes.test_gerar_perguntas_pendentes \
             backend.agentes.test_gerar_resumo_partida \
             backend.agentes.test_insights_repertorio \
+            backend.agentes.test_medir_eficacia \
             backend.agentes.test_normalizar_aberturas \
             backend.agentes.test_revisar_exercicio_avulso \
             backend.agentes.test_revisar_pensamento \

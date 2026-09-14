@@ -65,6 +65,16 @@ jobs:
         continue-on-error: true
         run: python backend/ingestao/coletar_partidas_chesscom.py
 
+      - name: Importar puzzles do Lichess
+        id: importar_puzzles
+        continue-on-error: true
+        run: python backend/ingestao/importar_puzzle_activity.py
+
+      - name: Enriquecer partidas do Lichess
+        id: enriquecer_lichess
+        continue-on-error: true
+        run: python backend/ingestao/enriquecer_partidas_lichess.py
+
       - name: Analisar partidas com Stockfish
         id: analisar_engine
         run: python backend/analise_engine/analisar_partidas.py
@@ -72,6 +82,16 @@ jobs:
       - name: Gerar diagnosticos com Agente 1
         id: agente1_linter
         run: python backend/agentes/agente1_linter.py
+
+      - name: Gerar perguntas pendentes
+        id: gerar_perguntas
+        continue-on-error: true
+        run: python backend/agentes/gerar_perguntas_pendentes.py
+
+      - name: Gerar resumos das partidas
+        id: gerar_resumos
+        continue-on-error: true
+        run: python backend/agentes/gerar_resumo_partida.py
 
       - name: Registrar falhas no summary
         if: failure()
@@ -87,8 +107,12 @@ jobs:
             echo "| Instalar Stockfish | ${{ steps.instalar_stockfish.outcome || 'nao executada' }} |"
             echo "| Coleta Lichess | ${{ steps.coletar_lichess.outcome || 'nao executada' }} |"
             echo "| Coleta Chess.com | ${{ steps.coletar_chesscom.outcome || 'nao executada' }} |"
+            echo "| Puzzles Lichess | ${{ steps.importar_puzzles.outcome || 'nao executada' }} |"
+            echo "| Enriquecer Lichess | ${{ steps.enriquecer_lichess.outcome || 'nao executada' }} |"
             echo "| Analise Stockfish | ${{ steps.analisar_engine.outcome || 'nao executada' }} |"
             echo "| Agente 1 | ${{ steps.agente1_linter.outcome || 'nao executada' }} |"
+            echo "| Perguntas pendentes | ${{ steps.gerar_perguntas.outcome || 'nao executada' }} |"
+            echo "| Resumos de partidas | ${{ steps.gerar_resumos.outcome || 'nao executada' }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publicar logs
