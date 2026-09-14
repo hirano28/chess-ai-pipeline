@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import MagicMock
 
 from backend.agentes.agente2_analista import HEXAGON_CATEGORIES
 from backend.agentes.insights_repertorio import (
@@ -12,6 +13,10 @@ from backend.agentes.insights_repertorio import (
     calcular_lance_medio_pico_por_abertura,
     calcular_metricas_por_abertura_e_cor,
     calcular_taxa_vitoria_por_cor,
+    fetch_diagnosticos_com_partida,
+    fetch_lances_pico,
+    fetch_metricas_por_partida,
+    fetch_partidas_repertorio,
 )
 
 
@@ -240,6 +245,67 @@ class CalcularCategoriasPorAberturaTest(unittest.TestCase):
         resultado = calcular_categorias_por_abertura(partidas, diagnosticos)
 
         self.assertEqual(resultado["Francesa"]["TATICA"], 4)
+
+
+class FetchFiltraPeloDonoTest(unittest.TestCase):
+    """D-30: as 4 buscas precisam filtrar por user_id NA QUERY, não só no endpoint."""
+
+    @staticmethod
+    def _resp_vazia() -> MagicMock:
+        resp = MagicMock()
+        resp.data = []
+        return resp
+
+    def test_fetch_partidas_repertorio_filtra_por_user_id(self) -> None:
+        # select(...).in_("plataforma", ...).eq("user_id", user_id).range(...).execute()
+        client = MagicMock()
+        no = client.table.return_value.select.return_value.in_.return_value
+        no.eq.return_value.range.return_value.execute.return_value = self._resp_vazia()
+
+        fetch_partidas_repertorio(client, "user-a")
+
+        select_arg = client.table.return_value.select.call_args[0][0]
+        self.assertNotIn("!inner", select_arg)  # tem user_id próprio, sem embed
+        no.eq.assert_called_once_with("user_id", "user-a")
+
+    def test_fetch_metricas_por_partida_filtra_via_embed(self) -> None:
+        # select(...).eq("partidas.user_id", user_id).range(...).execute()
+        client = MagicMock()
+        no = client.table.return_value.select.return_value
+        no.eq.return_value.range.return_value.execute.return_value = self._resp_vazia()
+
+        fetch_metricas_por_partida(client, "user-a")
+
+        select_arg = client.table.return_value.select.call_args[0][0]
+        self.assertIn("partidas!inner", select_arg)
+        no.eq.assert_called_once_with("partidas.user_id", "user-a")
+
+    def test_fetch_lances_pico_filtra_via_embed(self) -> None:
+        # select(...).eq("tipo_evento", "PICO").eq("partidas.user_id", user_id).range(...).execute()
+        client = MagicMock()
+        primeiro_eq = client.table.return_value.select.return_value.eq
+        segundo_eq = primeiro_eq.return_value.eq
+        segundo_eq.return_value.range.return_value.execute.return_value = self._resp_vazia()
+
+        fetch_lances_pico(client, "user-a")
+
+        select_arg = client.table.return_value.select.call_args[0][0]
+        self.assertIn("partidas!inner", select_arg)
+        primeiro_eq.assert_called_once_with("tipo_evento", "PICO")
+        segundo_eq.assert_called_once_with("partidas.user_id", "user-a")
+
+    def test_fetch_diagnosticos_com_partida_filtra_via_embed_duplo(self) -> None:
+        # select(...).eq("lances_criticos.partidas.user_id", user_id).range(...).execute()
+        client = MagicMock()
+        no = client.table.return_value.select.return_value
+        no.eq.return_value.range.return_value.execute.return_value = self._resp_vazia()
+
+        fetch_diagnosticos_com_partida(client, "user-a")
+
+        select_arg = client.table.return_value.select.call_args[0][0]
+        self.assertIn("lances_criticos!inner", select_arg)
+        self.assertIn("partidas!inner", select_arg)
+        no.eq.assert_called_once_with("lances_criticos.partidas.user_id", "user-a")
 
 
 if __name__ == "__main__":

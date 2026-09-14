@@ -1128,6 +1128,145 @@ faxina futura, não bloqueante — igual à pendência já registrada de
 
 ---
 
+### D-29 — IDOR real em GET/POST /partidas/{id}: qualquer sessão via QUALQUER partida (incidente de segurança)
+
+**Data:** 2026-09-13
+**Gatilho:** revisão da tabela de `ARQUITETURA.md` encontrou `GET
+/partidas/{id}/resumo` e `POST /partidas/{id}/reprocessar` marcados só com
+🎫 (exige sessão), sem 👤 (filtro por dono) — diferente de todo outro
+endpoint por-ID do projeto. Tratado como suspeita de incidente, não como
+erro de documentação, até prova em contrário.
+
+**Leitura do código confirmou a suspeita antes de qualquer teste:** os dois
+endpoints buscavam a partida só por `.eq("id", partida_id)`, sem nenhum
+`.eq("user_id", ...)` e sem sequer capturar o `user_id` da sessão (usavam
+`dependencies=[Depends(verificar_sessao)]`, que só verifica que a sessão é
+válida — não filtra nada por ela).
+
+**Confirmado com evidência real (2 contas via Admin API, mesmo padrão de
+D-19/D-28):** criada a conta A com uma partida real (`resumo_partida` com
+narrativa marcada "SEGREDO DA CONTA A"), obtido token de sessão real da
+conta B. Autenticado como B, contra o UUID da partida da A:
+
+| Chamada | Antes da correção | Depois da correção |
+|---|---|---|
+| `GET /partidas/{id-da-A}/resumo` | **HTTP 200**, devolveu a narrativa completa e confidencial da conta A | **HTTP 404** |
+| `POST /partidas/{id-da-A}/reprocessar` | **HTTP 202**, aceitou e reagendou a análise — confirmado por SQL que `status_processamento` da partida da A virou `processando`, disparado pela conta B | **HTTP 404** |
+
+Ou seja: não era só leitura vazando — **qualquer sessão válida conseguia
+disparar reprocessamento (Stockfish + Gemini) em cima da partida de
+qualquer outro usuário**, só por adivinhar ou enumerar um UUID. Confirmado
+também que a dona real (conta A) continuou acessando normalmente depois da
+correção (`HTTP 200`, mesma narrativa) — o filtro não quebrou o caminho
+legítimo.
+
+**Resolução em `backend/api/api_server.py`.** Os dois endpoints passaram a
+receber `user_id` por injeção (`Depends(verificar_sessao)` como parâmetro,
+não só `dependencies=[...]`) e a query inicial de busca da partida ganhou
+`.eq("user_id", user_id)` — mesmo princípio já usado em `/partidas/recentes`
+(D-18), só que aqui a busca é por um único recurso, não uma lista. Partida
+de outro dono responde **404**, nunca 403: não existe diferença observável
+entre "não existe" e "existe mas não é sua", de propósito, para não revelar
+a existência do recurso a quem não é dono.
+
+**Testes:** `AnalisarPgnEndpointTest` ganhou
+`test_obter_resumo_filtra_pelo_dono_da_sessao` e
+`test_reprocessar_filtra_pelo_dono_da_sessao`, replicando o `assert_called_once_with`
+do filtro `user_id` já usado nos testes de D-18. Os 3 testes existentes que
+mockavam a query de busca (`test_obter_resumo_partida_inexistente_recebe_404`,
+`test_obter_resumo_partida_processando_retorna_resumo_nulo`,
+`test_obter_resumo_partida_concluida_retorna_resumo_completo`,
+`test_reprocessar_partida_inexistente_recebe_404`,
+`test_reprocessar_partida_existente_agenda_background_task`) precisaram de
+mais um `.eq()` na cadeia mockada, pois a query real agora encadeia dois
+filtros (`id` e `user_id`), não um.
+
+**`ARQUITETURA.md` corrigido**: os dois endpoints passam a levar 👤 na
+tabela de rotas — a marcação estava certa em apontar a ausência, o problema
+era o código, não a tabela.
+
+**Achado correlato, sinalizado mas NÃO corrigido aqui (fora do escopo pedido):**
+`GET /insights/repertorio` também não recebe `user_id` nenhum —
+`calcular_insights_repertorio(client)` é chamado sem filtro de dono, mesma
+classe de risco que os agentes 2/3 tinham antes de D-28. Não foi validado
+com conta real nem corrigido nesta rodada; registrado como pendência em
+`ESTADO.md`.
+
+**Limpeza:** as 2 contas de teste e a partida/resumo fabricados foram
+removidos ao final; confirmado por SQL que não sobrou nenhuma linha órfã.
+
+---
+
+### D-30 — Mesmo IDOR em GET /insights/repertorio: agregações misturavam TODO o banco (incidente de segurança)
+
+**Data:** 2026-09-13
+**Gatilho:** achado correlato sinalizado em D-29 e não investigado ali —
+mesma ausência de filtro por dono, desta vez numa rota de agregação em vez
+de busca por-ID.
+
+**Leitura do código confirmou: não era "só hoje só tem 1 usuário com dado".**
+As 4 funções de busca em `backend/agentes/insights_repertorio.py`
+(`fetch_partidas_repertorio`, `fetch_metricas_por_partida`,
+`fetch_lances_pico`, `fetch_diagnosticos_com_partida`) varriam a tabela
+inteira, sem nenhum `.eq("user_id", ...)` nem em `partidas` (que tem a
+coluna) nem nas 3 tabelas filhas (que não têm, e não usavam `!inner` pra
+filtrar via `partidas`). `calcular_insights_repertorio(client)` não recebia
+`user_id` nenhum, e o endpoint em `api_server.py` usava
+`dependencies=[Depends(verificar_sessao)]` — mesmo padrão de bug de D-29,
+sessão validada mas nunca usada pra filtrar nada.
+
+**Confirmado com evidência real (2 contas via Admin API, mesmo padrão de
+D-29):** conta A com 1 partida marcada (`abertura_normalizada:
+"MARCA_UNICA_D30_CONTA_A"`), conta B sem partida nenhuma. Autenticado como
+B, `GET /insights/repertorio` devolveu **o repertório real completo do
+Edson** — 212 partidas, taxa de vitória por cor (106/106), distribuição por
+14 aberturas, os 525 eventos `PICO`, distribuição de categoria do hexágono
+por abertura. B não tinha absolutamente nenhuma partida própria e ainda
+assim recebeu `HTTP 200` com um payload gigante de dado alheio: pior que
+D-29 em superfície, porque aqui não era preciso nem adivinhar um UUID — o
+vazamento acontecia sempre, pra qualquer sessão válida, sem parâmetro
+nenhum.
+
+**Resolução em `backend/agentes/insights_repertorio.py` e
+`backend/api/api_server.py`.** As 4 funções de busca passaram a receber
+`user_id` e filtrar **na query, não só no resultado final**:
+- `fetch_partidas_repertorio`: `.eq("user_id", user_id)` direto (`partidas`
+  tem a coluna).
+- `fetch_metricas_por_partida` e `fetch_lances_pico`: embed
+  `partidas!inner(user_id)` + `.eq("partidas.user_id", user_id)` — mesma
+  técnica de D-28, necessária porque essas duas tabelas são filhas, sem
+  `user_id` próprio.
+- `fetch_diagnosticos_com_partida`: embed duplo
+  `lances_criticos!inner(partida_id, partidas!inner(user_id))` +
+  `.eq("lances_criticos.partidas.user_id", user_id)` — dois níveis de FK até
+  o dono, igual ao `fetch_diagnosticos` de `agente2_analista.py`.
+
+`calcular_insights_repertorio(client, user_id)` e o endpoint (`user_id: str
+= Depends(verificar_sessao)`, por injeção, não só `dependencies`) passaram
+esse valor adiante.
+
+**Revalidado com as mesmas 2 contas.** B (zero partidas): as 4 agregações
+vieram todas vazias/zeradas (`{}`, `[]`) — nenhum traço do dado do Edson. A
+(1 partida própria): viu exatamente a própria partida (`taxa_vitoria_por_cor`
+BRANCAS 1/1, 100%) e nada além dela — sem contaminação em nenhuma das duas
+direções.
+
+**Testes:** `test_insights_repertorio.py` ganhou `FetchFiltraPeloDonoTest`
+(4 testes, um por função de busca, verificando o `.eq`/embed corretos na
+query real). `test_api_server.py` ganhou `test_filtra_pelo_dono_real_da_sessao`
+e corrigiu o `assert_called_once_with` de `test_retorna_o_payload_calculado`
+(o mock agora precisa do `user_id` no argumento).
+
+**P-14 fechada de vez** em `ESTADO.md` — as duas rotas por-ID (D-29) e a
+rota de agregação (D-30) eram os dois únicos endpoints do projeto sem
+filtro por dono; nenhum ponto conhecido de vazamento cross-account
+permanece aberto.
+
+**Limpeza:** as 2 contas de teste e a partida/lance fabricados foram
+removidos ao final; confirmado por SQL que não sobrou nenhuma linha órfã.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

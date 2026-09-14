@@ -1138,7 +1138,35 @@ class InsightsRepertorioEndpointTest(unittest.TestCase):
 
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(resposta.json(), payload_esperado)
-        mock_calcular.assert_called_once_with(api_server._state["supabase_client"])
+        # D-30: o dono da sessão também é repassado, não só o client.
+        mock_calcular.assert_called_once_with(
+            api_server._state["supabase_client"], USER_ID_TESTE
+        )
+
+    @patch("backend.api.api_server.calcular_insights_repertorio")
+    def test_filtra_pelo_dono_real_da_sessao(self, mock_calcular: MagicMock) -> None:
+        """D-30: sem isso, a rota (e o cálculo por trás) misturava dado de todo mundo."""
+        mock_calcular.return_value = {
+            "taxa_vitoria_por_cor": {},
+            "por_abertura_e_cor": [],
+            "lance_pico_por_abertura": [],
+            "categorias_por_abertura": {},
+        }
+        user_id_sessao = "99999999-8888-7777-6666-555555555555"
+        mock_client = MagicMock()
+        mock_user_response = MagicMock()
+        mock_user_response.user.id = user_id_sessao
+        mock_client.auth.get_user.return_value = mock_user_response
+        api_server._state["supabase_client"] = mock_client
+
+        with gate_de_sessao_real():
+            resposta = self.client.get(
+                "/insights/repertorio",
+                headers=HEADERS_SESSAO,
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        mock_calcular.assert_called_once_with(mock_client, user_id_sessao)
 
     @patch("backend.api.api_server.calcular_insights_repertorio")
     def test_falha_no_calculo_retorna_500(self, mock_calcular: MagicMock) -> None:
@@ -1361,7 +1389,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         mock_client = MagicMock()
         resp_mock = MagicMock()
         resp_mock.data = []
-        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp_mock
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp_mock
         api_server._state["supabase_client"] = mock_client
 
         resposta = self.client.get(
@@ -1371,11 +1399,32 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         self.assertEqual(resposta.status_code, 404)
         self.assertIn("não encontrada", resposta.json()["detail"])
 
+    def test_obter_resumo_filtra_pelo_dono_da_sessao(self) -> None:
+        """D-29: sem o filtro por user_id, qualquer sessão lia o resumo de QUALQUER partida."""
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = []
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/partidas/partida-de-outro-dono/resumo",
+            headers=HEADERS_SESSAO,
+        )
+
+        self.assertEqual(resposta.status_code, 404)
+        mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+            "id", "partida-de-outro-dono"
+        )
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.assert_called_once_with(
+            "user_id", USER_ID_TESTE
+        )
+
     def test_obter_resumo_partida_processando_retorna_resumo_nulo(self) -> None:
         mock_client = MagicMock()
         resp_mock = MagicMock()
         resp_mock.data = [{"id": "p1", "external_id": "ext1", "status_processamento": "processando"}]
-        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp_mock
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp_mock
         api_server._state["supabase_client"] = mock_client
 
         resposta = self.client.get(
@@ -1396,7 +1445,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
             if table_name == "partidas":
                 resp = MagicMock()
                 resp.data = [{"id": "p2", "external_id": "ext2", "status_processamento": "concluido"}]
-                mock_table.select.return_value.eq.return_value.execute.return_value = resp
+                mock_table.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp
             elif table_name == "resumo_partida":
                 resp = MagicMock()
                 resp.data = [{
@@ -1494,7 +1543,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         mock_client = MagicMock()
         resp_mock = MagicMock()
         resp_mock.data = []
-        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp_mock
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp_mock
         api_server._state["supabase_client"] = mock_client
 
         resposta = self.client.post(
@@ -1502,6 +1551,27 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
             headers=HEADERS_SESSAO,
         )
         self.assertEqual(resposta.status_code, 404)
+
+    def test_reprocessar_filtra_pelo_dono_da_sessao(self) -> None:
+        """D-29: sem o filtro por user_id, qualquer sessão reagendava a análise de QUALQUER partida."""
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = []
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post(
+            "/partidas/partida-de-outro-dono/reprocessar",
+            headers=HEADERS_SESSAO,
+        )
+
+        self.assertEqual(resposta.status_code, 404)
+        mock_client.table.return_value.select.return_value.eq.assert_called_once_with(
+            "id", "partida-de-outro-dono"
+        )
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.assert_called_once_with(
+            "user_id", USER_ID_TESTE
+        )
 
     @patch("backend.api.api_server.update_status")
     @patch("backend.api.api_server.executar_pipeline_partida")
@@ -1519,7 +1589,7 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         mock_client = MagicMock()
         resp_mock = MagicMock()
         resp_mock.data = [{"id": "p-existente", "external_id": "ext-existente"}]
-        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp_mock
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp_mock
         api_server._state["supabase_client"] = mock_client
 
         resposta = self.client.post(

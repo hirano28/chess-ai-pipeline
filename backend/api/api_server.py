@@ -878,10 +878,18 @@ def analisar_pgn_endpoint(
 @app.get(
     "/partidas/{partida_id}/resumo",
     response_model=ResumoPartidaResponse,
-    dependencies=[Depends(verificar_sessao)],
 )
-def obter_resumo_partida_endpoint(partida_id: str) -> ResumoPartidaResponse:
-    """Retorna o status atual de processamento e a narrativa da partida se disponível."""
+def obter_resumo_partida_endpoint(
+    partida_id: str, user_id: str = Depends(verificar_sessao)
+) -> ResumoPartidaResponse:
+    """Retorna o status atual de processamento e a narrativa da partida se disponível.
+
+    D-29: `.eq("user_id", user_id)` filtra a busca pelo dono da sessão — sem
+    isso, qualquer sessão válida lia o resumo de qualquer partida de
+    qualquer usuário, só por adivinhar/enumerar o UUID. Partida de outro
+    dono responde 404 (igual a não existir), nunca 403 — não revela que a
+    partida existe.
+    """
     client = _state.get("supabase_client")
     if not client:
         raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
@@ -891,6 +899,7 @@ def obter_resumo_partida_endpoint(partida_id: str) -> ResumoPartidaResponse:
             client.table("partidas")
             .select("id, external_id, status_processamento")
             .eq("id", partida_id)
+            .eq("user_id", user_id)
             .execute()
         )
     except Exception as error:
@@ -979,13 +988,20 @@ def listar_partidas_recentes(
     "/partidas/{partida_id}/reprocessar",
     status_code=202,
     response_model=AnalisarPgnResponse,
-    dependencies=[Depends(verificar_sessao)],
 )
 def reprocessar_partida_endpoint(
     partida_id: str,
     background_tasks: BackgroundTasks,
+    user_id: str = Depends(verificar_sessao),
 ) -> AnalisarPgnResponse:
-    """Re-agenda a análise completa de uma partida já existente em segundo plano."""
+    """Re-agenda a análise completa de uma partida já existente em segundo plano.
+
+    D-29: `.eq("user_id", user_id)` filtra pelo dono da sessão — sem isso,
+    qualquer sessão válida conseguia reagendar a partida de qualquer outro
+    usuário só por adivinhar o UUID, consumindo Stockfish/Gemini em cima do
+    dado alheio. Partida de outro dono responde 404, nunca 403 — não revela
+    que existe.
+    """
     client = _state.get("supabase_client")
     if not client:
         raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
@@ -995,6 +1011,7 @@ def reprocessar_partida_endpoint(
             client.table("partidas")
             .select("id, external_id")
             .eq("id", partida_id)
+            .eq("user_id", user_id)
             .execute()
         )
     except Exception as error:
@@ -1020,22 +1037,24 @@ def reprocessar_partida_endpoint(
     return AnalisarPgnResponse(partida_id=partida_id, external_id=external_id)
 
 
-@app.get(
-    "/insights/repertorio",
-    dependencies=[Depends(verificar_sessao)],
-)
-def insights_repertorio_endpoint() -> dict[str, Any]:
+@app.get("/insights/repertorio")
+def insights_repertorio_endpoint(
+    user_id: str = Depends(verificar_sessao),
+) -> dict[str, Any]:
     """Agregações de repertório: taxa de vitória, precisão e padrão de erro por abertura.
 
     Cálculo puro sobre dado já persistido (sem Stockfish nem Gemini) — ver
     backend/agentes/insights_repertorio.py e D-12/D-13 em DECISOES.md.
+
+    D-30: filtrado pelo dono da sessão — cada uma das 4 queries internas de
+    `calcular_insights_repertorio` já recebe `user_id`, não só o endpoint.
     """
     client = _state.get("supabase_client")
     if not client:
         raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
 
     try:
-        return calcular_insights_repertorio(client)
+        return calcular_insights_repertorio(client, user_id)
     except Exception as error:
         raise HTTPException(
             status_code=500, detail=f"Falha ao calcular insights de repertório: {error}"

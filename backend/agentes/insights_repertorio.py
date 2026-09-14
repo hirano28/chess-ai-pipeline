@@ -16,6 +16,11 @@ pequenos são somados num bucket `"outras"` em vez de simplesmente descartados,
 pra não perder partidas da contagem total. Onde não faz sentido somar (item 3,
 lance de PICO; item 4, distribuição de categoria) o grupo abaixo do limiar é
 só omitido do resultado.
+
+Tudo isto é por usuário (D-30): as 4 funções `fetch_*` recebem `user_id` e
+filtram a query na origem — `partidas` tem a coluna própria, as outras 3
+(sem `user_id` próprio, tabelas filhas) filtram via `!inner` no embed de
+`partidas`, mesma técnica de D-28 em `agente2_analista.fetch_diagnosticos`.
 """
 
 from __future__ import annotations
@@ -46,8 +51,8 @@ _TAG_PARA_CATEGORIA = {
 # ---------------------------------------------------------------------------
 
 
-def fetch_partidas_repertorio(client: Client) -> list[dict[str, Any]]:
-    """Busca as partidas LICHESS/CHESSCOM usadas em toda agregação deste módulo."""
+def fetch_partidas_repertorio(client: Client, user_id: str) -> list[dict[str, Any]]:
+    """Busca as partidas LICHESS/CHESSCOM de `user_id` usadas em toda agregação deste módulo."""
 
     partidas: list[dict[str, Any]] = []
     offset = 0
@@ -56,6 +61,7 @@ def fetch_partidas_repertorio(client: Client) -> list[dict[str, Any]]:
             client.table("partidas")
             .select("id, plataforma, cor_jogada, resultado, abertura_normalizada")
             .in_("plataforma", list(PLATAFORMAS_CONSIDERADAS))
+            .eq("user_id", user_id)
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
         )
@@ -66,15 +72,25 @@ def fetch_partidas_repertorio(client: Client) -> list[dict[str, Any]]:
         offset += PAGE_SIZE
 
 
-def fetch_metricas_por_partida(client: Client) -> dict[str, dict[str, Any]]:
-    """Indexa `metricas_lichess_partida` por `partida_id`."""
+def fetch_metricas_por_partida(client: Client, user_id: str) -> dict[str, dict[str, Any]]:
+    """Indexa `metricas_lichess_partida` de `user_id` por `partida_id`.
+
+    `!inner` no embed de `partidas` (mesma técnica de D-28 em
+    `agente2_analista.fetch_diagnosticos`) é o que permite filtrar a tabela
+    de fora (`metricas_lichess_partida`, sem `user_id` próprio) pela coluna
+    aninhada `partidas.user_id`.
+    """
 
     metricas: dict[str, dict[str, Any]] = {}
     offset = 0
     while True:
         response = (
             client.table("metricas_lichess_partida")
-            .select("partida_id, precisao_abertura, precisao_meiojogo, precisao_final")
+            .select(
+                "partida_id, precisao_abertura, precisao_meiojogo, precisao_final, "
+                "partidas!inner(user_id)"
+            )
+            .eq("partidas.user_id", user_id)
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
         )
@@ -86,16 +102,17 @@ def fetch_metricas_por_partida(client: Client) -> dict[str, dict[str, Any]]:
         offset += PAGE_SIZE
 
 
-def fetch_lances_pico(client: Client) -> list[dict[str, Any]]:
-    """Busca todos os eventos `PICO` (`partida_id`, `numero_lance`)."""
+def fetch_lances_pico(client: Client, user_id: str) -> list[dict[str, Any]]:
+    """Busca os eventos `PICO` (`partida_id`, `numero_lance`) das partidas de `user_id`."""
 
     lances: list[dict[str, Any]] = []
     offset = 0
     while True:
         response = (
             client.table("lances_criticos")
-            .select("partida_id, numero_lance")
+            .select("partida_id, numero_lance, partidas!inner(user_id)")
             .eq("tipo_evento", "PICO")
+            .eq("partidas.user_id", user_id)
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
         )
@@ -106,16 +123,17 @@ def fetch_lances_pico(client: Client) -> list[dict[str, Any]]:
         offset += PAGE_SIZE
 
 
-def fetch_diagnosticos_com_partida(client: Client) -> list[dict[str, Any]]:
-    """Busca `tags_falha` de cada diagnóstico junto do `partida_id` do lance."""
+def fetch_diagnosticos_com_partida(client: Client, user_id: str) -> list[dict[str, Any]]:
+    """Busca `tags_falha` de cada diagnóstico de `user_id`, junto do `partida_id` do lance."""
 
     rows: list[dict[str, Any]] = []
     offset = 0
-    select = "tags_falha, lances_criticos(partida_id)"
+    select = "tags_falha, lances_criticos!inner(partida_id, partidas!inner(user_id))"
     while True:
         response = (
             client.table("diagnosticos")
             .select(select)
+            .eq("lances_criticos.partidas.user_id", user_id)
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
         )
@@ -299,13 +317,13 @@ def calcular_categorias_por_abertura(
 # ---------------------------------------------------------------------------
 
 
-def calcular_insights_repertorio(client: Client) -> dict[str, Any]:
-    """Busca tudo que essas 4 agregações precisam e monta o payload completo."""
+def calcular_insights_repertorio(client: Client, user_id: str) -> dict[str, Any]:
+    """Busca tudo que essas 4 agregações precisam (só de `user_id`) e monta o payload completo."""
 
-    partidas = fetch_partidas_repertorio(client)
-    metricas_por_partida = fetch_metricas_por_partida(client)
-    lances_pico = fetch_lances_pico(client)
-    diagnosticos = fetch_diagnosticos_com_partida(client)
+    partidas = fetch_partidas_repertorio(client, user_id)
+    metricas_por_partida = fetch_metricas_por_partida(client, user_id)
+    lances_pico = fetch_lances_pico(client, user_id)
+    diagnosticos = fetch_diagnosticos_com_partida(client, user_id)
 
     return {
         "taxa_vitoria_por_cor": calcular_taxa_vitoria_por_cor(partidas),

@@ -16,7 +16,7 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **353**, todos passando, em 21 módulos |
+| Testes de backend | **360**, todos passando, em 21 módulos |
 | Testes de frontend (Vitest) | **76**, todos passando, em 10 arquivos |
 | `ng build` de produção | passa; avisa excesso de bundle (~777 kB), conhecido e aceito |
 
@@ -199,6 +199,39 @@ depois).
 amigos que só têm `X-API-Key` (D-7), sem conta Supabase Auth, ficam sem acesso
 ao Laboratório/Explicador/Analisador pela tela do Vercel até migrarem — ver
 P-11.
+
+### P-14 — IDOR em /partidas/{id} e /insights/repertorio: sessão de qualquer um acessava dado/ação de qualquer dono ✅ RESOLVIDA em 13/09/2026
+
+Achado a partir de uma inconsistência na tabela de `ARQUITETURA.md` (dois
+endpoints por-ID sem marcação 👤 de filtro por dono). Confirmado por código
+E por teste com 2 contas reais em duas rodadas (D-29, depois D-30, achado
+correlato da primeira):
+
+- `GET /partidas/{id}/resumo` devolvia a narrativa completa de qualquer
+  partida pra qualquer sessão válida.
+- `POST /partidas/{id}/reprocessar` reagendava Stockfish/Gemini em cima da
+  partida de qualquer outro usuário — confirmado por SQL que o
+  `status_processamento` da partida da vítima mudava, disparado pela conta
+  atacante.
+- `GET /insights/repertorio` devolvia o repertório agregado **completo** de
+  outro usuário pra qualquer sessão válida, sem precisar nem de um UUID —
+  conta de teste sem nenhuma partida própria recebeu as 212 partidas, a
+  taxa de vitória e os 525 eventos `PICO` reais do Edson.
+
+**Resolução (D-29 e D-30 em `DECISOES.md`).** `/partidas/{id}/resumo` e
+`/reprocessar` passaram a filtrar a busca por `.eq("user_id", user_id)`,
+devolvendo 404 (não 403) pra partida de outro dono. As 4 buscas internas de
+`insights_repertorio.py` passaram a filtrar `user_id` na própria query
+(direto em `partidas`; via embed `!inner` nas 3 tabelas filhas sem coluna
+própria — mesma técnica de D-28). Revalidado com contas reais nos dois
+casos: quem não é dono recebe 404 ou payload vazio (conforme o tipo de
+rota), quem é dono continua vendo exatamente o próprio dado, sem nada a
+menos nem a mais.
+
+Com isso, os três únicos pontos de vazamento cross-account encontrados nesta
+varredura (2 rotas por-ID + 1 rota de agregação) estão fechados; nenhum
+endpoint conhecido do projeto responde hoje com dado de um usuário pra
+sessão de outro.
 
 ### P-3 — O gargalo é cumulativo e está congelado em TATICA 🟢 (resolvido em D-26)
 

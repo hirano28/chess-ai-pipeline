@@ -116,10 +116,10 @@ garantida.
 | `GET /resolver-fen` 🎫 | resolve FEN ou PGN para o FEN final; parsing puro, sem Gemini nem Stockfish |
 | `POST /reconhecer-posicao` 🎫 | recebe foto de diagrama (multipart) e devolve o FEN, via Gemini multimodal |
 | `POST /analisar-pgn` 🎫👤 | dispara o pipeline completo de uma partida; responde `202` na hora e processa em `BackgroundTasks` |
-| `GET /partidas/{id}/resumo` 🎫 | status do processamento + `resumo_partida` quando concluído |
+| `GET /partidas/{id}/resumo` 🎫👤 | status do processamento + `resumo_partida` quando concluído; partida de outro dono responde 404 (D-29) |
 | `GET /partidas/recentes` 🎫👤 | histórico para a tela do Analisador, filtrado pelo dono |
-| `POST /partidas/{id}/reprocessar` 🎫 | reseta para `pendente` e reexecuta |
-| `GET /insights/repertorio` 🎫 | agregações de repertório por abertura (taxa de vitória, precisão por fase, lance de PICO, categoria do hexágono) — cálculo puro em Python sobre dado já persistido, sem Stockfish nem Gemini; ver `backend/agentes/insights_repertorio.py` e D-13 em `DECISOES.md` |
+| `POST /partidas/{id}/reprocessar` 🎫👤 | reseta para `pendente` e reexecuta; partida de outro dono responde 404 (D-29) |
+| `GET /insights/repertorio` 🎫👤 | agregações de repertório por abertura (taxa de vitória, precisão por fase, lance de PICO, categoria do hexágono) — cálculo puro em Python sobre dado já persistido, sem Stockfish nem Gemini; ver `backend/agentes/insights_repertorio.py` e D-13 em `DECISOES.md`. As 4 buscas internas filtram por dono desde D-30 (achado correlato de D-29) |
 
 Recursos caros (Stockfish, cliente Gemini, cliente Supabase, `engine_lock`) são
 inicializados uma vez no startup e guardados em `_state`, um dict de módulo.
