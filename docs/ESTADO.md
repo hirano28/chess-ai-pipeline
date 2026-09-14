@@ -16,9 +16,9 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **405**, todos passando, em 23 módulos |
-| Testes de frontend (Vitest) | **76**, todos passando, em 10 arquivos |
-| `ng build` de produção | passa; avisa excesso de bundle (~777 kB), conhecido e aceito |
+| Testes de backend | **411**, todos passando, em 23 módulos |
+| Testes de frontend (Vitest) | **83**, todos passando, em 11 arquivos |
+| `ng build` de produção | passa; avisa excesso de bundle (~784 kB), conhecido e aceito |
 
 `.github/workflows/deploy-backend.yml` lista os 23 módulos de teste do backend
 à mão (incluindo `backend.common.test_lichess_oauth`,
@@ -501,8 +501,13 @@ reescrito para consumir `lichess_oauth_tokens` via módulo compartilhado
 válido, isola erros por usuário (401 revogado avisa para reconectar sem derrubar
 os demais), grava em `puzzle_atividade` com o `user_id` correto e aposentou o uso
 de `LICHESS_STUDY_TOKEN` neste fluxo. Testado com a conta real do Edson (660 puzzles
-importados com sucesso). **Falta apenas o Estágio 3** (botão "Conectar Lichess" no
-`/perfil`).
+importados com sucesso).
+
+**OAuth do Lichess — Estágio 3 (14/09/2026, D-35).** Interface de conexão entregue em
+`/perfil`: card de conexão com badge de status ativo/desconectado, botão "Conectar com
+Lichess" (redireciona para autorização PKCE), botões de reconectar/desconectar, e tratamento
+completo dos query params de retorno (`?conectado=lichess` e `?erro=...`). Backend ganhou
+`GET /lichess/oauth/status` e `POST /lichess/oauth/desconectar`. **Ciclo OAuth 100% concluído.**
 
 ### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
 

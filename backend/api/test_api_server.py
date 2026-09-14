@@ -2112,6 +2112,98 @@ class ObterAccessTokenLichessTest(unittest.TestCase):
         self.assertIsNone(token)
 
 
+class StatusOauthLichessTest(unittest.TestCase):
+    """GET /lichess/oauth/status: informa se o usuário logado tem token válido (D-35)."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_usuario_conectado_com_token_valido(self) -> None:
+        mock_client = MagicMock()
+        futuro = (datetime.now(timezone.utc) + timedelta(days=300)).isoformat()
+        resp = MagicMock()
+        resp.data = [{"access_token": "token-valido", "expires_at": futuro}]
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get("/lichess/oauth/status", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        dados = resposta.json()
+        self.assertTrue(dados["conectado"])
+        self.assertEqual(dados["expires_at"], futuro)
+
+    def test_usuario_desconectado_retorna_falso(self) -> None:
+        mock_client = MagicMock()
+        vazia = MagicMock()
+        vazia.data = []
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = vazia
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get("/lichess/oauth/status", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        dados = resposta.json()
+        self.assertFalse(dados["conectado"])
+        self.assertIsNone(dados["expires_at"])
+
+    def test_usuario_com_token_expirado_retorna_falso(self) -> None:
+        mock_client = MagicMock()
+        passado = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        resp = MagicMock()
+        resp.data = [{"access_token": "token-morto", "expires_at": passado}]
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resp
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get("/lichess/oauth/status", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        dados = resposta.json()
+        self.assertFalse(dados["conectado"])
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/lichess/oauth/status")
+
+        self.assertEqual(resposta.status_code, 401)
+
+
+class DesconectarOauthLichessTest(unittest.TestCase):
+    """POST /lichess/oauth/desconectar: remove o token OAuth do usuário (D-35)."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_desconectar_remove_token_do_user_id(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post("/lichess/oauth/desconectar", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json(), {"desconectado": True})
+        mock_client.table.assert_called_with("lichess_oauth_tokens")
+        mock_client.table.return_value.delete.return_value.eq.assert_called_once_with(
+            "user_id", USER_ID_TESTE
+        )
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.post("/lichess/oauth/desconectar")
+
+        self.assertEqual(resposta.status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()
 

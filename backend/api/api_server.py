@@ -258,6 +258,13 @@ class IniciarOauthLichessResponse(BaseModel):
     expira_em: str
 
 
+class LichessOauthStatusResponse(BaseModel):
+    """Status da conexão OAuth com o Lichess do usuário (D-35)."""
+
+    conectado: bool
+    expires_at: str | None = None
+
+
 class AvaliacaoObjetiva(BaseModel):
     """Avaliação quantitativa do Stockfish e probabilidades de vitória."""
 
@@ -1373,6 +1380,60 @@ def callback_oauth_lichess(
         return _redirecionar_para_frontend("erro=lichess_gravacao_falhou")
 
     return _redirecionar_para_frontend("conectado=lichess")
+
+
+@app.get("/lichess/oauth/status", response_model=LichessOauthStatusResponse)
+def status_oauth_lichess(
+    user_id: str = Depends(verificar_sessao),
+) -> LichessOauthStatusResponse:
+    """Informa se o usuário logado tem uma conexão OAuth ativa com o Lichess (D-35).
+
+    Usa `obter_access_token_lichess` (com margem de expiração) para garantir
+    que só devolve `conectado: true` se o token for válido e utilizável agora.
+    O access_token nunca é devolvido ao frontend (D-33).
+    """
+
+    client = _state.get("supabase_client")
+    if client is None:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    token = obter_access_token_lichess(client, user_id)
+    if not token:
+        return LichessOauthStatusResponse(conectado=False)
+
+    try:
+        resp = (
+            client.table("lichess_oauth_tokens")
+            .select("expires_at")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        linhas = resp.data or []
+        expires_at = linhas[0].get("expires_at") if linhas else None
+    except Exception:
+        expires_at = None
+
+    return LichessOauthStatusResponse(conectado=True, expires_at=expires_at)
+
+
+@app.post("/lichess/oauth/desconectar")
+def desconectar_oauth_lichess(
+    user_id: str = Depends(verificar_sessao),
+) -> dict[str, bool]:
+    """Remove o token OAuth do Lichess do usuário logado (D-35)."""
+
+    client = _state.get("supabase_client")
+    if client is None:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        client.table("lichess_oauth_tokens").delete().eq("user_id", user_id).execute()
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao desconectar conta do Lichess: {error}"
+        ) from error
+
+    return {"desconectado": True}
 
 
 @app.get("/guia-passos")

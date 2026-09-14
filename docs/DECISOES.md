@@ -1637,6 +1637,44 @@ por precisar do escopo `study:write` (fora do escopo deste estágio).
 
 ---
 
+### D-35 — OAuth Lichess Estágio 3: Conexão e status no frontend (/perfil)
+
+**Data:** 2026-09-14  
+**Contexto:** Com o fluxo de autorização no backend (D-33) e o consumo de tokens
+em `importar_puzzle_activity.py` (D-34) concluídos, faltava a interface gráfica
+para que o usuário consiga clicar em "Conectar com Lichess", ser redirecionado para
+a autorização do Lichess, e retornar à aplicação com feedback claro.
+
+**O que mudou:**
+
+1. **Backend (`backend/api/api_server.py`):**
+   - Rota `GET /lichess/oauth/status` (protegida com `verificar_sessao`): consulta
+     se o usuário tem token ativo via `obter_access_token_lichess`. Devolve
+     `{"conectado": bool, "expires_at": str | None}` sem nunca vazar o token.
+   - Rota `POST /lichess/oauth/desconectar` (protegida com `verificar_sessao`):
+     remove o registro de `lichess_oauth_tokens` do usuário logado caso ele deseje
+     desvincular a conta.
+   - Testes unitários dedicados em `test_api_server.py` (`StatusOauthLichessTest` e
+     `DesconectarOauthLichessTest`).
+
+2. **Frontend (`frontend/src/app`):**
+   - Criado serviço `LichessOauthService` (`src/app/services/lichess-oauth.service.ts`),
+     com métodos `obterStatus()`, `iniciarConexao()` e `desconectar()`.
+   - Atualizado `PerfilUsuarioComponent` (`perfil-usuario.component.ts` e `.html`):
+     - Adicionado card dedicado "Conexão com o Lichess (OAuth)" com badge de status
+       (Conectado verde vs Desconectado neutro).
+     - Botão "Conectar com Lichess" que chama `/lichess/oauth/iniciar` e redireciona
+       o navegador para a página de autorização do Lichess.
+     - Botões de "Reconectar conta" e "Desconectar" quando a conta já está conectada.
+     - Processamento dos query params retornados pelo callback do Lichess
+       (`?conectado=lichess` exibe alerta de sucesso; `?erro=...` exibe mensagem amigável),
+       limpando os parâmetros da URL em seguida para manter a navegação limpa.
+   - Testes unitários em `lichess-oauth.service.spec.ts` e `perfil-usuario.component.spec.ts`.
+
+**Com o Estágio 3 concluído, o ciclo OAuth do Lichess (Estágios 1, 2 e 3) está 100% entregue.**
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

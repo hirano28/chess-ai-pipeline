@@ -131,6 +131,8 @@ já foi atingido — mesmo princípio de "falhar rápido" de 🎫, mas para cust
 | `POST /partidas/{id}/reprocessar` 🎫👤 | reseta para `pendente` e reexecuta; partida de outro dono responde 404 (D-29) |
 | `POST /lichess/oauth/iniciar` 🎫👤 | começa o OAuth do Lichess (D-33): gera o par PKCE + `state`, amarra os dois ao dono da sessão em `lichess_oauth_pkce` e devolve a URL de autorização; o `code_verifier` nunca sai do servidor |
 | `GET /lichess/oauth/callback` | destino do redirect do lichess.org — **única rota de negócio sem 🎫, de propósito**: chega como navegação de topo do navegador, sem header `Authorization`. Quem autentica é o `state` de uso único gravado pela rota acima. Troca o código pelo token, grava em `lichess_oauth_tokens` e redireciona para `/perfil?conectado=lichess` (ou `?erro=…`), sem nunca pôr token, `code` ou `state` na URL |
+| `GET /lichess/oauth/status` 🎫👤 | informa se o usuário tem token Lichess ativo e válido (D-35); não expõe o token ao frontend |
+| `POST /lichess/oauth/desconectar` 🎫👤 | revoga localmente a conexão, removendo a linha de `lichess_oauth_tokens` (D-35) |
 | `GET /insights/repertorio` 🎫👤 | agregações de repertório por abertura (taxa de vitória, precisão por fase, lance de PICO, categoria do hexágono) — cálculo puro em Python sobre dado já persistido, sem Stockfish nem Gemini; ver `backend/agentes/insights_repertorio.py` e D-13 em `DECISOES.md`. As 4 buscas internas filtram por dono desde D-30 (achado correlato de D-29) |
 
 Recursos caros (Stockfish, cliente Gemini, cliente Supabase, `engine_lock`) são
