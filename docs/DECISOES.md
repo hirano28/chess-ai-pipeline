@@ -1369,6 +1369,108 @@ sobrou nenhuma linha órfã.
 
 ---
 
+### D-32 — Limite diário por usuário nas rotas caras (Fase 1, item 4, do roadmap comercial)
+
+**Data:** 2026-09-14
+**Gatilho:** antes de convidar mais gente (Lais já tem acesso desde D-28),
+faltava um teto de custo por usuário nas 4 rotas que chamam Stockfish e/ou
+Gemini: `/analisar-pgn`, `/explicar-posicao`, `/revisar-avulso`,
+`/reconhecer-posicao`. Sem isso, uma conta sozinha (por engano ou script) podia
+consumir Stockfish/Gemini sem limite nenhum.
+
+**Desenho aprovado antes de implementar** (ver a proposta na conversa): tabela
+nova em vez de reaproveitar tabela existente — `/revisar-avulso` sozinha e
+`/reconhecer-posicao` não persistem nada hoje, então contar linhas de tabelas
+existentes não cobriria as 4 rotas.
+
+**Schema (`backend/db/uso_diario_usuario.sql`):**
+- `uso_diario_usuario (user_id, data, rota, contagem)`, PK composta
+  `(user_id, data, rota)` — uma linha por usuário/dia/rota, extensível a
+  rotas novas sem migração (rota é texto livre, não uma coluna por rota).
+- `incrementar_uso_diario(p_user_id, p_rota)`: função SQL `SECURITY DEFINER`,
+  `INSERT ... ON CONFLICT (user_id, data, rota) DO UPDATE SET contagem =
+  contagem + 1 RETURNING contagem` — atômico, evita a corrida de 2
+  requisições concorrentes do mesmo usuário lendo a mesma contagem e as duas
+  passando. `data` é `(now() at time zone 'America/Sao_Paulo')::date`, por
+  pedido explícito: o limite reseta à meia-noite local do usuário, não às 21h
+  de Brasília (UTC-3), que seria o resultado de usar `current_date` puro.
+- `EXECUTE` da função **revogado de `public`/`anon`/`authenticated`**: por
+  padrão o Postgres concede `EXECUTE` em função nova a `PUBLIC`, o que deixaria
+  qualquer usuário autenticado chamar `POST
+  /rest/v1/rpc/incrementar_uso_diario` com o `p_user_id` de outra pessoa e
+  esgotar o limite dela — nada a ver com RLS (que é por linha, não por
+  função). Confirmado real: com o token da conta B e o `user_id` da conta A,
+  a chamada direta ao RPC via REST devolveu `403 permission denied for
+  function incrementar_uso_diario`.
+- RLS na tabela: `usuario le o proprio uso`, `user_id = auth.uid()`, mesmo
+  padrão de D-19/D-28 — sem policy de escrita para `authenticated` (só o RPC,
+  chamado pela service role, escreve). Confirmado real: com o token da conta
+  B, `GET .../uso_diario_usuario` devolveu só a própria linha.
+
+**`backend/api/api_server.py`:**
+- `LIMITES_DIARIOS_ENV`: rota → (variável de ambiente, default) —
+  `LIMITE_DIARIO_ANALISAR_PGN` (20), `LIMITE_DIARIO_EXPLICAR_POSICAO` (50),
+  `LIMITE_DIARIO_REVISAR_AVULSO` (50), `LIMITE_DIARIO_RECONHECER_POSICAO`
+  (30). `/analisar-pgn` é a mais cara (Stockfish na partida inteira +
+  narrativa Gemini), por isso o menor limite; `/reconhecer-posicao` é só
+  Gemini visão, sem Stockfish. `_resolver_limites_diarios()` lê essas 4 no
+  startup e guarda em `_state["limites_diarios"]` — mesmo padrão de
+  `_resolver_api_keys()`, já existente.
+- `limite_diario(rota)`: dependency factory. A dependency devolvida depende de
+  `verificar_sessao` (FastAPI cacheia por requisição — a sessão não é
+  validada duas vezes), chama `client.rpc("incrementar_uso_diario", {...})`,
+  e levanta `HTTPException(429, "Limite diário atingido, tente novamente
+  amanhã.")` se a contagem devolvida passar do limite. Roda ANTES do corpo da
+  rota — mesmo princípio de "falhar rápido" de `verificar_sessao` (D-25), mas
+  para custo em vez de acesso: a chamada que estoura ainda é contada (mesma
+  semântica de rate limiter padrão), mas nunca chega a rodar Stockfish/Gemini.
+- Para os testes poderem sobrescrever cada limite individualmente via
+  `app.dependency_overrides` (mesmo mecanismo já usado com `verificar_sessao`),
+  as 4 instâncias da dependency são nomeadas no módulo
+  (`verificar_limite_analisar_pgn` etc.), não criadas inline no decorator.
+- `/revisar-avulso` e `/reconhecer-posicao` **migraram** de
+  `dependencies=[Depends(verificar_sessao)]` (valida mas não captura) para
+  `user_id: str = Depends(verificar_limite_revisar_avulso)` /
+  `..._reconhecer_posicao` — mesma correção de forma que D-29/D-30, aqui
+  necessária porque `limite_diario` precisa do `user_id` para chavear o RPC.
+  `/analisar-pgn` e `/explicar-posicao` já capturavam `user_id` (D-28/D-11);
+  seu `Depends(verificar_sessao)` virou `Depends(verificar_limite_*)`
+  correspondente, reaproveitando o mesmo parâmetro.
+
+**Validado com 2 contas reais (Admin API) e um limite temporariamente baixo
+(`LIMITE_DIARIO_REVISAR_AVULSO=2`, servidor real na porta 8033, motor
+Stockfish e Gemini reais, nenhum mock):**
+- Conta A: 1ª e 2ª chamada a `/revisar-avulso` devolveram `200` em ~36s cada
+  (tempo real de Stockfish + Gemini). A 3ª devolveu `429` com
+  `{"detail":"Limite diário atingido, tente novamente amanhã."}` em ~1s — mais
+  de 30x mais rápida que as duas primeiras, evidência direta (além da garantia
+  estrutural do FastAPI de resolver dependencies antes do corpo da rota, e do
+  teste unitário `mock_processar.assert_not_called()`) de que o motor não
+  chegou a rodar na chamada rejeitada.
+- Conta B, sem nenhuma chamada feita antes: 1ª chamada devolveu `200` normal
+  em ~40s, sem qualquer efeito do consumo da conta A.
+- `SELECT` em `uso_diario_usuario` confirmou os contadores isolados:
+  conta A com `contagem=3` (2 aceitas + 1 rejeitada, ainda contada — mesma
+  semântica de qualquer rate limiter por incremento atômico), conta B com
+  `contagem=1`, cada linha só com a própria `user_id`.
+
+**Testes:** `backend/api/test_api_server.py` ganhou `LimiteDiarioTest` (6
+testes: sob o limite, exatamente no limite, estourando o limite, falha no
+RPC, sem `supabase_client`, leitura dos defaults/env vars) e
+`LimiteDiarioIntegracaoRevisarAvulsoTest` (2 testes de integração via rota
+real: 429 sem chamar `processar_revisao_sequencia`, e chamada normal dentro
+do limite). `setUpModule`/`gate_de_sessao_real()` do arquivo foram ajustados
+para também cobrir as 4 novas dependencies (sem isso, toda a suíte existente
+passaria a chamar o RPC de verdade contra um `MagicMock`, quebrando com
+`TypeError` na comparação `contagem > limite`); novo helper
+`gate_de_limite_diario_real(dependencia)` liga o limite real de uma rota
+específica sem afetar as outras 3.
+
+**Limpeza:** a linha de `uso_diario_usuario` e as 2 contas de teste foram
+removidas ao final; confirmado por SQL que não sobrou nenhuma linha órfã.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

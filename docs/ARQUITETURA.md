@@ -104,18 +104,25 @@ As rotas marcadas com 👤 recebem o `user_id` real por injeção
 filtro da leitura — sem fallback nenhum, porque quem chega lá tem sessão
 garantida.
 
+As rotas marcadas com ⏱️ passam por `limite_diario(rota)` (D-32): a chamada é
+contada atomicamente em `uso_diario_usuario` (RPC `incrementar_uso_diario`,
+dia calculado em `America/Sao_Paulo`) ANTES do corpo da rota, e responde `429`
+se o limite do dia (configurável por variável de ambiente, ver OPERACAO.md)
+já foi atingido — mesmo princípio de "falhar rápido" de 🎫, mas para custo
+(Stockfish/Gemini) em vez de acesso. São as 4 rotas mais caras da API.
+
 | Método e rota | Função |
 |---|---|
 | `GET /health` | health check do Cloud Run (público) |
 | `GET /guia-passos` | títulos dos 8 passos da rubrica (público) |
-| `POST /revisar-avulso` 🎫 | avalia lance único ou sequência a partir de FEN/PGN + texto do raciocínio |
+| `POST /revisar-avulso` 🎫⏱️ | avalia lance único ou sequência a partir de FEN/PGN + texto do raciocínio |
 | `POST /revisar-avulso/salvar` 🎫👤 | persiste um exercício revisado; devolve o `id` da linha criada |
 | `GET /revisoes-avulsas/recentes` 🎫👤 | histórico do Laboratório, filtrado pelo dono da sessão (D-18) |
-| `POST /explicar-posicao` 🎫👤 | avaliação objetiva + explicação didática de uma posição; persiste em `explicacoes_posicao` e devolve o `id` (falha de persistência não derruba a resposta — ver D-11) |
+| `POST /explicar-posicao` 🎫👤⏱️ | avaliação objetiva + explicação didática de uma posição; persiste em `explicacoes_posicao` e devolve o `id` (falha de persistência não derruba a resposta — ver D-11) |
 | `GET /explicacoes-posicao/recentes` 🎫👤 | histórico do Explicador, filtrado pelo dono; cada item embute a resposta completa, sem endpoint "buscar por id" |
 | `GET /resolver-fen` 🎫 | resolve FEN ou PGN para o FEN final; parsing puro, sem Gemini nem Stockfish |
-| `POST /reconhecer-posicao` 🎫 | recebe foto de diagrama (multipart) e devolve o FEN, via Gemini multimodal |
-| `POST /analisar-pgn` 🎫👤 | dispara o pipeline completo de uma partida; responde `202` na hora e processa em `BackgroundTasks` |
+| `POST /reconhecer-posicao` 🎫⏱️ | recebe foto de diagrama (multipart) e devolve o FEN, via Gemini multimodal |
+| `POST /analisar-pgn` 🎫👤⏱️ | dispara o pipeline completo de uma partida; responde `202` na hora e processa em `BackgroundTasks` |
 | `GET /partidas/{id}/resumo` 🎫👤 | status do processamento + `resumo_partida` quando concluído; partida de outro dono responde 404 (D-29) |
 | `GET /partidas/recentes` 🎫👤 | histórico para a tela do Analisador, filtrado pelo dono |
 | `POST /partidas/{id}/reprocessar` 🎫👤 | reseta para `pendente` e reexecuta; partida de outro dono responde 404 (D-29) |

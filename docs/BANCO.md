@@ -74,9 +74,27 @@ Fonte que `backend/ingestao/coletar_partidas.py` e
 atribuir o `user_id` gravado — sem uma linha aqui, a pessoa pode logar e ver as
 telas, mas nunca tem partida nenhuma ingerida. Constraint `check` exige pelo
 menos uma das duas colunas preenchida. RLS: cada usuário só lê/grava a própria
-linha (`user_id = auth.uid()`, mesmo padrão de D-19). É a única tabela do
-schema com FK declarada para `auth.users` até agora — as 6 tabelas raiz da
-seção anterior não têm.
+linha (`user_id = auth.uid()`, mesmo padrão de D-19).
+
+### Limite diário de uso (D-32)
+
+| Tabela | Colunas relevantes | Papel |
+|---|---|---|
+| `uso_diario_usuario` | `user_id` (**FK real** para `auth.users(id)`), `data`, `rota`, `contagem` — PK composta `(user_id, data, rota)` | contador de chamadas por usuário/dia/rota, para o limite diário das rotas caras da API |
+
+Incrementada só por `incrementar_uso_diario(p_user_id, p_rota)`, uma função
+Postgres `SECURITY DEFINER` que faz `INSERT ... ON CONFLICT DO UPDATE SET
+contagem = contagem + 1` atomicamente (evita a corrida de 2 requisições
+concorrentes lendo a mesma contagem) e devolve a nova contagem. `data` é
+calculada em `America/Sao_Paulo`, não UTC — o limite reseta à meia-noite local,
+não às 21h. `EXECUTE` da função é **revogado** de `anon`/`authenticated`: só o
+backend (service role) chama; sem a revogação, qualquer usuário logado
+poderia chamar o RPC direto via `POST /rest/v1/rpc/incrementar_uso_diario`
+passando o `user_id` de outra pessoa e esgotar o limite dela. RLS na tabela:
+cada usuário só lê a própria linha (`user_id = auth.uid()`), sem policy de
+escrita para `authenticated` — a única escrita é via RPC. `perfis_usuario` e
+`uso_diario_usuario` são as duas únicas tabelas do schema com FK declarada
+para `auth.users` até agora — as 6 tabelas raiz da seção anterior não têm.
 
 ## 2. Vocabulário controlado — as 16 tags de falha
 

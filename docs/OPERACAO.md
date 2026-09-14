@@ -143,7 +143,20 @@ commitados.
 `LICHESS_USERNAME`, `LICHESS_TOKEN`, `LICHESS_STUDY_TOKEN`,
 `LICHESS_GAMES_LIMIT`, `CHESSCOM_USERNAME`, `CHESSCOM_MONTHS_LIMIT`,
 `YOUTUBE_API_KEY`, `STOCKFISH_PATH`, `API_SECRET_KEY`, `API_SECRET_KEYS`,
-`ALLOWED_ORIGINS`, `EXERCICIO_AVULSO_SEARCHTIME_MS`, `DEFAULT_USER_ID`.
+`ALLOWED_ORIGINS`, `EXERCICIO_AVULSO_SEARCHTIME_MS`, `DEFAULT_USER_ID`,
+`LIMITE_DIARIO_ANALISAR_PGN`, `LIMITE_DIARIO_EXPLICAR_POSICAO`,
+`LIMITE_DIARIO_REVISAR_AVULSO`, `LIMITE_DIARIO_RECONHECER_POSICAO`.
+
+**Limite diário por usuário nas rotas caras (D-32).** As 4 variáveis
+`LIMITE_DIARIO_*` acima são opcionais — cada uma tem um default no código
+(`LIMITES_DIARIOS_ENV` em `api_server.py`: 20/50/50/30, na ordem listada) e só
+precisam ir no `.env`/secret quando o valor precisar mudar sem novo deploy de
+código. `/analisar-pgn`, `/explicar-posicao`, `/revisar-avulso` e
+`/reconhecer-posicao` passaram a depender de `limite_diario(rota)`, que
+incrementa `uso_diario_usuario` via RPC (`incrementar_uso_diario`, atômico,
+dia calculado em `America/Sao_Paulo`) ANTES do corpo da rota, e barra com 429
+quando a contagem do dia supera o limite — ver BANCO.md e D-32 em
+`DECISOES.md`.
 
 `API_SECRET_KEYS` usa o formato `nome:chave,nome:chave` e convive com a
 `API_SECRET_KEY` antiga (chave única) por compatibilidade. **Desde D-25 as

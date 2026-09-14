@@ -93,6 +93,18 @@ RECONHECER_POSICAO_ERRO_FEN_INVALIDO = (
     "Não foi possível reconhecer uma posição válida nesta imagem. Tente uma "
     "foto mais nítida, bem enquadrada, ou digite o FEN manualmente."
 )
+
+# D-32: limite diário por usuário nas rotas caras (Stockfish/Gemini). Nome da
+# rota -> (variável de ambiente, default). Default usado quando a env var não
+# está definida; "análise de partida inteira" é a mais cara, por isso o menor
+# limite.
+LIMITES_DIARIOS_ENV: dict[str, tuple[str, int]] = {
+    "analisar-pgn": ("LIMITE_DIARIO_ANALISAR_PGN", 20),
+    "explicar-posicao": ("LIMITE_DIARIO_EXPLICAR_POSICAO", 50),
+    "revisar-avulso": ("LIMITE_DIARIO_REVISAR_AVULSO", 50),
+    "reconhecer-posicao": ("LIMITE_DIARIO_RECONHECER_POSICAO", 30),
+}
+MENSAGEM_LIMITE_DIARIO = "Limite diário atingido, tente novamente amanhã."
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv("ALLOWED_ORIGINS", ",".join(DEFAULT_ALLOWED_ORIGINS)).split(",")
@@ -403,6 +415,7 @@ def iniciar_recursos() -> None:
     _state["engine_lock"] = threading.Lock()
 
     _state["api_keys"] = _resolver_api_keys()
+    _state["limites_diarios"] = _resolver_limites_diarios()
 
 
 @app.on_event("shutdown")
@@ -540,12 +553,75 @@ def verificar_sessao(request: Request) -> str:
     return user_id
 
 
+def _resolver_limites_diarios() -> dict[str, int]:
+    """Lê os limites diários por rota do ambiente (D-32), com os defaults do código."""
+
+    limites: dict[str, int] = {}
+    for rota, (env_var, default) in LIMITES_DIARIOS_ENV.items():
+        raw = os.getenv(env_var, str(default))
+        try:
+            limites[rota] = int(raw)
+        except ValueError as error:
+            raise RuntimeError(
+                f"Variável de ambiente {env_var} deve ser um inteiro (recebeu {raw!r})."
+            ) from error
+    return limites
+
+
+def limite_diario(rota: str):
+    """Cria uma dependency que verifica e incrementa o uso diário de `rota` (D-32).
+
+    Roda ANTES do corpo da rota, mesmo princípio de "falhar rápido" de
+    `verificar_sessao`: conta a chamada atomicamente via RPC
+    (`incrementar_uso_diario`, que reseta à meia-noite de America/Sao_Paulo) e
+    barra com 429 antes de qualquer trabalho caro (Stockfish/Gemini) se o
+    limite do dia já foi atingido. Reaproveita `verificar_sessao` como
+    sub-dependency - o FastAPI cacheia por requisição, então a sessão não é
+    validada duas vezes.
+    """
+
+    def _verificar_limite(user_id: str = Depends(verificar_sessao)) -> str:
+        client = _state.get("supabase_client")
+        if client is None:
+            raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+        try:
+            resposta = client.rpc(
+                "incrementar_uso_diario", {"p_user_id": user_id, "p_rota": rota}
+            ).execute()
+        except Exception as error:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Falha ao registrar uso diário: {error}",
+            ) from error
+
+        contagem = resposta.data
+        limite = _state.get("limites_diarios", {}).get(rota)
+        if limite is not None and contagem is not None and contagem > limite:
+            raise HTTPException(status_code=429, detail=MENSAGEM_LIMITE_DIARIO)
+
+        return user_id
+
+    return _verificar_limite
+
+
+# Instâncias nomeadas (não criadas inline no decorator) para que os testes
+# possam sobrescrever cada limite individualmente via
+# `app.dependency_overrides`, do mesmo jeito que já fazem com `verificar_sessao`.
+verificar_limite_analisar_pgn = limite_diario("analisar-pgn")
+verificar_limite_explicar_posicao = limite_diario("explicar-posicao")
+verificar_limite_revisar_avulso = limite_diario("revisar-avulso")
+verificar_limite_reconhecer_posicao = limite_diario("reconhecer-posicao")
+
+
 @app.post(
     "/revisar-avulso",
     response_model=RevisarAvulsoResponse,
-    dependencies=[Depends(verificar_sessao)],
 )
-def revisar_avulso(payload: RevisarAvulsoRequest) -> RevisarAvulsoResponse:
+def revisar_avulso(
+    payload: RevisarAvulsoRequest,
+    user_id: str = Depends(verificar_limite_revisar_avulso),
+) -> RevisarAvulsoResponse:
     """Avalia um exercício avulso (lance único ou sequência) e retorna o feedback."""
 
     try:
@@ -671,7 +747,7 @@ def listar_revisoes_avulsas_recentes(
 @app.post("/explicar-posicao", response_model=ExplicarPosicaoResponse)
 def explicar_posicao_endpoint(
     payload: ExplicarPosicaoRequest,
-    user_id: str = Depends(verificar_sessao),
+    user_id: str = Depends(verificar_limite_explicar_posicao),
 ) -> ExplicarPosicaoResponse:
     """Analisa uma posição (FEN ou PGN) e explica didaticamente o porquê de ser vencedora/perdida."""
     try:
@@ -745,10 +821,10 @@ def listar_explicacoes_recentes(
 @app.post(
     "/reconhecer-posicao",
     response_model=ReconhecerPosicaoResponse,
-    dependencies=[Depends(verificar_sessao)],
 )
 def reconhecer_posicao_endpoint(
     imagem: UploadFile = File(...),
+    user_id: str = Depends(verificar_limite_reconhecer_posicao),
 ) -> ReconhecerPosicaoResponse:
     """Reconhece uma posição de xadrez a partir de uma foto de diagrama (Gemini visão)."""
 
@@ -835,7 +911,7 @@ def _executar_analise_pgn_background(partida_id: str) -> None:
 def analisar_pgn_endpoint(
     payload: AnalisarPgnRequest,
     background_tasks: BackgroundTasks,
-    user_id: str = Depends(verificar_sessao),
+    user_id: str = Depends(verificar_limite_analisar_pgn),
 ) -> AnalisarPgnResponse:
     """Recebe um PGN, insere a partida e agenda a análise completa em segundo plano.
 

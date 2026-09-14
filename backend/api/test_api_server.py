@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -29,6 +29,20 @@ TOKEN_TESTE = "token-de-sessao-de-teste"
 HEADERS_SESSAO = {"Authorization": f"Bearer {TOKEN_TESTE}"}
 
 
+
+# D-32: as 4 rotas caras passaram a exigir também o limite diário (RPC real
+# via _state["supabase_client"]). Os testes de endpoint não estão testando o
+# limite em si (isso é o `LimiteDiarioTest`), então esses 4 também ganham um
+# override padrão que devolve o dono sem tocar no banco - mesmo princípio do
+# override de `verificar_sessao` logo abaixo.
+_LIMITES_DIARIOS_DEPENDENCIES = (
+    api_server.verificar_limite_analisar_pgn,
+    api_server.verificar_limite_explicar_posicao,
+    api_server.verificar_limite_revisar_avulso,
+    api_server.verificar_limite_reconhecer_posicao,
+)
+
+
 def setUpModule() -> None:
     """Desde D-25 toda rota exige sessão do Supabase Auth.
 
@@ -40,10 +54,23 @@ def setUpModule() -> None:
     api_server.app.dependency_overrides[api_server.verificar_sessao] = (
         lambda: USER_ID_TESTE
     )
+    for dependencia in _LIMITES_DIARIOS_DEPENDENCIES:
+        api_server.app.dependency_overrides[dependencia] = lambda: USER_ID_TESTE
 
 
 def tearDownModule() -> None:
     api_server.app.dependency_overrides.clear()
+
+
+def _apenas_sessao(user_id: str = Depends(api_server.verificar_sessao)) -> str:
+    """Override usado por `gate_de_sessao_real()` nas 4 rotas com limite diário.
+
+    Valida a sessão de verdade (mesma `verificar_sessao`, sem override), mas
+    sem chamar o RPC do limite diário — esses testes estão exercitando o gate
+    de sessão (D-25), não o limite (isso é `LimiteDiarioTest`).
+    """
+
+    return user_id
 
 
 @contextmanager
@@ -51,12 +78,31 @@ def gate_de_sessao_real():
     """Desliga o override para exercitar o gate de verdade (401 e afins)."""
 
     api_server.app.dependency_overrides.pop(api_server.verificar_sessao, None)
+    for dependencia in _LIMITES_DIARIOS_DEPENDENCIES:
+        api_server.app.dependency_overrides[dependencia] = _apenas_sessao
     try:
         yield
     finally:
         api_server.app.dependency_overrides[api_server.verificar_sessao] = (
             lambda: USER_ID_TESTE
         )
+        for dependencia in _LIMITES_DIARIOS_DEPENDENCIES:
+            api_server.app.dependency_overrides[dependencia] = lambda: USER_ID_TESTE
+
+
+@contextmanager
+def gate_de_limite_diario_real(dependencia):
+    """Desliga o override de UM limite diário específico para testar o 429 de verdade.
+
+    `dependencia` é um dos atributos `api_server.verificar_limite_*`; as
+    demais rotas continuam com o limite mockado (sem tocar no banco).
+    """
+
+    api_server.app.dependency_overrides.pop(dependencia, None)
+    try:
+        yield
+    finally:
+        api_server.app.dependency_overrides[dependencia] = lambda: USER_ID_TESTE
 
 
 def _fake_settings() -> Settings:
@@ -1602,6 +1648,158 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         self.assertEqual(dados["external_id"], "ext-existente")
         mock_update.assert_called_with(mock_client, "p-existente", "processando")
         mock_executar.assert_called_once()
+
+
+class LimiteDiarioTest(unittest.TestCase):
+    """A dependency isolada (D-32): incrementa via RPC, compara com o limite, barra com 429."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _client_com_contagem(self, contagem: int) -> MagicMock:
+        mock_client = MagicMock()
+        resposta = MagicMock()
+        resposta.data = contagem
+        mock_client.rpc.return_value.execute.return_value = resposta
+        api_server._state["supabase_client"] = mock_client
+        return mock_client
+
+    def test_sob_o_limite_devolve_user_id_e_chama_o_rpc_com_o_p_user_id_e_p_rota_certos(self) -> None:
+        mock_client = self._client_com_contagem(5)
+        api_server._state["limites_diarios"] = {"rota-teste": 20}
+        dependency = api_server.limite_diario("rota-teste")
+
+        user_id = dependency(user_id=USER_ID_TESTE)
+
+        self.assertEqual(user_id, USER_ID_TESTE)
+        mock_client.rpc.assert_called_once_with(
+            "incrementar_uso_diario",
+            {"p_user_id": USER_ID_TESTE, "p_rota": "rota-teste"},
+        )
+
+    def test_exatamente_no_limite_ainda_passa(self) -> None:
+        self._client_com_contagem(20)
+        api_server._state["limites_diarios"] = {"rota-teste": 20}
+        dependency = api_server.limite_diario("rota-teste")
+
+        user_id = dependency(user_id=USER_ID_TESTE)
+
+        self.assertEqual(user_id, USER_ID_TESTE)
+
+    def test_estourando_o_limite_levanta_429_com_mensagem_clara(self) -> None:
+        self._client_com_contagem(21)
+        api_server._state["limites_diarios"] = {"rota-teste": 20}
+        dependency = api_server.limite_diario("rota-teste")
+
+        with self.assertRaises(HTTPException) as ctx:
+            dependency(user_id=USER_ID_TESTE)
+
+        self.assertEqual(ctx.exception.status_code, 429)
+        self.assertEqual(ctx.exception.detail, api_server.MENSAGEM_LIMITE_DIARIO)
+
+    def test_falha_no_rpc_retorna_500_em_vez_de_deixar_passar(self) -> None:
+        mock_client = MagicMock()
+        mock_client.rpc.return_value.execute.side_effect = RuntimeError("conexao caiu")
+        api_server._state["supabase_client"] = mock_client
+        api_server._state["limites_diarios"] = {"rota-teste": 20}
+        dependency = api_server.limite_diario("rota-teste")
+
+        with self.assertRaises(HTTPException) as ctx:
+            dependency(user_id=USER_ID_TESTE)
+
+        self.assertEqual(ctx.exception.status_code, 500)
+
+    def test_sem_supabase_client_retorna_503(self) -> None:
+        api_server._state["limites_diarios"] = {"rota-teste": 20}
+        dependency = api_server.limite_diario("rota-teste")
+
+        with self.assertRaises(HTTPException) as ctx:
+            dependency(user_id=USER_ID_TESTE)
+
+        self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_resolver_limites_diarios_le_env_vars_com_defaults_do_codigo(self) -> None:
+        with patch.dict(os.environ, {"LIMITE_DIARIO_ANALISAR_PGN": "7"}, clear=False):
+            limites = api_server._resolver_limites_diarios()
+
+        self.assertEqual(limites["analisar-pgn"], 7)
+        self.assertEqual(limites["explicar-posicao"], 50)
+        self.assertEqual(limites["revisar-avulso"], 50)
+        self.assertEqual(limites["reconhecer-posicao"], 30)
+
+
+class LimiteDiarioIntegracaoRevisarAvulsoTest(unittest.TestCase):
+    """Confirma, através da rota de verdade, que o 429 barra ANTES do Stockfish rodar."""
+
+    PAYLOAD = {
+        "posicao": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "lance": "e4",
+        "pensamento": "x",
+    }
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        api_server._state["engine"] = MagicMock()
+        api_server._state["gemini_client"] = MagicMock()
+        api_server._state["settings"] = _fake_settings()
+        api_server._state["logger"] = logging.getLogger("test_api_server")
+        api_server._state["engine_lock"] = threading.Lock()
+        api_server._state["limites_diarios"] = {"revisar-avulso": 2}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_estourando_o_limite_recebe_429_e_nao_chama_o_motor(self) -> None:
+        mock_client = MagicMock()
+        resposta_rpc = MagicMock()
+        resposta_rpc.data = 3  # acima do limite de 2 configurado no setUp
+        mock_client.rpc.return_value.execute.return_value = resposta_rpc
+        api_server._state["supabase_client"] = mock_client
+
+        with gate_de_limite_diario_real(api_server.verificar_limite_revisar_avulso), patch.object(
+            api_server, "processar_revisao_sequencia"
+        ) as mock_processar:
+            resposta = self.client.post(
+                "/revisar-avulso", json=self.PAYLOAD, headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 429)
+        self.assertEqual(resposta.json()["detail"], api_server.MENSAGEM_LIMITE_DIARIO)
+        mock_processar.assert_not_called()
+        mock_client.rpc.assert_called_once_with(
+            "incrementar_uso_diario",
+            {"p_user_id": USER_ID_TESTE, "p_rota": "revisar-avulso"},
+        )
+
+    def test_dentro_do_limite_chama_o_motor_normalmente(self) -> None:
+        mock_client = MagicMock()
+        resposta_rpc = MagicMock()
+        resposta_rpc.data = 1  # dentro do limite de 2
+        mock_client.rpc.return_value.execute.return_value = resposta_rpc
+        api_server._state["supabase_client"] = mock_client
+
+        resultado = {
+            "fen": chess_fen_inicial(),
+            "lances": ["e4"],
+            "lance_interpretado": "e4",
+            "avaliacoes": [],
+            "resumo_geral": None,
+        }
+
+        with gate_de_limite_diario_real(api_server.verificar_limite_revisar_avulso), patch.object(
+            api_server, "processar_revisao_sequencia", return_value=resultado
+        ) as mock_processar:
+            resposta = self.client.post(
+                "/revisar-avulso", json=self.PAYLOAD, headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        mock_processar.assert_called_once()
 
 
 if __name__ == "__main__":

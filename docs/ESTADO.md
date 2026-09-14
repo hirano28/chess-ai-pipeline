@@ -466,6 +466,22 @@ fallback. Validado com 2 contas de teste reais e 2 partidas Lichess reais
 (Admin API + limpeza ao final, mesmo padrão de D-19/D-28): cada perfil só
 processou e só gravou `tempos_lance` da própria partida.
 
+**Fase 1 do roadmap comercial — limite diário por usuário (14/09/2026,
+D-32).** As 4 rotas caras (`/analisar-pgn`, `/explicar-posicao`,
+`/revisar-avulso`, `/reconhecer-posicao`) passaram a exigir também
+`limite_diario(rota)`: RPC atômico (`incrementar_uso_diario`, tabela nova
+`uso_diario_usuario`, dia calculado em `America/Sao_Paulo`) roda antes do
+corpo da rota e barra com `429` quando a contagem do dia supera o limite
+(20/50/50/30, configurável por env var, sem deploy). `/revisar-avulso` e
+`/reconhecer-posicao` migraram de `dependencies=[Depends(verificar_sessao)]`
+para injeção de `user_id` no processo (mesma correção de forma de D-29/D-30).
+Validado com 2 contas reais e limite temporariamente baixo, servidor real
+(Stockfish + Gemini reais, sem mock): 3ª chamada da conta A voltou `429` em
+~1s contra ~36s das duas primeiras aceitas; conta B, sem uso prévio, não foi
+afetada. RLS confirmada real (cada conta só lê a própria linha) e o `EXECUTE`
+do RPC revogado de `authenticated` confirmado real (`403` ao tentar
+incrementar o contador de outra conta direto via REST).
+
 ### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
 
 Não era decisão deliberada, era lacuna: `deploy-backend.yml` só propagava
