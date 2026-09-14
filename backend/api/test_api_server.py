@@ -6,14 +6,18 @@ rotas sem entrar nesse bloco e populamos `_state` manualmente, garantindo que
 nenhuma credencial real é necessária.
 """
 
+import base64
+import hashlib
 import json
 import logging
 import os
 import threading
 import unittest
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import Depends, HTTPException
 from fastapi.testclient import TestClient
@@ -193,6 +197,13 @@ class SessaoAuthTest(unittest.TestCase):
             "/docs",
             "/docs/oauth2-redirect",
             "/redoc",
+            # D-33: única rota de negócio fora do gate, e de propósito. É o
+            # destino do redirect do lichess.org — chega como navegação de topo
+            # do navegador, sem o header Authorization que o frontend anexa via
+            # fetch. Quem autentica ali é o `state` de uso único, amarrado a um
+            # user_id por /lichess/oauth/iniciar, essa sim protegida por sessão.
+            # `CallbackOauthLichessTest` cobre o que ela aceita e o que recusa.
+            "/lichess/oauth/callback",
         }
         verificadas = 0
         with gate_de_sessao_real():
@@ -1800,6 +1811,305 @@ class LimiteDiarioIntegracaoRevisarAvulsoTest(unittest.TestCase):
 
         self.assertEqual(resposta.status_code, 200)
         mock_processar.assert_called_once()
+
+
+class PkceTest(unittest.TestCase):
+    """O par PKCE precisa bater com a RFC 7636 — senão o Lichess recusa o S256."""
+
+    def test_code_challenge_e_o_sha256_do_verifier_em_base64url_sem_padding(self) -> None:
+        code_verifier, code_challenge = api_server._gerar_par_pkce()
+
+        esperado = (
+            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
+            .decode("ascii")
+            .rstrip("=")
+        )
+        self.assertEqual(code_challenge, esperado)
+        self.assertNotIn("=", code_challenge)
+
+    def test_verifier_respeita_o_tamanho_e_o_alfabeto_exigidos(self) -> None:
+        code_verifier, _ = api_server._gerar_par_pkce()
+
+        self.assertGreaterEqual(len(code_verifier), 43)
+        self.assertLessEqual(len(code_verifier), 128)
+        self.assertRegex(code_verifier, r"^[A-Za-z0-9\-._~]+$")
+
+    def test_cada_chamada_gera_um_verifier_diferente(self) -> None:
+        primeiro, _ = api_server._gerar_par_pkce()
+        segundo, _ = api_server._gerar_par_pkce()
+
+        self.assertNotEqual(primeiro, segundo)
+
+
+class IniciarOauthLichessTest(unittest.TestCase):
+    """POST /lichess/oauth/iniciar: monta a URL e guarda o verifier no servidor."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        api_server._state["lichess_oauth"] = {
+            "client_id": "chess-ai-pipeline",
+            "redirect_uri": "http://localhost:8000/lichess/oauth/callback",
+            "scopes": "puzzle:read",
+            "frontend_url": "http://localhost:4200",
+        }
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_monta_a_url_de_autorizacao_com_os_parametros_do_pkce(self) -> None:
+        api_server._state["supabase_client"] = MagicMock()
+
+        resposta = self.client.post("/lichess/oauth/iniciar", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        url = resposta.json()["url_autorizacao"]
+        self.assertTrue(url.startswith("https://lichess.org/oauth?"))
+        query = parse_qs(urlparse(url).query)
+        self.assertEqual(query["response_type"], ["code"])
+        self.assertEqual(query["client_id"], ["chess-ai-pipeline"])
+        self.assertEqual(query["code_challenge_method"], ["S256"])
+        self.assertEqual(query["scope"], ["puzzle:read"])
+        self.assertEqual(
+            query["redirect_uri"], ["http://localhost:8000/lichess/oauth/callback"]
+        )
+        self.assertTrue(query["code_challenge"][0])
+        self.assertTrue(query["state"][0])
+
+    def test_guarda_o_state_amarrado_ao_user_id_da_sessao(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post("/lichess/oauth/iniciar", headers=HEADERS_SESSAO)
+
+        gravado = mock_client.table.return_value.insert.call_args[0][0]
+        self.assertEqual(gravado["user_id"], USER_ID_TESTE)
+        query = parse_qs(urlparse(resposta.json()["url_autorizacao"]).query)
+        self.assertEqual(gravado["state"], query["state"][0])
+
+    def test_o_code_verifier_fica_no_banco_e_nunca_na_resposta(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.post("/lichess/oauth/iniciar", headers=HEADERS_SESSAO)
+
+        gravado = mock_client.table.return_value.insert.call_args[0][0]
+        corpo = resposta.text
+        self.assertTrue(gravado["code_verifier"])
+        # O verifier é o segredo que faz o PKCE valer: se vazasse para o
+        # navegador, interceptar o `code` voltaria a ser suficiente.
+        self.assertNotIn(gravado["code_verifier"], corpo)
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.post("/lichess/oauth/iniciar")
+
+        self.assertEqual(resposta.status_code, 401)
+
+
+class CallbackOauthLichessTest(unittest.TestCase):
+    """GET /lichess/oauth/callback: valida o state, troca o código, grava o token."""
+
+    STATE = "state-aleatorio-de-teste"
+    CODE = "codigo-devolvido-pelo-lichess"
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        api_server._state["lichess_oauth"] = {
+            "client_id": "chess-ai-pipeline",
+            "redirect_uri": "http://localhost:8000/lichess/oauth/callback",
+            "scopes": "puzzle:read",
+            "frontend_url": "http://localhost:4200",
+        }
+        self.client = TestClient(api_server.app, follow_redirects=False)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _client_com_state(self, expires_at: datetime | None = None) -> MagicMock:
+        mock_client = MagicMock()
+        resposta = MagicMock()
+        resposta.data = [
+            {
+                "state": self.STATE,
+                "user_id": USER_ID_TESTE,
+                "code_verifier": "verifier-guardado-no-servidor",
+                "expires_at": (
+                    expires_at or datetime.now(timezone.utc) + timedelta(minutes=5)
+                ).isoformat(),
+            }
+        ]
+        mock_client.table.return_value.delete.return_value.eq.return_value.execute.return_value = resposta
+        api_server._state["supabase_client"] = mock_client
+        return mock_client
+
+    def _resposta_do_lichess(self, payload: dict) -> MagicMock:
+        resposta = MagicMock()
+        resposta.json.return_value = payload
+        resposta.raise_for_status.return_value = None
+        return resposta
+
+    def test_fluxo_feliz_grava_o_token_do_dono_do_state_e_redireciona(self) -> None:
+        mock_client = self._client_com_state()
+
+        with patch.object(
+            api_server.requests,
+            "post",
+            return_value=self._resposta_do_lichess(
+                {"access_token": "token-real-do-lichess", "expires_in": 31536000}
+            ),
+        ) as mock_post:
+            resposta = self.client.get(
+                f"/lichess/oauth/callback?code={self.CODE}&state={self.STATE}"
+            )
+
+        self.assertEqual(resposta.status_code, 303)
+        self.assertEqual(
+            resposta.headers["location"], "http://localhost:4200/perfil?conectado=lichess"
+        )
+        enviado = mock_post.call_args.kwargs["data"]
+        self.assertEqual(enviado["grant_type"], "authorization_code")
+        self.assertEqual(enviado["code"], self.CODE)
+        self.assertEqual(enviado["code_verifier"], "verifier-guardado-no-servidor")
+        gravado = mock_client.table.return_value.upsert.call_args[0][0]
+        self.assertEqual(gravado["user_id"], USER_ID_TESTE)
+        self.assertEqual(gravado["access_token"], "token-real-do-lichess")
+        self.assertEqual(gravado["scopes"], "puzzle:read")
+
+    def test_nenhum_dado_sensivel_aparece_na_url_de_retorno(self) -> None:
+        self._client_com_state()
+
+        with patch.object(
+            api_server.requests,
+            "post",
+            return_value=self._resposta_do_lichess(
+                {"access_token": "token-real-do-lichess", "expires_in": 31536000}
+            ),
+        ):
+            resposta = self.client.get(
+                f"/lichess/oauth/callback?code={self.CODE}&state={self.STATE}"
+            )
+
+        destino = resposta.headers["location"]
+        self.assertNotIn("token-real-do-lichess", destino)
+        self.assertNotIn(self.CODE, destino)
+        self.assertNotIn(self.STATE, destino)
+
+    def test_state_desconhecido_nao_troca_codigo_nenhum(self) -> None:
+        """CSRF: state forjado não existe na tabela, então o fluxo morre aqui."""
+        mock_client = MagicMock()
+        vazia = MagicMock()
+        vazia.data = []
+        mock_client.table.return_value.delete.return_value.eq.return_value.execute.return_value = vazia
+        api_server._state["supabase_client"] = mock_client
+
+        with patch.object(api_server.requests, "post") as mock_post:
+            resposta = self.client.get(
+                f"/lichess/oauth/callback?code={self.CODE}&state=forjado-por-atacante"
+            )
+
+        self.assertEqual(resposta.status_code, 303)
+        self.assertIn("erro=lichess_state_invalido", resposta.headers["location"])
+        mock_post.assert_not_called()
+
+    def test_state_expirado_e_recusado(self) -> None:
+        self._client_com_state(
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=1)
+        )
+
+        with patch.object(api_server.requests, "post") as mock_post:
+            resposta = self.client.get(
+                f"/lichess/oauth/callback?code={self.CODE}&state={self.STATE}"
+            )
+
+        self.assertIn("erro=lichess_state_expirado", resposta.headers["location"])
+        mock_post.assert_not_called()
+
+    def test_state_e_consumido_em_uso_unico(self) -> None:
+        """A linha é deletada na validação: replay do mesmo state não passa."""
+        mock_client = self._client_com_state()
+
+        with patch.object(
+            api_server.requests,
+            "post",
+            return_value=self._resposta_do_lichess(
+                {"access_token": "token-real-do-lichess", "expires_in": 31536000}
+            ),
+        ):
+            self.client.get(
+                f"/lichess/oauth/callback?code={self.CODE}&state={self.STATE}"
+            )
+
+        mock_client.table.return_value.delete.return_value.eq.assert_called_once_with(
+            "state", self.STATE
+        )
+
+    def test_usuario_que_nega_no_lichess_volta_com_marcador_de_negado(self) -> None:
+        api_server._state["supabase_client"] = MagicMock()
+
+        resposta = self.client.get("/lichess/oauth/callback?error=access_denied")
+
+        self.assertIn("erro=lichess_negado", resposta.headers["location"])
+
+    def test_falha_na_troca_do_codigo_nao_grava_nada(self) -> None:
+        mock_client = self._client_com_state()
+
+        with patch.object(
+            api_server.requests, "post", side_effect=RuntimeError("lichess fora do ar")
+        ):
+            resposta = self.client.get(
+                f"/lichess/oauth/callback?code={self.CODE}&state={self.STATE}"
+            )
+
+        self.assertIn("erro=lichess_troca_falhou", resposta.headers["location"])
+        mock_client.table.return_value.upsert.assert_not_called()
+
+
+class ObterAccessTokenLichessTest(unittest.TestCase):
+    """A função por onde todo consumidor futuro deve pegar o token (D-33)."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _client_com_token(self, expires_at: str | None) -> MagicMock:
+        mock_client = MagicMock()
+        resposta = MagicMock()
+        resposta.data = [{"access_token": "token-valido", "expires_at": expires_at}]
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = resposta
+        return mock_client
+
+    def test_token_valido_e_devolvido(self) -> None:
+        futuro = (datetime.now(timezone.utc) + timedelta(days=300)).isoformat()
+
+        token = api_server.obter_access_token_lichess(
+            self._client_com_token(futuro), USER_ID_TESTE
+        )
+
+        self.assertEqual(token, "token-valido")
+
+    def test_token_expirado_devolve_none_em_vez_de_token_morto(self) -> None:
+        passado = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+        token = api_server.obter_access_token_lichess(
+            self._client_com_token(passado), USER_ID_TESTE
+        )
+
+        self.assertIsNone(token)
+
+    def test_conta_sem_lichess_conectado_devolve_none(self) -> None:
+        mock_client = MagicMock()
+        vazia = MagicMock()
+        vazia.data = []
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = vazia
+
+        token = api_server.obter_access_token_lichess(mock_client, USER_ID_TESTE)
+
+        self.assertIsNone(token)
 
 
 if __name__ == "__main__":

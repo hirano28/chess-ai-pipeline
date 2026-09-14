@@ -41,6 +41,7 @@ python -m unittest \
   backend.analise_engine.test_backfill_fen_lances_criticos \
   backend.api.test_api_server \
   backend.common.test_chess_math \
+  backend.common.test_lichess_oauth \
   backend.common.test_notacao_pt \
   backend.common.test_tenant \
   backend.ingestao.test_coletar_partidas \
@@ -145,7 +146,22 @@ commitados.
 `YOUTUBE_API_KEY`, `STOCKFISH_PATH`, `API_SECRET_KEY`, `API_SECRET_KEYS`,
 `ALLOWED_ORIGINS`, `EXERCICIO_AVULSO_SEARCHTIME_MS`, `DEFAULT_USER_ID`,
 `LIMITE_DIARIO_ANALISAR_PGN`, `LIMITE_DIARIO_EXPLICAR_POSICAO`,
-`LIMITE_DIARIO_REVISAR_AVULSO`, `LIMITE_DIARIO_RECONHECER_POSICAO`.
+`LIMITE_DIARIO_REVISAR_AVULSO`, `LIMITE_DIARIO_RECONHECER_POSICAO`,
+`LICHESS_OAUTH_CLIENT_ID`, `LICHESS_OAUTH_REDIRECT_URI`,
+`LICHESS_OAUTH_SCOPES`, `FRONTEND_URL`.
+
+**OAuth do Lichess (D-33).** As 4 últimas são opcionais, com default no código.
+Nenhuma delas é segredo: o Lichess usa cliente público, sem `client_secret` e
+sem registro prévio — `LICHESS_OAUTH_CLIENT_ID` é só uma string de
+identificação (default `chess-ai-pipeline`). A que realmente importa mudar por
+ambiente é `LICHESS_OAUTH_REDIRECT_URI` (default
+`http://localhost:8000/lichess/oauth/callback`): ela precisa bater **exatamente**
+entre a autorização e a troca do código, então em produção tem que apontar para
+a URL pública do Cloud Run. `LICHESS_OAUTH_SCOPES` (default `puzzle:read`) só
+vale para conexões novas — token já emitido carrega os escopos que foram
+pedidos na hora, então ampliar a lista exige reconectar as contas.
+`FRONTEND_URL` (default: a primeira entrada de `ALLOWED_ORIGINS`) é para onde o
+callback devolve o navegador.
 
 **Limite diário por usuário nas rotas caras (D-32).** As 4 variáveis
 `LIMITE_DIARIO_*` acima são opcionais — cada uma tem um default no código
@@ -183,12 +199,12 @@ fallback de inferência de cor `inferir_cor_jogador` usa quando não recebe
 `usernames` explícito. Pela API, `/analisar-pgn` já passa o perfil de quem
 está logado, sem tocar nessas variáveis.
 
-`LICHESS_STUDY_TOKEN` continua sendo uma única conta (o Lichess não permite
-pedir a atividade de puzzles de outra conta com o mesmo token) — desde D-31,
-`importar_puzzle_activity.py` não assume mais que essa conta é
-`DEFAULT_USER_ID`: ele identifica o dono de verdade via `GET /api/account` e
-procura o `user_id` correspondente em `perfis_usuario`, falhando alto se
-ninguém tiver cadastrado esse `lichess_username`.
+`LICHESS_STUDY_TOKEN` **não é mais lido por `importar_puzzle_activity.py`**
+desde D-34 (Estágio 2 do OAuth do Lichess, D-33): o script agora percorre a tabela
+`lichess_oauth_tokens`, usando o token OAuth de cada usuário conectado para
+importar seus puzzles de forma isolada. A variável `LICHESS_STUDY_TOKEN` continua
+no `.env` exclusivamente para `importar_anotacoes_lichess.py`, que requer o escopo
+OAuth `study:write` (ainda não migrado).
 
 **`deploy-backend.yml` é a fonte de verdade em produção, não `env.yaml`
 local (D-20).** A cada deploy automático, o workflow gera um arquivo de env

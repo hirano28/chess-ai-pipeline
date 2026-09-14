@@ -92,8 +92,28 @@ backend (service role) chama; sem a revogação, qualquer usuário logado
 poderia chamar o RPC direto via `POST /rest/v1/rpc/incrementar_uso_diario`
 passando o `user_id` de outra pessoa e esgotar o limite dela. RLS na tabela:
 cada usuário só lê a própria linha (`user_id = auth.uid()`), sem policy de
-escrita para `authenticated` — a única escrita é via RPC. `perfis_usuario` e
-`uso_diario_usuario` são as duas únicas tabelas do schema com FK declarada
+escrita para `authenticated` — a única escrita é via RPC. ### OAuth do Lichess (D-33)
+
+| Tabela | Colunas relevantes | Papel |
+|---|---|---|
+| `lichess_oauth_tokens` | `user_id` (PK, **FK real** para `auth.users(id)`), `access_token`, `refresh_token`, `expires_at`, `scopes` | token de acesso de cada usuário à própria conta do Lichess |
+| `lichess_oauth_pkce` | `state` (PK), `user_id`, `code_verifier`, `expires_at` | estado efêmero de um fluxo OAuth em andamento (TTL 10 min, consumo único) |
+
+**As duas não têm policy de RLS nenhuma** — nem `anon`, nem `authenticated`.
+Isso é o mecanismo, não esquecimento: o conteúdo das duas é material secreto
+que não pode chegar ao frontend em hipótese alguma (o `access_token` dá acesso
+à conta Lichess da pessoa; o `code_verifier` é o que impede um código de
+autorização interceptado de virar token). Só a service role, que ignora RLS,
+lê e escreve. Confirmado no banco real: um JWT do próprio dono do token recebe
+`[]` ao consultar `lichess_oauth_tokens` via PostgREST.
+
+`refresh_token` é sempre `NULL`: o Lichess **não emite** refresh tokens — o
+access token já vem com ~1 ano de validade. Quem precisar do token deve pegá-lo
+por `obter_access_token_lichess()` em `api_server.py`, que valida `expires_at`
+antes de entregar e devolve `None` quando a pessoa precisa reconectar.
+
+`perfis_usuario`, `uso_diario_usuario`, `lichess_oauth_tokens` e
+`lichess_oauth_pkce` são as únicas tabelas do schema com FK declarada
 para `auth.users` até agora — as 6 tabelas raiz da seção anterior não têm.
 
 ## 2. Vocabulário controlado — as 16 tags de falha

@@ -1471,6 +1471,172 @@ removidas ao final; confirmado por SQL que não sobrou nenhuma linha órfã.
 
 ---
 
+### D-33 — OAuth do Lichess (Authorization Code + PKCE), Estágio 1: a fundação do fluxo
+
+**Data:** 2026-09-14
+**Gatilho:** até aqui, o acesso à conta Lichess de alguém dependia de um token
+pessoal colado no `.env` (`LICHESS_STUDY_TOKEN`), que é de uma conta só — a do
+Edson. D-31 registrou isso como limitação aceita; este é o primeiro passo para
+cada usuário conectar a **própria** conta. Estágio 1 entrega só a fundação
+(iniciar + callback + armazenamento + leitura validada); reescrever
+`importar_puzzle_activity.py` e pôr o botão no frontend são os Estágios 2 e 3.
+
+**Investigação da doc oficial ANTES de implementar (item explicitamente
+pedido; resultado real, não suposição).** Fontes: o OpenAPI oficial
+(`lichess-org/api`, `doc/specs/lichess-api.yaml` e o sub-arquivo
+`tags/puzzles/api-puzzle-activity.yaml`) e a implementação de referência
+`tors42/lichess-oauth-pkce-app`. O que ficou confirmado:
+
+| Pergunta | Resposta real |
+|---|---|
+| Precisa registrar `client_id` antes? | **Não.** O Lichess aceita clientes públicos não registrados: o `client_id` é uma string qualquer escolhida pela aplicação. Não existe (nem é aceito) `client_secret` — autenticação de cliente foi removida junto com o fluxo antigo. |
+| Endpoint de autorização | `GET https://lichess.org/oauth` (era `oauth.lichess.org/oauth/authorize` no fluxo antigo, já aposentado) |
+| Endpoint de troca | `POST https://lichess.org/api/token`, corpo `application/x-www-form-urlencoded` |
+| PKCE | **Obrigatório**, e o único `code_challenge_method` aceito é `S256` |
+| Refresh token | **Não existe.** A doc é explícita: refresh tokens não são suportados; em compensação o access token nasce com validade longa (~1 ano) |
+| Escopo de `/api/puzzle/activity` | `puzzle:read` |
+
+**Consequência direta no item 5 do pedido (lógica de refresh):** como o Lichess
+não emite refresh token, não existe renovação automática para implementar —
+escrever esse caminho seria código morto. O que foi feito é o que a plataforma
+permite: `obter_access_token_lichess(client, user_id)` é o ponto único por onde
+qualquer consumidor futuro pega o token, e ela **checa `expires_at` antes de
+entregar** (com margem de 60s), devolvendo `None` quando não há token, quando
+ele expirou ou quando foi revogado. `None` significa "a pessoa precisa
+reconectar a conta" — a única saída real. A coluna `refresh_token` existe no
+schema e é sempre `NULL` hoje.
+
+**Schema (`backend/db/lichess_oauth.sql`), duas tabelas, nenhuma com policy de
+RLS** — nem para `anon`, nem para `authenticated`. Só a service role toca:
+- `lichess_oauth_tokens (user_id PK → auth.users, access_token, refresh_token,
+  expires_at, scopes, created_at, updated_at)`.
+- `lichess_oauth_pkce (state PK, user_id, code_verifier, expires_at,
+  created_at)` — estado efêmero de um fluxo em andamento, TTL de 10 minutos.
+
+**Por que o `code_verifier` vai para o banco e não para a memória do processo**
+(decisão pedida com justificativa): `iniciar` e `callback` são duas requisições
+HTTP separadas, com a pessoa indo ao lichess.org no meio. Em produção (Cloud
+Run) elas podem cair em instâncias diferentes, ou o container pode reciclar
+entre as duas — um dicionário em memória perderia o verifier de forma não
+determinística, quebrando o fluxo sem padrão reproduzível. A tabela resolve
+isso; o TTL curto e o consumo único mantêm a janela de exposição mínima.
+Cada `iniciar` também varre as linhas vencidas, senão fluxos abandonados
+acumulariam para sempre (só o caminho feliz apaga a própria linha).
+
+**Por que o `state` é aleatório guardado no servidor, e não assinado**
+(o pedido dizia "assinado/verificável"): um `state` de 256 bits de
+`secrets.token_urlsafe(32)` gravado no banco é **mais forte** que um token
+assinado sem estado. Ele é verificável (ou existe na tabela, ou não existe),
+é de **uso único** (o callback consome a linha com `DELETE ... RETURNING`, o
+que também torna dois callbacks concorrentes mutuamente exclusivos), expira em
+10 minutos, e — o ponto principal — **amarra o fluxo ao `user_id` que o
+iniciou**. Um `state` assinado provaria "isto saiu daqui", mas não impediria
+replay sem uma lista de consumidos, que é exatamente a tabela. Não há chave de
+assinatura para gerenciar.
+
+**`/lichess/oauth/callback` é a única rota de negócio fora do gate de sessão de
+D-25, e isso é deliberado.** Quem chega nela é o navegador da pessoa numa
+navegação de topo vinda do lichess.org — sem o header `Authorization` que o
+frontend anexa via `fetch`. A identidade não pode vir da sessão; vem do
+`state`, que só existe porque `/lichess/oauth/iniciar` (essa sim protegida por
+`verificar_sessao`) o gravou amarrado a um `user_id`. O teste
+`test_todos_os_endpoints_protegidos_exigem_sessao` ganhou essa rota na lista de
+exceções, com o motivo escrito ao lado.
+
+**Nada sensível trafega de volta para o navegador.** O callback sempre termina
+em `303` para `{FRONTEND_URL}/perfil?conectado=lichess` — ou
+`?erro=<motivo>` nos caminhos de falha (`lichess_negado`,
+`lichess_state_invalido`, `lichess_state_expirado`, `lichess_troca_falhou`,
+`lichess_gravacao_falhou`, `lichess_indisponivel`). Nem token, nem `code`, nem
+`state` vão na URL: histórico de navegador e cabeçalho `Referer` vazariam.
+A falha na troca do código também não loga o corpo da resposta, que pode
+conter o token.
+
+**Validado de ponta a ponta com a conta real, sem mock nenhum.** Servidor real
+na porta 8034, sessão real da conta do app obtida via Admin API (magic-link →
+`verify_otp`, sem senha), conta Lichess real `tantofaz123` autorizando no
+navegador:
+- `POST /lichess/oauth/iniciar` devolveu a URL com `code_challenge_method=S256`
+  e `scope=puzzle:read`; a linha correspondente apareceu em
+  `lichess_oauth_pkce` amarrada ao `user_id` certo.
+- Autorização real concedida → `GET /lichess/oauth/callback?code=…&state=…`
+  respondeu `303`, e `lichess_oauth_pkce` ficou **com 0 linhas** (uso único
+  confirmado no banco, não só em teste com mock).
+- `lichess_oauth_tokens` gravou o token com prefixo `lio_` (token de OAuth; os
+  pessoais são `lip_`), `refresh_token = NULL`, `scopes = puzzle:read` e
+  `expires_at` exatamente 1 ano à frente — os três coerentes com a doc.
+- `obter_access_token_lichess()` devolveu esse token, e com ele:
+  `GET https://lichess.org/api/account` → `200`, `username: tantofaz123`;
+  `GET https://lichess.org/api/puzzle/activity?max=1` → `200` com atividade
+  real. O segundo é a prova de que o escopo pedido serve para o consumidor
+  previsto no Estágio 2.
+- Para um `user_id` sem conta conectada, a função devolveu `None`.
+- **RLS confirmada no banco real:** com um JWT real do próprio dono do token,
+  `GET /rest/v1/lichess_oauth_tokens` e `.../lichess_oauth_pkce` devolveram
+  `[]`. Sem policy, nem o dono lê — o token existe só para a service role.
+
+**Testes:** 17 novos em `test_api_server.py` — `PkceTest` (3: o challenge é
+mesmo o SHA-256 do verifier em base64url sem padding, tamanho/alfabeto da RFC
+7636, verifier diferente a cada chamada), `IniciarOauthLichessTest` (4,
+incluindo "o `code_verifier` está no banco e não aparece na resposta"),
+`CallbackOauthLichessTest` (7, incluindo `state` forjado e `state` expirado
+não chegarem a trocar código nenhum, uso único, e nada sensível na URL de
+retorno) e `ObterAccessTokenLichessTest` (3).
+
+**O que ficou de fora do Estágio 1, de propósito:** o botão "Conectar Lichess"
+no `/perfil` (Estágio 3), a reescrita de `importar_puzzle_activity.py` para
+percorrer as contas conectadas (Estágio 2), e uma rota de desconectar. O
+Lichess não documenta endpoint de revogação no spec consultado — revogar hoje
+é pelo próprio site, em `lichess.org/account/oauth/token`.
+
+---
+
+### D-34 — OAuth Lichess Estágio 2: importar_puzzle_activity.py por usuário
+
+**Data:** 2026-09-14  
+**Contexto:** No Estágio 1 (D-33), o backend ganhou suporte a OAuth 2.0 PKCE
+para o Lichess, persistindo tokens em `lichess_oauth_tokens`. Porém,
+`importar_puzzle_activity.py` ainda lia um único `LICHESS_STUDY_TOKEN` do `.env` e
+resolvia o dono via `/api/account` (D-31). Para que qualquer usuário conectado
+possa ter seus puzzles importados e para isolar falhas, o script precisava
+consumir a tabela OAuth diretamente.
+
+**O que mudou:**
+
+1. **Módulo compartilhado `backend/common/lichess_oauth.py`:**
+   - Movida a lógica de `obter_access_token_lichess(client, user_id)` (antes em `api_server.py`)
+     para evitar que scripts de ingestão precisem importar o módulo da API (que carrega FastAPI, Gemini, Stockfish).
+   - Criada a função `listar_usuarios_com_token_lichess_valido(client)` que busca
+     usuários com tokens ainda não expirados (`expires_at > agora`).
+   - Testes dedicados em `backend/common/test_lichess_oauth.py`.
+
+2. **Reescrita de `backend/ingestao/importar_puzzle_activity.py`:**
+   - Aposentada a dependência de `LICHESS_STUDY_TOKEN` neste script (`Settings` agora só
+     carrega credenciais do Supabase).
+   - O script percorre todos os usuários retornados por `listar_usuarios_com_token_lichess_valido`.
+   - Para cada usuário, obtém o token via `obter_access_token_lichess(client, user_id)`,
+     chama `/api/puzzle/activity` e grava em `puzzle_atividade` com o `user_id` correspondente.
+   - **Isolamento de erro por usuário:** falha de um usuário (token expirado, 401 revogado,
+     ou erro de rede) não interrompe o processamento dos demais usuários (mesmo padrão D-28/D-31).
+   - Tratamento explícito de `TokenRevogadoError` (HTTP 401): loga claramente que o usuário
+     precisa reconectar a conta e segue adiante sem quebrar o loop.
+
+3. **Validação real de ponta a ponta:**
+   - Execução real com a conta do Edson (`bfde845a-8e2e-4885-801f-0fed2dd3b426`): 660 puzzles
+     importados/atualizados com sucesso, 0 falhas de parsing, 0 falhas ao gravar.
+   - Flag `--inspecionar` validada e funcionando com a conta conectada.
+
+4. **Regra R8 cumprida:**
+   - `backend.common.test_lichess_oauth` registrado em `docs/OPERACAO.md` e
+     `.github/workflows/deploy-backend.yml`.
+   - Testes unitários atualizados em `backend/ingestao/test_importar_puzzle_activity.py` e
+     `backend/common/test_lichess_oauth.py`.
+
+**O que NÃO mudou:** `importar_anotacoes_lichess.py` continua usando `LICHESS_STUDY_TOKEN`
+por precisar do escopo `study:write` (fora do escopo deste estágio).
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

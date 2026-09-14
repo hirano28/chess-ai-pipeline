@@ -8,16 +8,21 @@ interativo foi alterado; ele continua funcionando standalone.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
 import re
+import secrets
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import chess
 import google.genai as genai
+import requests
 from fastapi import (
     BackgroundTasks,
     Depends,
@@ -29,6 +34,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from google.genai import types
 from pydantic import BaseModel, Field
 from stockfish import Stockfish
@@ -70,6 +76,9 @@ from backend.analise_engine.analisar_partidas import (  # noqa: E402
     load_settings as load_analysis_settings,
     update_status,
 )
+from backend.common.lichess_oauth import (  # noqa: E402
+    obter_access_token_lichess,
+)
 from backend.common.progress import log_and_print  # noqa: E402
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
 
@@ -105,6 +114,19 @@ LIMITES_DIARIOS_ENV: dict[str, tuple[str, int]] = {
     "reconhecer-posicao": ("LIMITE_DIARIO_RECONHECER_POSICAO", 30),
 }
 MENSAGEM_LIMITE_DIARIO = "Limite diário atingido, tente novamente amanhã."
+
+# D-33: OAuth do Lichess (Authorization Code + PKCE). Endpoints confirmados na
+# doc oficial: o Lichess aceita cliente público NÃO registrado (client_id é uma
+# string livre, sem client_secret), exige PKCE e só aceita o método S256.
+LICHESS_OAUTH_AUTHORIZE_URL = "https://lichess.org/oauth"
+LICHESS_OAUTH_TOKEN_URL = "https://lichess.org/api/token"
+LICHESS_OAUTH_CLIENT_ID_PADRAO = "chess-ai-pipeline"
+LICHESS_OAUTH_REDIRECT_URI_PADRAO = "http://localhost:8000/lichess/oauth/callback"
+# `puzzle:read` é o escopo exigido por GET /api/puzzle/activity, o primeiro
+# consumidor previsto (Estágio 2). Ampliar aqui exige reconectar as contas:
+# um token já emitido carrega só os escopos pedidos na hora da autorização.
+LICHESS_OAUTH_SCOPES_PADRAO = "puzzle:read"
+LICHESS_OAUTH_PKCE_TTL_MINUTOS = 10
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv("ALLOWED_ORIGINS", ",".join(DEFAULT_ALLOWED_ORIGINS)).split(",")
@@ -222,6 +244,18 @@ class ExplicarPosicaoRequest(BaseModel):
 
     posicao: str
     lado: str | None = None
+
+
+class IniciarOauthLichessResponse(BaseModel):
+    """URL de autorização do Lichess para o frontend redirecionar (D-33).
+
+    Só a URL sai daqui: o `code_verifier` do PKCE fica exclusivamente no banco,
+    do lado do servidor — se ele trafegasse até o navegador, o PKCE deixaria de
+    proteger contra a interceptação do código de autorização.
+    """
+
+    url_autorizacao: str
+    expira_em: str
 
 
 class AvaliacaoObjetiva(BaseModel):
@@ -416,6 +450,7 @@ def iniciar_recursos() -> None:
 
     _state["api_keys"] = _resolver_api_keys()
     _state["limites_diarios"] = _resolver_limites_diarios()
+    _state["lichess_oauth"] = _resolver_config_lichess_oauth()
 
 
 @app.on_event("shutdown")
@@ -551,6 +586,52 @@ def verificar_sessao(request: Request) -> str:
         print(mensagem)
 
     return user_id
+
+
+def _resolver_config_lichess_oauth() -> dict[str, str]:
+    """Lê a configuração do OAuth do Lichess do ambiente (D-33).
+
+    Nada aqui é segredo: o Lichess não usa `client_secret` (cliente público,
+    sem registro prévio), então essas variáveis são só configuração de
+    ambiente — o `redirect_uri` precisa bater exatamente entre a autorização e
+    a troca do código, e é o que muda entre rodar local e rodar no Cloud Run.
+    """
+
+    return {
+        "client_id": os.getenv("LICHESS_OAUTH_CLIENT_ID", LICHESS_OAUTH_CLIENT_ID_PADRAO),
+        "redirect_uri": os.getenv(
+            "LICHESS_OAUTH_REDIRECT_URI", LICHESS_OAUTH_REDIRECT_URI_PADRAO
+        ),
+        "scopes": os.getenv("LICHESS_OAUTH_SCOPES", LICHESS_OAUTH_SCOPES_PADRAO),
+        "frontend_url": os.getenv(
+            "FRONTEND_URL", ALLOWED_ORIGINS[0] if ALLOWED_ORIGINS else ""
+        ).rstrip("/"),
+    }
+
+
+def _gerar_par_pkce() -> tuple[str, str]:
+    """Gera (code_verifier, code_challenge) do PKCE no método S256.
+
+    `token_urlsafe(64)` produz ~86 caracteres do alfabeto que a RFC 7636 exige
+    (A-Z a-z 0-9 - _), dentro da faixa obrigatória de 43 a 128.
+    """
+
+    code_verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return code_verifier, code_challenge
+
+
+def _redirecionar_para_frontend(parametro: str) -> RedirectResponse:
+    """Devolve o usuário ao `/perfil` do frontend com um marcador do resultado.
+
+    Nenhum token, código ou `state` vai na URL: o navegador guarda histórico,
+    e o `Referer` de qualquer recurso carregado depois vazaria o que estivesse
+    aqui. O frontend só recebe "deu certo" ou "deu errado, por quê".
+    """
+
+    base = _state.get("lichess_oauth", {}).get("frontend_url", "")
+    return RedirectResponse(url=f"{base}/perfil?{parametro}", status_code=303)
 
 
 def _resolver_limites_diarios() -> dict[str, int]:
@@ -1135,6 +1216,163 @@ def insights_repertorio_endpoint(
         raise HTTPException(
             status_code=500, detail=f"Falha ao calcular insights de repertório: {error}"
         ) from error
+
+
+@app.post("/lichess/oauth/iniciar", response_model=IniciarOauthLichessResponse)
+def iniciar_oauth_lichess(
+    user_id: str = Depends(verificar_sessao),
+) -> IniciarOauthLichessResponse:
+    """Começa o fluxo OAuth do Lichess para a conta de quem está logado (D-33).
+
+    Gera o par PKCE e um `state` aleatório, amarra os dois ao `user_id` da
+    sessão em `lichess_oauth_pkce`, e devolve a URL de autorização do Lichess
+    para o frontend redirecionar. O `code_verifier` nunca sai do servidor.
+    """
+
+    client = _state.get("supabase_client")
+    if client is None:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    config = _state.get("lichess_oauth") or _resolver_config_lichess_oauth()
+    code_verifier, code_challenge = _gerar_par_pkce()
+    state = secrets.token_urlsafe(32)
+    expira_em = datetime.now(timezone.utc) + timedelta(
+        minutes=LICHESS_OAUTH_PKCE_TTL_MINUTOS
+    )
+
+    try:
+        # Varre o lixo de fluxos abandonados (a pessoa abriu e desistiu) antes
+        # de criar o novo: sem isso a tabela só cresce, já que o caminho feliz
+        # é o único que apaga a própria linha.
+        client.table("lichess_oauth_pkce").delete().lt(
+            "expires_at", datetime.now(timezone.utc).isoformat()
+        ).execute()
+        client.table("lichess_oauth_pkce").insert(
+            {
+                "state": state,
+                "user_id": user_id,
+                "code_verifier": code_verifier,
+                "expires_at": expira_em.isoformat(),
+            }
+        ).execute()
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao iniciar a conexão com o Lichess: {error}"
+        ) from error
+
+    parametros = {
+        "response_type": "code",
+        "client_id": config["client_id"],
+        "redirect_uri": config["redirect_uri"],
+        "scope": config["scopes"],
+        "code_challenge_method": "S256",
+        "code_challenge": code_challenge,
+        "state": state,
+    }
+    return IniciarOauthLichessResponse(
+        url_autorizacao=f"{LICHESS_OAUTH_AUTHORIZE_URL}?{urlencode(parametros)}",
+        expira_em=expira_em.isoformat(),
+    )
+
+
+@app.get("/lichess/oauth/callback")
+def callback_oauth_lichess(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    """Recebe o retorno do Lichess, troca o código pelo token e o guarda (D-33).
+
+    **Esta rota não passa por `verificar_sessao` de propósito** e é a única
+    exceção ao gate de D-25: quem chega aqui é o navegador da pessoa numa
+    navegação de topo vinda do lichess.org, sem o header `Authorization` que
+    o frontend anexa nas chamadas via fetch. A identidade não vem da sessão,
+    vem do `state`: um valor aleatório de 256 bits, de uso único, que só
+    existe porque `/lichess/oauth/iniciar` — essa sim protegida por sessão —
+    o gravou amarrado a um `user_id`. Um `state` forjado não existe na tabela,
+    e um `state` reusado já foi apagado: é o que fecha o CSRF.
+
+    Erros terminam em redirect com um marcador, não em JSON: o destino é um
+    navegador, não um cliente de API.
+    """
+
+    if error:
+        return _redirecionar_para_frontend("erro=lichess_negado")
+    if not code or not state:
+        return _redirecionar_para_frontend("erro=lichess_resposta_invalida")
+
+    client = _state.get("supabase_client")
+    if client is None:
+        return _redirecionar_para_frontend("erro=lichess_indisponivel")
+
+    config = _state.get("lichess_oauth") or _resolver_config_lichess_oauth()
+
+    try:
+        # DELETE ... RETURNING: consome o state de forma atômica, então dois
+        # callbacks concorrentes com o mesmo state não podem ambos prosseguir.
+        consumido = (
+            client.table("lichess_oauth_pkce").delete().eq("state", state).execute()
+        )
+    except Exception:
+        return _redirecionar_para_frontend("erro=lichess_indisponivel")
+
+    linhas = consumido.data or []
+    if not linhas:
+        return _redirecionar_para_frontend("erro=lichess_state_invalido")
+
+    pendente = linhas[0]
+    if datetime.fromisoformat(pendente["expires_at"]) <= datetime.now(timezone.utc):
+        return _redirecionar_para_frontend("erro=lichess_state_expirado")
+
+    try:
+        resposta = requests.post(
+            LICHESS_OAUTH_TOKEN_URL,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": pendente["code_verifier"],
+                "redirect_uri": config["redirect_uri"],
+                "client_id": config["client_id"],
+            },
+            timeout=30,
+        )
+        resposta.raise_for_status()
+        token = resposta.json()
+    except Exception:
+        logger = _state.get("logger")
+        if logger:
+            # Sem o corpo da resposta no log: ele pode conter o token em caso
+            # de erro parcial, e log não é lugar de credencial.
+            logger.warning("Falha ao trocar o código OAuth do Lichess por token.")
+        return _redirecionar_para_frontend("erro=lichess_troca_falhou")
+
+    access_token = token.get("access_token")
+    if not access_token:
+        return _redirecionar_para_frontend("erro=lichess_troca_falhou")
+
+    expires_in = token.get("expires_in")
+    expires_at = (
+        (datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))).isoformat()
+        if expires_in
+        else None
+    )
+
+    try:
+        client.table("lichess_oauth_tokens").upsert(
+            {
+                "user_id": pendente["user_id"],
+                "access_token": access_token,
+                "refresh_token": token.get("refresh_token"),
+                "expires_at": expires_at,
+                "scopes": config["scopes"],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            on_conflict="user_id",
+        ).execute()
+    except Exception:
+        return _redirecionar_para_frontend("erro=lichess_gravacao_falhou")
+
+    return _redirecionar_para_frontend("conectado=lichess")
 
 
 @app.get("/guia-passos")

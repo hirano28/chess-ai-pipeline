@@ -16,12 +16,13 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **360**, todos passando, em 21 módulos |
+| Testes de backend | **405**, todos passando, em 23 módulos |
 | Testes de frontend (Vitest) | **76**, todos passando, em 10 arquivos |
 | `ng build` de produção | passa; avisa excesso de bundle (~777 kB), conhecido e aceito |
 
-`.github/workflows/deploy-backend.yml` lista os 21 módulos de teste do backend
-à mão (incluindo `backend.agentes.test_agente2_analista`,
+`.github/workflows/deploy-backend.yml` lista os 23 módulos de teste do backend
+à mão (incluindo `backend.common.test_lichess_oauth`,
+`backend.ingestao.test_importar_puzzle_activity`, `backend.agentes.test_agente2_analista`,
 `backend.common.test_notacao_pt`, `backend.analise_engine.test_backfill_fen_lances_criticos`,
 `backend.ingestao.test_coletar_partidas`, `backend.ingestao.test_coletar_partidas_chesscom`
 e `backend.ingestao.test_common_ingestao` — regra R8 cumprida). Continua sendo
@@ -481,6 +482,27 @@ Validado com 2 contas reais e limite temporariamente baixo, servidor real
 afetada. RLS confirmada real (cada conta só lê a própria linha) e o `EXECUTE`
 do RPC revogado de `authenticated` confirmado real (`403` ao tentar
 incrementar o contador de outra conta direto via REST).
+
+**OAuth do Lichess — Estágio 1 (14/09/2026, D-33).** A conexão com o Lichess
+deixou de depender de um token pessoal no `.env` (que servia só para uma
+conta): `POST /lichess/oauth/iniciar` e `GET /lichess/oauth/callback`
+implementam Authorization Code + PKCE (S256), guardando o token de cada
+usuário em `lichess_oauth_tokens` — tabela sem policy de RLS nenhuma, porque o
+token nunca pode chegar ao frontend. Investigação da doc oficial confirmou que
+o Lichess **não exige registro prévio de client_id** e **não emite refresh
+token** (access token vale ~1 ano), o que mudou o desenho do item de renovação:
+`obter_access_token_lichess()` valida `expires_at` e devolve `None` quando é
+preciso reconectar, já que não há o que renovar. Validado de ponta a ponta com
+a conta real `tantofaz123` autorizando no navegador: token gravado, e com ele
+`GET /api/account` e `GET /api/puzzle/activity` reais responderam `200`.
+**OAuth do Lichess — Estágio 2 (14/09/2026, D-34).** `importar_puzzle_activity.py`
+reescrito para consumir `lichess_oauth_tokens` via módulo compartilhado
+`backend/common/lichess_oauth.py`. O script percorre todas as contas com token
+válido, isola erros por usuário (401 revogado avisa para reconectar sem derrubar
+os demais), grava em `puzzle_atividade` com o `user_id` correto e aposentou o uso
+de `LICHESS_STUDY_TOKEN` neste fluxo. Testado com a conta real do Edson (660 puzzles
+importados com sucesso). **Falta apenas o Estágio 3** (botão "Conectar Lichess" no
+`/perfil`).
 
 ### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
 

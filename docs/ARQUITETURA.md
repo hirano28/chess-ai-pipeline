@@ -92,7 +92,10 @@ Supabase Auth>`** — é o único mecanismo de acesso da API desde D-25. Sem tok
 ou com token inválido/expirado, a resposta é `401` antes de qualquer trabalho
 caro (Stockfish, Gemini, banco), pela dependency `verificar_sessao`. Só
 `/health` e `/guia-passos` ficam fora: um é liveness probe do Cloud Run, o
-outro é conteúdo estático sem dado de usuário.
+outro é conteúdo estático sem dado de usuário. A terceira e última exceção é
+`/lichess/oauth/callback` (D-33), pelo motivo explicado na própria linha da
+tabela — ela não pode exigir header porque é um redirect de navegador, e usa
+um `state` de uso único no lugar.
 
 `X-API-Key` **foi aposentada como porta de entrada** e não abre mais nada —
 nem com a chave correta. `API_SECRET_KEYS` ainda é lida no startup e
@@ -126,6 +129,8 @@ já foi atingido — mesmo princípio de "falhar rápido" de 🎫, mas para cust
 | `GET /partidas/{id}/resumo` 🎫👤 | status do processamento + `resumo_partida` quando concluído; partida de outro dono responde 404 (D-29) |
 | `GET /partidas/recentes` 🎫👤 | histórico para a tela do Analisador, filtrado pelo dono |
 | `POST /partidas/{id}/reprocessar` 🎫👤 | reseta para `pendente` e reexecuta; partida de outro dono responde 404 (D-29) |
+| `POST /lichess/oauth/iniciar` 🎫👤 | começa o OAuth do Lichess (D-33): gera o par PKCE + `state`, amarra os dois ao dono da sessão em `lichess_oauth_pkce` e devolve a URL de autorização; o `code_verifier` nunca sai do servidor |
+| `GET /lichess/oauth/callback` | destino do redirect do lichess.org — **única rota de negócio sem 🎫, de propósito**: chega como navegação de topo do navegador, sem header `Authorization`. Quem autentica é o `state` de uso único gravado pela rota acima. Troca o código pelo token, grava em `lichess_oauth_tokens` e redireciona para `/perfil?conectado=lichess` (ou `?erro=…`), sem nunca pôr token, `code` ou `state` na URL |
 | `GET /insights/repertorio` 🎫👤 | agregações de repertório por abertura (taxa de vitória, precisão por fase, lance de PICO, categoria do hexágono) — cálculo puro em Python sobre dado já persistido, sem Stockfish nem Gemini; ver `backend/agentes/insights_repertorio.py` e D-13 em `DECISOES.md`. As 4 buscas internas filtram por dono desde D-30 (achado correlato de D-29) |
 
 Recursos caros (Stockfish, cliente Gemini, cliente Supabase, `engine_lock`) são

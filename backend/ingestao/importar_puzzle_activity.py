@@ -1,18 +1,21 @@
-"""Importa o histórico de atividade de puzzles do Lichess.
+"""Importa o histórico de atividade de puzzles do Lichess de cada usuário conectado.
 
 Cada linha do NDJSON de /api/puzzle/activity já traz o objeto `puzzle`
 completo (id, rating, themes) - não é necessário cruzar com o dump público
 de puzzles do Lichess.
 
-Diferente de `coletar_partidas.py` (D-28), este script NÃO percorre todos os
-perfis de `perfis_usuario`: `/api/puzzle/activity` não aceita username, ela
-devolve sempre e só a atividade de quem é dono do token usado
-(`LICHESS_STUDY_TOKEN`) - não existe como pedir a atividade de outra conta com
-esse mesmo token. Por isso a correção multi-tenant aqui (D-31) é diferente:
-descobrir a QUEM esse token pertence (via `/api/account`) e gravar sob o
-`user_id` do perfil correspondente, em vez de assumir `DEFAULT_USER_ID` às
-cegas. Suportar mais de uma pessoa importando puzzles exigiria um token por
-perfil (fora do escopo atual - só o Edson tem `LICHESS_STUDY_TOKEN` hoje).
+Desde D-34 (Estágio 2 do OAuth do Lichess, D-33), este script percorre
+`lichess_oauth_tokens` em vez de depender de um único `LICHESS_STUDY_TOKEN` no
+`.env`: `/api/puzzle/activity` sempre devolveu só a atividade de quem é dono
+do token usado - antes disso só existia UM token (o do Edson), então só uma
+pessoa podia ter puzzles importados. Agora cada usuário logado que conectou a
+própria conta (fluxo OAuth) tem seu próprio token em `lichess_oauth_tokens`, e
+o loop por usuário (mesmo padrão de D-28/D-31) importa a atividade de cada um
+isoladamente - um token expirado ou revogado não derruba os outros.
+
+`LICHESS_STUDY_TOKEN` continua existindo no `.env` para outros usos ainda não
+migrados (`importar_anotacoes_lichess.py`, que precisa do escopo `study:write`,
+fora do escopo do Estágio 1/2), mas este script específico não o lê mais.
 """
 
 from __future__ import annotations
@@ -20,7 +23,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import sys
 import time
 from collections import Counter
@@ -31,38 +33,41 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
-from supabase import Client, create_client
+from supabase import Client
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
+from backend.common.lichess_oauth import (  # noqa: E402
+    listar_usuarios_com_token_lichess_valido,
+    obter_access_token_lichess,
+)
 from backend.common.progress import (  # noqa: E402
     configurar_encoding_utf8,
     format_progress,
     log_and_print,
 )
 from backend.ingestao.common_ingestao import (  # noqa: E402
-    carregar_perfis,
     configure_logging,
+    create_supabase_client,
     with_retry,
 )
+import os  # noqa: E402
 
 configurar_encoding_utf8()
 
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "importar_puzzle_activity.log"
 PUZZLE_ACTIVITY_URL = "https://lichess.org/api/puzzle/activity"
-ACCOUNT_URL = "https://lichess.org/api/account"
 INSPECIONAR_MAX_LINHAS = 20
 TOP_TEMAS = 5
 
 
 @dataclass(frozen=True)
 class Settings:
-    """Configurações do Supabase e do token de puzzle do Lichess."""
+    """Configurações do Supabase. O token de cada usuário vem do banco, não daqui."""
 
     supabase_url: str
     supabase_service_role_key: str
-    lichess_study_token: str
 
 
 def load_settings() -> Settings:
@@ -70,7 +75,6 @@ def load_settings() -> Settings:
 
     load_dotenv(PROJECT_ROOT / ".env")
     required = {
-        "LICHESS_STUDY_TOKEN": os.getenv("LICHESS_STUDY_TOKEN"),
         "SUPABASE_URL": os.getenv("SUPABASE_URL"),
         "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
     }
@@ -82,17 +86,20 @@ def load_settings() -> Settings:
     return Settings(
         supabase_url=required["SUPABASE_URL"],  # type: ignore[arg-type]
         supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],  # type: ignore[arg-type]
-        lichess_study_token=required["LICHESS_STUDY_TOKEN"],  # type: ignore[arg-type]
     )
 
 
+class TokenRevogadoError(Exception):
+    """O Lichess recusou o token com 401 - revogado do lado de lá, mesmo não expirado aqui."""
+
+
 def fetch_puzzle_activity_lines(
-    settings: Settings, logger: logging.Logger, max_lines: int | None = None
+    access_token: str, logger: logging.Logger, max_lines: int | None = None
 ) -> list[bytes]:
-    """Chama /api/puzzle/activity e retorna as linhas NDJSON brutas (bytes)."""
+    """Chama /api/puzzle/activity com o token de UM usuário e devolve as linhas NDJSON."""
 
     headers = {
-        "Authorization": f"Bearer {settings.lichess_study_token}",
+        "Authorization": f"Bearer {access_token}",
         "Accept": "application/x-ndjson",
     }
 
@@ -101,6 +108,10 @@ def fetch_puzzle_activity_lines(
         with requests.get(
             PUZZLE_ACTIVITY_URL, headers=headers, timeout=30, stream=True
         ) as response:
+            if response.status_code == 401:
+                raise TokenRevogadoError(
+                    "Lichess recusou o token com 401 (revogado do lado de lá)."
+                )
             response.raise_for_status()
             for linha in response.iter_lines():
                 if not linha:
@@ -113,14 +124,32 @@ def fetch_puzzle_activity_lines(
     return with_retry(request, logger, "Busca do histórico de atividade de puzzles")
 
 
-def inspecionar() -> None:
-    """Busca uma amostra real e imprime o NDJSON bruto (Etapa 1)."""
+def inspecionar(user_id: str | None) -> None:
+    """Busca uma amostra real de UM usuário conectado e imprime o NDJSON bruto."""
 
     logger = configure_logging(LOG_PATH, "importar_puzzle_activity")
     settings = load_settings()
-    linhas = fetch_puzzle_activity_lines(
-        settings, logger, max_lines=INSPECIONAR_MAX_LINHAS
+    client = create_supabase_client(
+        settings.supabase_url, settings.supabase_service_role_key
     )
+
+    alvo = user_id
+    if not alvo:
+        conectados = listar_usuarios_com_token_lichess_valido(client)
+        if not conectados:
+            print("Nenhum usuário com o Lichess conectado (lichess_oauth_tokens vazia).")
+            return
+        alvo = conectados[0]["user_id"]
+
+    access_token = obter_access_token_lichess(client, alvo)
+    if not access_token:
+        print(f"Usuário {alvo} não tem um token do Lichess válido no momento.")
+        return
+
+    linhas = fetch_puzzle_activity_lines(
+        access_token, logger, max_lines=INSPECIONAR_MAX_LINHAS
+    )
+    print(f"Usuário: {alvo}")
     print(f"Total de linhas recebidas: {len(linhas)}\n")
     for linha in linhas:
         print(linha.decode("utf-8"))
@@ -143,46 +172,6 @@ def parse_puzzle_activity_line(linha: bytes) -> dict[str, Any]:
     }
 
 
-def fetch_lichess_username_do_token(
-    settings: Settings, logger: logging.Logger
-) -> str:
-    """Descobre a que conta do Lichess o `LICHESS_STUDY_TOKEN` pertence."""
-
-    headers = {
-        "Authorization": f"Bearer {settings.lichess_study_token}",
-        "Accept": "application/json",
-    }
-
-    def request() -> dict[str, Any]:
-        response = requests.get(ACCOUNT_URL, headers=headers, timeout=15)
-        response.raise_for_status()
-        return response.json()
-
-    dados = with_retry(request, logger, "Identificação da conta do LICHESS_STUDY_TOKEN")
-    username = dados.get("username")
-    if not username:
-        raise ValueError("Resposta de /api/account não trouxe 'username'.")
-    return str(username)
-
-
-def resolver_user_id_do_token(client: Client, username: str) -> str:
-    """Encontra em `perfis_usuario` o dono cadastrado com este `lichess_username`.
-
-    Sem fallback para `DEFAULT_USER_ID` (D-31): gravar puzzle sem saber de
-    quem é seria atribuí-lo silenciosamente a um dono errado.
-    """
-
-    alvo = username.lower()
-    for perfil in carregar_perfis(client, "lichess_username"):
-        if (perfil.get("lichess_username") or "").lower() == alvo:
-            return perfil["user_id"]
-    raise ValueError(
-        f"Nenhum perfil em perfis_usuario tem lichess_username='{username}' "
-        "(dono do LICHESS_STUDY_TOKEN atual). Cadastre o perfil em /perfil "
-        "antes de importar os puzzles."
-    )
-
-
 def upsert_puzzle_atividade(client: Client, registro: dict[str, Any], user_id: str) -> None:
     """Faz upsert de um registro em puzzle_atividade, sem duplicar."""
 
@@ -191,11 +180,77 @@ def upsert_puzzle_atividade(client: Client, registro: dict[str, Any], user_id: s
     ).execute()
 
 
+def importar_para_usuario(
+    client: Client, user_id: str, logger: logging.Logger
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Importa a atividade de puzzles de UM usuário. Nunca lança - isola o erro.
+
+    Retorna (registros_importados, falhas_parsing, falhas_upsert). Uma lista
+    vazia sem falhas pode significar tanto "sem token válido" quanto "token
+    revogado" quanto "sem puzzles" - o motivo específico já foi logado aqui.
+    """
+
+    access_token = obter_access_token_lichess(client, user_id)
+    if not access_token:
+        log_and_print(
+            logger,
+            f"Usuário {user_id}: sem token do Lichess válido (ausente ou "
+            "expirado) - pulando.",
+        )
+        return [], 0, 0
+
+    try:
+        linhas = fetch_puzzle_activity_lines(access_token, logger)
+    except TokenRevogadoError:
+        log_and_print(
+            logger,
+            f"Usuário {user_id}: token revogado no Lichess (401 apesar de não "
+            "expirado na nossa tabela) - precisa reconectar a conta em /perfil.",
+        )
+        return [], 0, 0
+    except Exception as error:
+        logger.exception("Usuário %s: falha ao buscar atividade de puzzles", user_id)
+        log_and_print(logger, f"Usuário {user_id}: falha ao buscar atividade: {error}")
+        return [], 0, 0
+
+    registros: list[dict[str, Any]] = []
+    falhas_parsing = 0
+    for index, linha in enumerate(linhas, start=1):
+        try:
+            registros.append(parse_puzzle_activity_line(linha))
+        except Exception as error:
+            falhas_parsing += 1
+            logger.exception("Usuário %s: falha ao parsear a linha %d", user_id, index)
+            log_and_print(
+                logger, f"Usuário {user_id}: linha {index} falhou no parsing: {error}"
+            )
+
+    registros_importados: list[dict[str, Any]] = []
+    falhas_upsert = 0
+    for registro in registros:
+        try:
+            upsert_puzzle_atividade(client, registro, user_id)
+            registros_importados.append(registro)
+        except Exception as error:
+            falhas_upsert += 1
+            logger.exception(
+                "Usuário %s: falha ao gravar o puzzle %s", user_id, registro.get("puzzle_id")
+            )
+            log_and_print(
+                logger,
+                f"Usuário {user_id}: puzzle {registro.get('puzzle_id')} falhou ao gravar: {error}",
+            )
+
+    return registros_importados, falhas_parsing, falhas_upsert
+
+
 def imprimir_resumo(
     logger: logging.Logger,
     registros_importados: list[dict[str, Any]],
     falhas_parsing: int,
     falhas_upsert: int,
+    usuarios_processados: int,
+    usuarios_pulados: int,
 ) -> None:
     """Calcula e imprime o resumo final: total, taxa geral e por tema."""
 
@@ -213,80 +268,96 @@ def imprimir_resumo(
 
     log_and_print(
         logger,
-        f"Resumo: {total} puzzles importados, {falhas_parsing} falhas de parsing, "
+        f"Resumo: {usuarios_processados} usuário(s) processado(s), "
+        f"{usuarios_pulados} pulado(s) (sem token válido ou revogado). "
+        f"{total} puzzles importados, {falhas_parsing} falhas de parsing, "
         f"{falhas_upsert} falhas ao gravar. Taxa de acerto geral: {taxa_geral:.1f}%.",
     )
 
-    print(f"\nTop {TOP_TEMAS} temas mais frequentes:")
-    for tema, quantidade in contagem_temas.most_common(TOP_TEMAS):
-        taxa_tema = acertos_por_tema[tema] / quantidade * 100
-        print(f"  - {tema}: {quantidade} ocorrências, {taxa_tema:.1f}% de acerto")
+    if contagem_temas:
+        print(f"\nTop {TOP_TEMAS} temas mais frequentes:")
+        for tema, quantidade in contagem_temas.most_common(TOP_TEMAS):
+            taxa_tema = acertos_por_tema[tema] / quantidade * 100
+            print(f"  - {tema}: {quantidade} ocorrências, {taxa_tema:.1f}% de acerto")
 
 
 def importar() -> None:
-    """Executa a Etapa 2: importa e grava toda a atividade de puzzles."""
+    """Percorre todos os usuários com Lichess conectado e importa a atividade de cada um."""
 
     logger = configure_logging(LOG_PATH, "importar_puzzle_activity")
     settings = load_settings()
-    client = create_client(settings.supabase_url, settings.supabase_service_role_key)
-
-    username = fetch_lichess_username_do_token(settings, logger)
-    user_id = resolver_user_id_do_token(client, username)
-    log_and_print(
-        logger, f"LICHESS_STUDY_TOKEN pertence a '{username}' (user_id={user_id})."
+    client = create_supabase_client(
+        settings.supabase_url, settings.supabase_service_role_key
     )
 
-    linhas = fetch_puzzle_activity_lines(settings, logger)
-    log_and_print(logger, f"Linhas recebidas da API: {len(linhas)}.")
+    usuarios = listar_usuarios_com_token_lichess_valido(client)
+    log_and_print(
+        logger, f"Usuários com o Lichess conectado (token não expirado): {len(usuarios)}."
+    )
+    if not usuarios:
+        print("Nenhum usuário com o Lichess conectado. Nada a importar.")
+        return
 
-    registros: list[dict[str, Any]] = []
-    falhas_parsing = 0
-    for index, linha in enumerate(linhas, start=1):
-        try:
-            registros.append(parse_puzzle_activity_line(linha))
-        except Exception as error:
-            falhas_parsing += 1
-            logger.exception("Falha ao parsear a linha %d", index)
-            log_and_print(logger, f"Linha {index} falhou no parsing: {error}")
-
-    registros_importados: list[dict[str, Any]] = []
-    falhas_upsert = 0
+    todos_registros: list[dict[str, Any]] = []
+    total_falhas_parsing = 0
+    total_falhas_upsert = 0
+    usuarios_processados = 0
+    usuarios_pulados = 0
     start_time = time.time()
-    for index, registro in enumerate(registros, start=1):
+
+    for index, usuario in enumerate(usuarios, start=1):
+        user_id = usuario["user_id"]
         try:
-            upsert_puzzle_atividade(client, registro, user_id)
-            registros_importados.append(registro)
-        except Exception as error:
-            falhas_upsert += 1
-            logger.exception("Falha ao gravar o puzzle %s", registro.get("puzzle_id"))
-            log_and_print(
-                logger, f"Puzzle {registro.get('puzzle_id')} falhou ao gravar: {error}"
+            registros, falhas_parsing, falhas_upsert = importar_para_usuario(
+                client, user_id, logger
             )
+            if registros or falhas_parsing or falhas_upsert:
+                usuarios_processados += 1
+            else:
+                usuarios_pulados += 1
+            todos_registros.extend(registros)
+            total_falhas_parsing += falhas_parsing
+            total_falhas_upsert += falhas_upsert
+        except Exception as error:
+            usuarios_pulados += 1
+            logger.exception("Falha inesperada ao processar o usuário %s", user_id)
+            log_and_print(logger, f"Usuário {user_id} falhou de forma inesperada: {error}")
         log_and_print(
             logger,
             format_progress(
-                "Importação de puzzles", "registros", index, len(registros), time.time() - start_time
+                "Importação de puzzles", "usuários", index, len(usuarios), time.time() - start_time
             ),
         )
 
-    imprimir_resumo(logger, registros_importados, falhas_parsing, falhas_upsert)
+    imprimir_resumo(
+        logger,
+        todos_registros,
+        total_falhas_parsing,
+        total_falhas_upsert,
+        usuarios_processados,
+        usuarios_pulados,
+    )
 
 
 def main() -> None:
-    """Ponto de entrada do script: --inspecionar (Etapa 1) ou importação real (Etapa 2)."""
+    """Ponto de entrada do script: --inspecionar (amostra) ou importação real."""
 
     parser = argparse.ArgumentParser(
-        description="Importa o histórico de atividade de puzzles do Lichess."
+        description="Importa o histórico de atividade de puzzles do Lichess de cada usuário conectado."
     )
     parser.add_argument(
         "--inspecionar",
         action="store_true",
-        help="Imprime uma amostra do NDJSON bruto de /api/puzzle/activity.",
+        help="Imprime uma amostra do NDJSON bruto de /api/puzzle/activity de um usuário.",
+    )
+    parser.add_argument(
+        "--user-id",
+        help="user_id específico para --inspecionar (default: o primeiro usuário conectado).",
     )
     args = parser.parse_args()
 
     if args.inspecionar:
-        inspecionar()
+        inspecionar(args.user_id)
         return
 
     importar()
