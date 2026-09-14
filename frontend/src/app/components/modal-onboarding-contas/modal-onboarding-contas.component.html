@@ -1,0 +1,110 @@
+@if (visivel()) {
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 sm:p-6" role="dialog" aria-modal="true">
+    <div class="relative w-full max-w-lg rounded-xl border border-[#304247] bg-[#162126] p-6 shadow-2xl shadow-black/80 sm:p-8 text-[#f4f0e6] animate-in fade-in zoom-in-95 duration-200">
+      
+      <!-- Botão Fechar (✕) -->
+      <button
+        type="button"
+        (click)="fechar()"
+        class="absolute top-4 right-4 rounded-lg p-1.5 text-[#8fa5a7] transition-colors hover:bg-[#202b30] hover:text-[#f4f0e6]"
+        aria-label="Fechar modal"
+      >
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      <!-- Cabeçalho -->
+      <div class="mb-6">
+        <p class="mb-1 text-xs font-semibold uppercase tracking-[0.24em] text-[#dea34c]">Configuração inicial</p>
+        <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-[#f4f0e6]">Vincule suas contas de xadrez ♟️</h2>
+        <p class="mt-2 text-sm leading-relaxed text-[#8fa5a7]">
+          Para baixarmos suas partidas automaticamente e montarmos o seu <strong class="text-[#f4f0e6]">Hexágono de Habilidades</strong>, informe seu usuário em pelo menos uma das plataformas:
+        </p>
+      </div>
+
+      <!-- Feedback de Sucesso e Erro -->
+      @if (sucesso()) {
+        <div class="mb-5 rounded-lg border border-[#3f6b4c] bg-[#173322] px-4 py-3 text-sm text-[#8fd6a6]" role="status">
+          Contas vinculadas com sucesso! Redirecionando...
+        </div>
+      }
+      @if (erro()) {
+        <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-4 py-3 text-sm text-[#e7c4b3]" role="alert">
+          {{ erro() }}
+        </div>
+      }
+
+      <!-- Formulário de Usuários -->
+      <form (submit)="$event.preventDefault(); salvar()">
+        <div class="space-y-4 mb-6">
+          <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+              Usuário no Lichess
+            </label>
+            <input
+              type="text"
+              autocomplete="off"
+              class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
+              placeholder="ex.: laisxadrez"
+              [value]="lichessUsername()"
+              (input)="lichessUsername.set($any($event.target).value)"
+            />
+          </div>
+
+          <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+              Usuário no Chess.com
+            </label>
+            <input
+              type="text"
+              autocomplete="off"
+              class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
+              placeholder="ex.: edinho230"
+              [value]="chesscomUsername()"
+              (input)="chesscomUsername.set($any($event.target).value)"
+            />
+          </div>
+        </div>
+
+        <!-- Ações Principais -->
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+          <button
+            type="button"
+            (click)="fechar()"
+            class="px-4 py-2 text-sm font-medium text-[#8fa5a7] transition-colors hover:text-[#f4f0e6] text-center"
+          >
+            Configurar depois
+          </button>
+          <button
+            type="submit"
+            class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-6 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-not-allowed disabled:opacity-60"
+            [disabled]="!formularioValido || salvando() || sucesso()"
+          >
+            {{ salvando() ? 'Salvando...' : 'Salvar e começar' }}
+          </button>
+        </div>
+      </form>
+
+      <!-- Divisor OAuth -->
+      <div class="mt-6 pt-5 border-t border-[#304247]/60 flex items-center justify-between text-xs text-[#8fa5a7]">
+        <span>Quer sincronizar também seus puzzles do Lichess?</span>
+        <button
+          type="button"
+          (click)="conectarLichessOauth()"
+          [disabled]="iniciandoOauth()"
+          class="font-semibold text-[#dea34c] hover:underline disabled:opacity-60"
+        >
+          {{ iniciandoOauth() ? 'Conectando...' : 'Conectar via OAuth' }}
+        </button>
+      </div>
+
+      <!-- Nota de Rodapé -->
+      <p class="mt-4 text-center text-[11px] text-[#5b706d]">
+        Você pode alterar ou gerenciar suas contas a qualquer momento na aba <strong class="text-[#8fa5a7]">Meu Perfil</strong>.
+      </p>
+
+    </div>
+  </div>
+}
+

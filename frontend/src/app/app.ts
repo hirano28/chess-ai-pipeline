@@ -1,10 +1,11 @@
 import { Component, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from './services/auth.service';
+import { ModalOnboardingContasComponent } from './components/modal-onboarding-contas/modal-onboarding-contas.component';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, ModalOnboardingContasComponent],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })

@@ -17,8 +17,8 @@ atualize também a data no cabeçalho.
 | Item | Valor verificado |
 |---|---|
 | Testes de backend | **411**, todos passando, em 23 módulos |
-| Testes de frontend (Vitest) | **83**, todos passando, em 11 arquivos |
-| `ng build` de produção | passa; avisa excesso de bundle (~784 kB), conhecido e aceito |
+| Testes de frontend (Vitest) | **92**, todos passando, em 12 arquivos |
+| `ng build` de produção | passa; avisa excesso de bundle (~794 kB), conhecido e aceito |
 
 `.github/workflows/deploy-backend.yml` lista os 23 módulos de teste do backend
 à mão (incluindo `backend.common.test_lichess_oauth`,

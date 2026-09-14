@@ -1675,6 +1675,33 @@ a autorização do Lichess, e retornar à aplicação com feedback claro.
 
 ---
 
+### D-36 — Modal de onboarding para vinculação de contas de xadrez
+
+**Data:** 2026-09-14  
+**Contexto:** Novos usuários (ou usuários sem contas de xadrez cadastradas)
+entravam no app e caíam no dashboard vazio. Como a ingestão em lote depende de
+`perfis_usuario` (D-28), sem cadastrar pelo menos um username (Lichess ou Chess.com),
+o sistema nunca baixaria partidas nem geraria o hexágono.
+
+**O que mudou:**
+
+1. **`ModalOnboardingContasComponent` (`src/app/components/modal-onboarding-contas/`):**
+   - Verifica se o usuário autenticado não possui contas cadastradas (`lichess_username`
+     e `chesscom_username` nulos ou vazios em `perfis_usuario`).
+   - Não sobrepõe as rotas `/login` e `/perfil`.
+   - Se o usuário fechar o modal ou clicar em "Configurar depois", grava
+     `onboarding_contas_dispensado = 'true'` em `sessionStorage`, evitando que o modal
+     reapareça a cada navegação de rota durante a mesma sessão.
+   - Permite preencher e salvar diretamente os usernames do Lichess e Chess.com no banco,
+     além de fornecer atalho para conexão via Lichess OAuth.
+2. **Integração no shell da aplicação:**
+   - Adicionado ao `app.ts` e renderizado em `app.html` após o `<router-outlet />`.
+3. **Testes unitários:**
+   - 9 novos testes unitários adicionados em `modal-onboarding-contas.component.spec.ts`.
+   - Total da suíte frontend subiu para **92 testes passando** em 12 arquivos.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a
