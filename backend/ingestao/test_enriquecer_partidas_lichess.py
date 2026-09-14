@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import MagicMock, patch
 
-from backend.ingestao.enriquecer_partidas_lichess import montar_metricas
+from backend.ingestao.enriquecer_partidas_lichess import (
+    enriquecer_uma_partida_manual,
+    montar_metricas,
+    selecionar_partidas,
+)
 
 
 def _game_export(white_analysis: dict, black_analysis: dict) -> dict:
@@ -54,6 +59,72 @@ class MontarMetricasFasesTest(unittest.TestCase):
         self.assertIsNone(metricas["precisao_abertura"])
         self.assertIsNone(metricas["precisao_meiojogo"])
         self.assertIsNone(metricas["precisao_final"])
+
+
+def _resp(data: list) -> MagicMock:
+    resposta = MagicMock()
+    resposta.data = data
+    return resposta
+
+
+class SelecionarPartidasFiltraPeloPerfilTest(unittest.TestCase):
+    """D-31: sem user_id, o loop de enriquecimento varreria partidas de todo mundo."""
+
+    def test_com_user_id_filtra_por_dono_alem_da_plataforma(self) -> None:
+        client = MagicMock()
+        primeiro_eq = client.table.return_value.select.return_value.eq.return_value
+        segundo_eq = primeiro_eq.eq.return_value
+        segundo_eq.range.return_value.execute.return_value = _resp(
+            [{"id": "p1", "external_id": "e1", "user_id": "user-a"}]
+        )
+        # tempos_lance / metricas_lichess_partida (sem filtro de dono, tabelas filhas)
+        client.table.return_value.select.return_value.range.return_value.execute.return_value = _resp([])
+
+        partidas = selecionar_partidas(client, user_id="user-a")
+
+        primeiro_eq.eq.assert_called_once_with("user_id", "user-a")
+        self.assertEqual(partidas, [{"id": "p1", "external_id": "e1", "user_id": "user-a"}])
+
+    def test_sem_user_id_nao_filtra_por_dono(self) -> None:
+        client = MagicMock()
+        no = client.table.return_value.select.return_value.eq.return_value
+        no.range.return_value.execute.return_value = _resp([])
+
+        selecionar_partidas(client)
+
+        no.eq.assert_not_called()
+
+
+class EnriquecerUmaPartidaManualTest(unittest.TestCase):
+    """Modo --external-id resolve o username do DONO real da partida, não um .env fixo."""
+
+    @patch("backend.ingestao.enriquecer_partidas_lichess.enriquecer_partida")
+    @patch("backend.ingestao.enriquecer_partidas_lichess.fetch_game_export")
+    @patch("backend.ingestao.enriquecer_partidas_lichess.carregar_perfis")
+    @patch("backend.ingestao.enriquecer_partidas_lichess.selecionar_partidas")
+    def test_usa_o_username_do_perfil_com_o_mesmo_user_id_da_partida(
+        self, mock_selecionar, mock_perfis, mock_fetch_export, mock_enriquecer
+    ) -> None:
+        mock_selecionar.return_value = [
+            {"id": "p1", "external_id": "e1", "user_id": "user-a"}
+        ]
+        mock_perfis.return_value = [
+            {"user_id": "user-b", "lichess_username": "contadaoutrapessoa"},
+            {"user_id": "user-a", "lichess_username": "tantofaz123"},
+        ]
+        mock_fetch_export.return_value = {"moves": ""}
+        client = MagicMock()
+        logger = MagicMock()
+
+        enriquecer_uma_partida_manual(client, logger, "e1", dry_run=True)
+
+        mock_enriquecer.assert_called_once_with(
+            client,
+            {"id": "p1", "external_id": "e1", "user_id": "user-a"},
+            {"moves": ""},
+            "tantofaz123",
+            True,
+        )
 
 
 if __name__ == "__main__":

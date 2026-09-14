@@ -449,6 +449,23 @@ futura, mesma categoria de pendência não bloqueante de `API_SECRET_KEYS` em
 D-25. As duas variáveis continuam vivas no `.env` só para quem roda
 `analisar_pgn_avulso.py` direto no terminal.
 
+**Fase 1 do roadmap comercial — os 5 scripts restantes (14/09/2026, D-31).**
+Investigação individual dos scripts que ainda não tinham passado pelo
+tratamento de D-28: `gerar_resumo_partida.py`, `gerar_perguntas_pendentes.py`
+e `normalizar_aberturas.py` já eram seguros (operam partida/lance por vez ou
+não agregam entre partidas — confirmado por leitura, nenhuma mudança feita).
+`enriquecer_partidas_lichess.py` tinha vazamento funcional real: usava um
+`LICHESS_USERNAME` fixo do `.env` para identificar a cor rastreada, o que
+faria `metricas_lichess_partida` nunca ser gravada para um segundo usuário —
+corrigido com o mesmo loop por perfil de D-28. `importar_puzzle_activity.py`
+gravava tudo sob `DEFAULT_USER_ID` sem checagem — corrigido de forma
+diferente (a API de puzzles do Lichess só devolve dado do dono do token, não
+aceita username): o script agora identifica o dono real via `GET
+/api/account` e resolve o `user_id` correspondente em `perfis_usuario`, sem
+fallback. Validado com 2 contas de teste reais e 2 partidas Lichess reais
+(Admin API + limpeza ao final, mesmo padrão de D-19/D-28): cada perfil só
+processou e só gravou `tempos_lance` da própria partida.
+
 ### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
 
 Não era decisão deliberada, era lacuna: `deploy-backend.yml` só propagava

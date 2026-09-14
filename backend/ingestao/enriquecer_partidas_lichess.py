@@ -34,6 +34,7 @@ from backend.common.progress import (  # noqa: E402
     log_and_print,
 )
 from backend.ingestao.common_ingestao import (  # noqa: E402
+    carregar_perfis,
     configure_logging,
     create_supabase_client,
     with_retry,
@@ -52,11 +53,15 @@ PAGE_SIZE = 1000
 
 @dataclass(frozen=True)
 class Settings:
-    """Configurações do Supabase e do jogador rastreado."""
+    """Configurações do Supabase.
+
+    Desde D-31, o jogador rastreado não vem mais daqui: cada perfil cadastrado
+    em `perfis_usuario` gera sua própria rodada de enriquecimento (ver `main`),
+    mesmo padrão já usado em `coletar_partidas.py` desde D-28.
+    """
 
     supabase_url: str
     supabase_service_role_key: str
-    lichess_username: str | None
 
 
 def load_settings() -> Settings:
@@ -75,7 +80,6 @@ def load_settings() -> Settings:
     return Settings(
         supabase_url=required["SUPABASE_URL"],  # type: ignore[arg-type]
         supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],  # type: ignore[arg-type]
-        lichess_username=os.getenv("LICHESS_USERNAME") or None,
     )
 
 
@@ -415,14 +419,19 @@ def _fetch_partida_ids_da_tabela(client: Client, tabela: str) -> set[Any]:
 
 
 def selecionar_partidas(
-    client: Client, external_id: str | None
+    client: Client, external_id: str | None = None, user_id: str | None = None
 ) -> list[dict[str, Any]]:
-    """Seleciona partidas Lichess a enriquecer (ou uma específica por external_id)."""
+    """Seleciona partidas Lichess a enriquecer.
+
+    Com `external_id`: busca essa partida específica, de qualquer dono (modo
+    manual de depuração de uma partida por vez). Com `user_id`: filtra pelo
+    perfil, uma rodada por dono (D-31, mesmo padrão de `coletar_partidas.py`).
+    """
 
     if external_id:
         response = (
             client.table("partidas")
-            .select("id, external_id")
+            .select("id, external_id, user_id")
             .eq("plataforma", "LICHESS")
             .eq("external_id", external_id)
             .limit(1)
@@ -433,13 +442,14 @@ def selecionar_partidas(
     partidas: list[dict[str, Any]] = []
     offset = 0
     while True:
-        response = (
+        query = (
             client.table("partidas")
-            .select("id, external_id")
+            .select("id, external_id, user_id")
             .eq("plataforma", "LICHESS")
-            .range(offset, offset + PAGE_SIZE - 1)
-            .execute()
         )
+        if user_id:
+            query = query.eq("user_id", user_id)
+        response = query.range(offset, offset + PAGE_SIZE - 1).execute()
         page = response.data or []
         partidas.extend(page)
         if len(page) < PAGE_SIZE:
@@ -456,17 +466,21 @@ def selecionar_partidas(
     ]
 
 
-def enriquecer(external_id: str | None = None, dry_run: bool = False) -> None:
-    """Enriquece partidas Lichess com clocks e métricas de análise (Etapa 2b)."""
+def enriquecer_para_perfil(
+    client: Client,
+    logger: logging.Logger,
+    user_id: str,
+    username: str,
+    dry_run: bool = False,
+) -> tuple[int, int, int, int]:
+    """Enriquece as partidas Lichess de um único perfil (D-31).
 
-    logger = configure_logging(LOG_PATH, "enriquecer_partidas_lichess")
-    settings = load_settings()
-    client = create_supabase_client(
-        settings.supabase_url, settings.supabase_service_role_key
-    )
-    partidas = selecionar_partidas(client, external_id)
+    Retorna (com_clocks, com_metricas, sem_nada, falhas).
+    """
+
+    partidas = selecionar_partidas(client, user_id=user_id)
     total = len(partidas)
-    log_and_print(logger, f"Partidas a processar: {total}")
+    log_and_print(logger, f"[{username}] Partidas a processar: {total}")
 
     com_clocks = com_metricas = sem_nada = falhas = 0
     start_time = time.time()
@@ -475,7 +489,7 @@ def enriquecer(external_id: str | None = None, dry_run: bool = False) -> None:
         try:
             game_export = fetch_game_export(str(ext), logger)
             gravou_clocks, gravou_metricas = enriquecer_partida(
-                client, partida, game_export, settings.lichess_username, dry_run
+                client, partida, game_export, username, dry_run
             )
             if gravou_clocks:
                 com_clocks += 1
@@ -490,20 +504,47 @@ def enriquecer(external_id: str | None = None, dry_run: bool = False) -> None:
         log_and_print(
             logger,
             format_progress(
-                "Enriquecimento", "partidas", index, total, time.time() - start_time
+                f"Enriquecimento ({username})", "partidas", index, total, time.time() - start_time
             ),
         )
 
-    prefixo = "[DRY-RUN] " if dry_run else ""
-    log_and_print(
-        logger,
-        f"{prefixo}Resumo: {com_clocks} com clocks, {com_metricas} com métricas, "
-        f"{sem_nada} sem nenhum dos dois, {falhas} falharam.",
-    )
+    return com_clocks, com_metricas, sem_nada, falhas
+
+
+def enriquecer_uma_partida_manual(
+    client: Client, logger: logging.Logger, external_id: str, dry_run: bool
+) -> None:
+    """Enriquece uma única partida por external_id (modo manual de depuração).
+
+    Resolve o username do dono real da partida em `perfis_usuario` em vez de
+    depender de um `.env` fixo — precisa da cor certa para `montar_metricas`
+    mesmo fora do loop por perfil de `main`.
+    """
+
+    partidas = selecionar_partidas(client, external_id=external_id)
+    if not partidas:
+        print(f"Partida com external_id={external_id} não encontrada.")
+        return
+    partida = partidas[0]
+
+    username: str | None = None
+    for perfil in carregar_perfis(client, "lichess_username"):
+        if perfil.get("user_id") == partida.get("user_id"):
+            username = perfil.get("lichess_username")
+            break
+
+    game_export = fetch_game_export(external_id, logger)
+    enriquecer_partida(client, partida, game_export, username, dry_run)
 
 
 def main() -> None:
-    """Ponto de entrada do script (Etapas 1 e 2a de descoberta/validação)."""
+    """Ponto de entrada do script.
+
+    `--inspecionar`/`--validar-clocks` seguem manuais e globais (depuração de
+    uma amostra). O modo padrão (sem flags) percorre `perfis_usuario` e
+    enriquece as partidas de cada perfil isoladamente (D-31); com
+    `--external-id` sozinho, enriquece só aquela partida.
+    """
 
     parser = argparse.ArgumentParser(
         description="Enriquece partidas do Lichess com dados oficiais do próprio site."
@@ -520,7 +561,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--external-id",
-        help="external_id da partida usada por --validar-clocks.",
+        help="external_id de uma partida específica (--validar-clocks ou modo manual).",
     )
     parser.add_argument(
         "--dry-run",
@@ -539,7 +580,45 @@ def main() -> None:
         validar_clocks(args.external_id)
         return
 
-    enriquecer(external_id=args.external_id, dry_run=args.dry_run)
+    logger = configure_logging(LOG_PATH, "enriquecer_partidas_lichess")
+    settings = load_settings()
+    client = create_supabase_client(
+        settings.supabase_url, settings.supabase_service_role_key
+    )
+
+    if args.external_id:
+        enriquecer_uma_partida_manual(client, logger, args.external_id, args.dry_run)
+        return
+
+    perfis = carregar_perfis(client, "lichess_username")
+    if not perfis:
+        print("Nenhum perfil com usuário do Lichess cadastrado em perfis_usuario.")
+        return
+
+    total_clocks = total_metricas = total_sem_nada = total_falhas = 0
+    for perfil in perfis:
+        username = perfil["lichess_username"]
+        user_id = perfil["user_id"]
+        try:
+            clocks, metricas, sem_nada, falhas = enriquecer_para_perfil(
+                client, logger, user_id, username, dry_run=args.dry_run
+            )
+            total_clocks += clocks
+            total_metricas += metricas
+            total_sem_nada += sem_nada
+            total_falhas += falhas
+        except Exception as error:
+            total_falhas += 1
+            logger.exception(
+                "Falha ao enriquecer o perfil %s (%s): %s", username, user_id, error
+            )
+
+    prefixo = "[DRY-RUN] " if args.dry_run else ""
+    log_and_print(
+        logger,
+        f"{prefixo}Resumo: {total_clocks} com clocks, {total_metricas} com métricas, "
+        f"{total_sem_nada} sem nenhum dos dois, {total_falhas} falharam.",
+    )
 
 
 if __name__ == "__main__":

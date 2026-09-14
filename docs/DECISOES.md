@@ -1267,6 +1267,108 @@ removidos ao final; confirmado por SQL que não sobrou nenhuma linha órfã.
 
 ---
 
+### D-31 — Fase 1 do roadmap comercial: os 5 scripts restantes do loop por perfil
+
+**Data:** 2026-09-14
+**Gatilho:** D-28 estendeu o loop por `perfis_usuario` a
+`coletar_partidas.py`/`coletar_partidas_chesscom.py`/`agente2_analista.py`/
+`agente3_prescritor.py`, mas 5 outros scripts do pipeline continuavam sem
+esse tratamento: `enriquecer_partidas_lichess.py`,
+`importar_puzzle_activity.py`, `gerar_resumo_partida.py`,
+`gerar_perguntas_pendentes.py`, `normalizar_aberturas.py`. Antes de investir
+mais no roadmap comercial, era preciso confirmar (não assumir) se cada um
+já era seguro para multi-tenant ou não.
+
+**Investigação script a script (achado real, não suposição):**
+
+1. **`enriquecer_partidas_lichess.py` — vazamento funcional real, corrigido.**
+   `selecionar_partidas` varria TODAS as partidas Lichess do banco, de
+   qualquer dono, e usava um único `LICHESS_USERNAME` do `.env` para
+   descobrir de que lado o jogador rastreado jogou (`identificar_cor_rastreada`
+   → `montar_metricas`). Para as partidas de um segundo usuário, o username
+   nunca bateria com nenhum dos dois lados: `metricas_lichess_partida` nunca
+   seria gravada para ninguém além do dono do `.env` — silenciosamente, sem
+   erro. `tempos_lance` não dependia do username e seria gravada
+   corretamente, mas atribuída à partida certa só por acidente de FK, sem
+   nenhuma filtragem deliberada por perfil.
+
+2. **`importar_puzzle_activity.py` — vazamento de atribuição real, corrigido
+   de forma diferente do padrão usual.** Gravava todo puzzle sob
+   `obter_default_user_id()`, sem checagem nenhuma. Mas diferente da coleta de
+   partidas, `/api/puzzle/activity` do Lichess **não aceita username**: ela
+   sempre devolve a atividade de quem é dono do `LICHESS_STUDY_TOKEN` usado —
+   não existe como pedir a atividade de outra conta com esse mesmo token.
+   Logo, "percorrer `perfis_usuario` chamando a API uma vez por username" não
+   se aplica aqui (produziria o mesmo resultado N vezes, atribuído a N donos
+   diferentes — pior que o bug original). A correção correta é descobrir a
+   **qual perfil o token pertence** e gravar sob esse dono, sem fallback.
+
+3. **`gerar_resumo_partida.py` — já seguro, nenhuma mudança.** Opera
+   partida por partida: `fetch_partidas_elegiveis` varre a tabela toda, mas
+   cada `partida_id` retornado é processado isoladamente por
+   `coletar_dados_partida` (filtra só por `partida_id`) e grava em
+   `resumo_partida` (filho de `partidas` via FK, dono herdado). Nunca agrega
+   dado de mais de uma partida ao mesmo tempo — nenhuma mistura possível
+   entre contas.
+
+4. **`gerar_perguntas_pendentes.py` — já seguro, nenhuma mudança.** Mesmo
+   padrão: opera lance a lance (`lance_id`/`partida_id`), pergunta é texto
+   fixo sem LLM, gravada em `perguntas_pendentes` vinculada a um único
+   `lance_id`. Nenhuma agregação cross-partida.
+
+5. **`normalizar_aberturas.py` — já seguro, nenhuma mudança.** Varre
+   `partidas` inteira, mas cada linha é lida e escrita isoladamente
+   (`abertura_normalizada` calculada só a partir do próprio PGN/external_id
+   daquela linha). Não lê nem depende de dado de nenhuma outra partida —
+   implicitamente multi-tenant por não agregar nada.
+
+**Resolução nos 2 scripts com achado real:**
+
+- `enriquecer_partidas_lichess.py`: `Settings` perdeu o campo
+  `lichess_username`; nova `enriquecer_para_perfil(client, logger, user_id,
+  username, dry_run)` roda `selecionar_partidas(client, user_id=...)` (novo
+  parâmetro, filtra por dono) e `main()` percorre `carregar_perfis(client,
+  "lichess_username")`, isolando erro por perfil (mesmo princípio de D-28).
+  `--external-id` (modo manual de depuração de 1 partida) ganhou
+  `enriquecer_uma_partida_manual`, que resolve o username certo procurando em
+  `perfis_usuario` o perfil com o mesmo `user_id` da partida-alvo, em vez de
+  usar o `.env`.
+- `importar_puzzle_activity.py`: nova `fetch_lichess_username_do_token`
+  (chama `GET /api/account` com o `LICHESS_STUDY_TOKEN` real) e
+  `resolver_user_id_do_token` (procura em `perfis_usuario` o perfil com esse
+  `lichess_username`, levanta `ValueError` sem fallback se não achar).
+  `upsert_puzzle_atividade` passou a receber `user_id` explícito.
+  `obter_default_user_id`/`backend.common.tenant` saíram do arquivo.
+
+**Validado com dados reais (Admin API + 2 external_id reais do Lichess não
+importados ainda, `A69ZYTDf` e `y6a6yWhg`):** 2 contas de teste, cada uma com
+1 partida fabricada apontando pra um desses `external_id`. Rodando
+`enriquecer_para_perfil` de verdade (rede real ao Lichess, escrita real no
+Supabase) para a conta A, só a partida de A foi processada
+(`selecionar_partidas(user_id=A)` só retornava `A69ZYTDf`) e só sua
+`tempos_lance` foi gravada (65 linhas na partida de A); a partida de B
+(`y6a6yWhg`) ficou intocada. Repetido para B: só sua própria partida foi
+processada (50 linhas de `tempos_lance`), sem tocar a de A. Para
+`importar_puzzle_activity.py`, `fetch_lichess_username_do_token` com o
+`LICHESS_STUDY_TOKEN` real devolveu `"tantofaz123"` e
+`resolver_user_id_do_token` resolveu para o `user_id` real do Edson em
+`perfis_usuario` — a mesma conta que `DEFAULT_USER_ID` grava hoje, mas agora
+por consulta explícita ao perfil dono do token, não mais um valor fixo (se o
+token um dia pertencer a outra conta sem perfil cadastrado, o script falha
+alto em vez de atribuir puzzle a alguém errado).
+
+**Testes:** `test_enriquecer_partidas_lichess.py` ganhou
+`SelecionarPartidasFiltraPeloPerfilTest` (2 testes) e
+`EnriquecerUmaPartidaManualTest` (1 teste). Novo
+`test_importar_puzzle_activity.py` com `ResolverUserIdDoTokenTest` (2 testes)
+e `UpsertPuzzleAtividadeTest` (1 teste).
+
+**Limpeza:** as 2 contas de teste, os perfis e as 2 partidas fabricadas
+(e sua `tempos_lance`) foram removidos ao final; confirmado por SQL que não
+sobrou nenhuma linha órfã.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

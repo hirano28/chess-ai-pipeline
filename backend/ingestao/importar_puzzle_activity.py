@@ -3,6 +3,16 @@
 Cada linha do NDJSON de /api/puzzle/activity já traz o objeto `puzzle`
 completo (id, rating, themes) - não é necessário cruzar com o dump público
 de puzzles do Lichess.
+
+Diferente de `coletar_partidas.py` (D-28), este script NÃO percorre todos os
+perfis de `perfis_usuario`: `/api/puzzle/activity` não aceita username, ela
+devolve sempre e só a atividade de quem é dono do token usado
+(`LICHESS_STUDY_TOKEN`) - não existe como pedir a atividade de outra conta com
+esse mesmo token. Por isso a correção multi-tenant aqui (D-31) é diferente:
+descobrir a QUEM esse token pertence (via `/api/account`) e gravar sob o
+`user_id` do perfil correspondente, em vez de assumir `DEFAULT_USER_ID` às
+cegas. Suportar mais de uma pessoa importando puzzles exigiria um token por
+perfil (fora do escopo atual - só o Edson tem `LICHESS_STUDY_TOKEN` hoje).
 """
 
 from __future__ import annotations
@@ -31,13 +41,17 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
-from backend.common.tenant import obter_default_user_id  # noqa: E402
-from backend.ingestao.common_ingestao import configure_logging, with_retry  # noqa: E402
+from backend.ingestao.common_ingestao import (  # noqa: E402
+    carregar_perfis,
+    configure_logging,
+    with_retry,
+)
 
 configurar_encoding_utf8()
 
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "importar_puzzle_activity.log"
 PUZZLE_ACTIVITY_URL = "https://lichess.org/api/puzzle/activity"
+ACCOUNT_URL = "https://lichess.org/api/account"
 INSPECIONAR_MAX_LINHAS = 20
 TOP_TEMAS = 5
 
@@ -129,11 +143,51 @@ def parse_puzzle_activity_line(linha: bytes) -> dict[str, Any]:
     }
 
 
-def upsert_puzzle_atividade(client: Client, registro: dict[str, Any]) -> None:
+def fetch_lichess_username_do_token(
+    settings: Settings, logger: logging.Logger
+) -> str:
+    """Descobre a que conta do Lichess o `LICHESS_STUDY_TOKEN` pertence."""
+
+    headers = {
+        "Authorization": f"Bearer {settings.lichess_study_token}",
+        "Accept": "application/json",
+    }
+
+    def request() -> dict[str, Any]:
+        response = requests.get(ACCOUNT_URL, headers=headers, timeout=15)
+        response.raise_for_status()
+        return response.json()
+
+    dados = with_retry(request, logger, "Identificação da conta do LICHESS_STUDY_TOKEN")
+    username = dados.get("username")
+    if not username:
+        raise ValueError("Resposta de /api/account não trouxe 'username'.")
+    return str(username)
+
+
+def resolver_user_id_do_token(client: Client, username: str) -> str:
+    """Encontra em `perfis_usuario` o dono cadastrado com este `lichess_username`.
+
+    Sem fallback para `DEFAULT_USER_ID` (D-31): gravar puzzle sem saber de
+    quem é seria atribuí-lo silenciosamente a um dono errado.
+    """
+
+    alvo = username.lower()
+    for perfil in carregar_perfis(client, "lichess_username"):
+        if (perfil.get("lichess_username") or "").lower() == alvo:
+            return perfil["user_id"]
+    raise ValueError(
+        f"Nenhum perfil em perfis_usuario tem lichess_username='{username}' "
+        "(dono do LICHESS_STUDY_TOKEN atual). Cadastre o perfil em /perfil "
+        "antes de importar os puzzles."
+    )
+
+
+def upsert_puzzle_atividade(client: Client, registro: dict[str, Any], user_id: str) -> None:
     """Faz upsert de um registro em puzzle_atividade, sem duplicar."""
 
     client.table("puzzle_atividade").upsert(
-        {**registro, "user_id": obter_default_user_id()}, on_conflict="puzzle_id,data"
+        {**registro, "user_id": user_id}, on_conflict="puzzle_id,data"
     ).execute()
 
 
@@ -176,6 +230,12 @@ def importar() -> None:
     settings = load_settings()
     client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
+    username = fetch_lichess_username_do_token(settings, logger)
+    user_id = resolver_user_id_do_token(client, username)
+    log_and_print(
+        logger, f"LICHESS_STUDY_TOKEN pertence a '{username}' (user_id={user_id})."
+    )
+
     linhas = fetch_puzzle_activity_lines(settings, logger)
     log_and_print(logger, f"Linhas recebidas da API: {len(linhas)}.")
 
@@ -194,7 +254,7 @@ def importar() -> None:
     start_time = time.time()
     for index, registro in enumerate(registros, start=1):
         try:
-            upsert_puzzle_atividade(client, registro)
+            upsert_puzzle_atividade(client, registro, user_id)
             registros_importados.append(registro)
         except Exception as error:
             falhas_upsert += 1

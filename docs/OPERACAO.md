@@ -43,7 +43,11 @@ python -m unittest \
   backend.common.test_chess_math \
   backend.common.test_notacao_pt \
   backend.common.test_tenant \
-  backend.ingestao.test_enriquecer_partidas_lichess
+  backend.ingestao.test_coletar_partidas \
+  backend.ingestao.test_coletar_partidas_chesscom \
+  backend.ingestao.test_common_ingestao \
+  backend.ingestao.test_enriquecer_partidas_lichess \
+  backend.ingestao.test_importar_puzzle_activity
 ```
 
 Para gerar a lista automaticamente e não esquecer nenhum módulo:
@@ -158,12 +162,20 @@ Por isso ela **não** entra na limpeza citada acima.
 `LICHESS_USERNAME`/`CHESSCOM_USERNAME` **não controlam mais a coleta em lote**
 desde D-28: `coletar_partidas.py`/`coletar_partidas_chesscom.py` passaram a
 percorrer a tabela `perfis_usuario` (um usuário, uma conta cadastrada, uma
-rodada de coleta atribuída ao `user_id` certo — ver BANCO.md). As duas
-variáveis continuam valendo **só** para quem roda `analisar_pgn_avulso.py`
-direto no terminal (CLI standalone): é o fallback de inferência de cor
-`inferir_cor_jogador` usa quando não recebe `usernames` explícito. Pela API,
-`/analisar-pgn` já passa o perfil de quem está logado, sem tocar nessas
-variáveis.
+rodada de coleta atribuída ao `user_id` certo — ver BANCO.md). Desde D-31,
+`enriquecer_partidas_lichess.py` também percorre `perfis_usuario` e não lê
+mais `LICHESS_USERNAME`. As duas variáveis continuam valendo **só** para
+quem roda `analisar_pgn_avulso.py` direto no terminal (CLI standalone): é o
+fallback de inferência de cor `inferir_cor_jogador` usa quando não recebe
+`usernames` explícito. Pela API, `/analisar-pgn` já passa o perfil de quem
+está logado, sem tocar nessas variáveis.
+
+`LICHESS_STUDY_TOKEN` continua sendo uma única conta (o Lichess não permite
+pedir a atividade de puzzles de outra conta com o mesmo token) — desde D-31,
+`importar_puzzle_activity.py` não assume mais que essa conta é
+`DEFAULT_USER_ID`: ele identifica o dono de verdade via `GET /api/account` e
+procura o `user_id` correspondente em `perfis_usuario`, falhando alto se
+ninguém tiver cadastrado esse `lichess_username`.
 
 **`deploy-backend.yml` é a fonte de verdade em produção, não `env.yaml`
 local (D-20).** A cada deploy automático, o workflow gera um arquivo de env
