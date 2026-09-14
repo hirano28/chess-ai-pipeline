@@ -29,6 +29,8 @@ export interface SessaoTreino {
   modulos: ModuloTreino[] | SprintTreinoPayload;
   data_prescrita: string;
   data_concluida: string | null;
+  eficacia_medida?: number | null;
+  observacoes?: string | null;
 }
 
 export interface AtualizacaoSessaoResult {
@@ -138,7 +140,7 @@ export class SupabaseService {
   async getSessoesTreino(): Promise<SessaoTreino[]> {
     const { data, error } = await this.client
       .from('sessoes_treino')
-      .select('id, diagnostico_gargalo, modulos, data_prescrita, data_concluida')
+      .select('id, diagnostico_gargalo, modulos, data_prescrita, data_concluida, eficacia_medida, observacoes')
       .order('data_prescrita', { ascending: false });
 
     if (error) {
@@ -163,6 +165,23 @@ export class SupabaseService {
     }
 
     return { success: true, dataConcluida };
+  }
+
+  async desmarcarSessaoConcluida(id: string): Promise<AtualizacaoSessaoResult> {
+    const { error } = await this.client
+      .from('sessoes_treino')
+      .update({
+        data_concluida: null,
+        eficacia_medida: null,
+        observacoes: null
+      })
+      .eq('id', id);
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
   }
 
   async getPerguntasPendentes(): Promise<PerguntaPendente[]> {

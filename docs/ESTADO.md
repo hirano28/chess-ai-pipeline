@@ -17,7 +17,7 @@ atualize também a data no cabeçalho.
 | Item | Valor verificado |
 |---|---|
 | Testes de backend | **426**, todos passando, em 24 módulos |
-| Testes de frontend (Vitest) | **92**, todos passando, em 12 arquivos |
+| Testes de frontend (Vitest) | **100**, todos passando, em 13 arquivos |
 | `ng build` de produção | passa; avisa excesso de bundle (~794 kB), conhecido e aceito |
 
 `.github/workflows/deploy-backend.yml` lista os 24 módulos de teste do backend
@@ -246,11 +246,11 @@ em vez de `gravidade_cpl`, integrando a métrica D-1 à decisão do gargalo. `to
 prompt narrativo do Gemini também foram atualizados para focar no período recente. 11 testes
 unitários adicionados em `backend.agentes.test_agente2_analista`.
 
-### P-4 — O loop adaptativo nunca fechou 🟡
+### P-4 — O loop adaptativo nunca fechou ✅ RESOLVIDA em 14/09/2026 (D-37 e D-38)
 
-3 sprints prescritas, **0 concluídas, 0 com eficácia medida**. `medir_eficacia.py`
-não está em nenhum workflow, apesar de documentação antiga afirmar que rodava no
-semanal. Falta também o botão de concluir sprint no dashboard.
+O ciclo completo foi fechado:
+1. **Backend:** `medir_eficacia.py` automatizado no `pipeline-semanal.yml` com isolamento multi-tenant (D-37), calculando a redução percentual de falhas na janela de 15 dias pós-treino.
+2. **Frontend:** `SessoesTreinoComponent` e `SupabaseService` atualizados (D-38) com métricas de resumo (prescritas, concluídas, eficácia média), ação de concluir sprint, opção de desmarcar/reabrir e exibição do impacto na frequência de falhas com observações (ou aviso de espera da janela pós-treino).
 
 ### P-5 — 14% das partidas morrem em silêncio 🟡
 

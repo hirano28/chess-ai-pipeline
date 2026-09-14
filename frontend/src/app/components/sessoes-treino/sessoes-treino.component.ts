@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import {
   ModuloTreino,
   SessaoTreino,
@@ -15,6 +15,22 @@ export class SessoesTreinoComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly sessoes = signal<SessaoTreino[]>([]);
   readonly sessoesAtualizando = signal<ReadonlySet<string>>(new Set());
+
+  readonly totalPrescritas = computed(() => this.sessoes().length);
+  readonly totalConcluidas = computed(
+    () => this.sessoes().filter((s) => s.data_concluida !== null).length
+  );
+  readonly mediaEficacia = computed(() => {
+    const comEficacia = this.sessoes().filter(
+      (s) => s.eficacia_medida !== null && s.eficacia_medida !== undefined
+    );
+    if (comEficacia.length === 0) return null;
+    const soma = comEficacia.reduce(
+      (acc, s) => acc + (s.eficacia_medida as number),
+      0
+    );
+    return Number((soma / comEficacia.length).toFixed(1));
+  });
 
   private readonly supabaseService = inject(SupabaseService);
   private readonly formatadorData = new Intl.DateTimeFormat('pt-BR', {
@@ -38,6 +54,25 @@ export class SessoesTreinoComponent implements OnInit {
     return Number.isNaN(valor.getTime())
       ? 'data indisponível'
       : this.formatadorData.format(valor);
+  }
+
+  obterBadgeEficacia(eficacia: number): { texto: string; classe: string } {
+    if (eficacia > 0) {
+      return {
+        texto: `↓ ${eficacia.toFixed(1)}% de falhas`,
+        classe: 'border-[#426b52] bg-[#1a3326] text-[#7ce3a4]'
+      };
+    }
+    if (eficacia < 0) {
+      return {
+        texto: `↑ ${Math.abs(eficacia).toFixed(1)}% de falhas`,
+        classe: 'border-[#765044] bg-[#2a211f] text-[#f8a893]'
+      };
+    }
+    return {
+      texto: '0.0% de variação',
+      classe: 'border-[#40565c] bg-[#1d272a] text-[#b9c7c8]'
+    };
   }
 
   async marcarComoConcluida(sessao: SessaoTreino): Promise<void> {
@@ -64,6 +99,39 @@ export class SessoesTreinoComponent implements OnInit {
     } catch (cause: unknown) {
       const message = cause instanceof Error ? cause.message : 'Erro desconhecido';
       this.error.set(`Não foi possível concluir a sessão. ${message}`);
+    } finally {
+      this.sessoesAtualizando.update((ids) => {
+        const atualizados = new Set(ids);
+        atualizados.delete(sessao.id);
+        return atualizados;
+      });
+    }
+  }
+
+  async desmarcarComoConcluida(sessao: SessaoTreino): Promise<void> {
+    if (this.sessoesAtualizando().has(sessao.id)) {
+      return;
+    }
+
+    this.error.set(null);
+    this.sessoesAtualizando.update((ids) => new Set(ids).add(sessao.id));
+
+    try {
+      const result = await this.supabaseService.desmarcarSessaoConcluida(sessao.id);
+      if (!result.success) {
+        throw new Error(result.error ?? 'O servidor não confirmou a atualização.');
+      }
+
+      this.sessoes.update((sessoes) =>
+        sessoes.map((item) =>
+          item.id === sessao.id
+            ? { ...item, data_concluida: null, eficacia_medida: null, observacoes: null }
+            : item
+        )
+      );
+    } catch (cause: unknown) {
+      const message = cause instanceof Error ? cause.message : 'Erro desconhecido';
+      this.error.set(`Não foi possível reabrir a sessão. ${message}`);
     } finally {
       this.sessoesAtualizando.update((ids) => {
         const atualizados = new Set(ids);

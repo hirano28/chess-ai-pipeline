@@ -1730,6 +1730,30 @@ o sistema nunca baixaria partidas nem geraria o hexágono.
 
 ---
 
+### D-38 — Fechamento do loop adaptativo no Frontend (P-4)
+
+**Data:** 2026-09-14  
+**Contexto:** O loop adaptativo (P-4) estava incompleto no frontend: embora o backend agora calcule a eficácia das sprints concluídas semanalmente (D-37), o frontend não consultava `eficacia_medida` nem `observacoes` de `sessoes_treino`, e a interface não exibia o status da medição nem permitia reabrir uma sprint marcada por engano.
+
+**O que mudou:**
+
+1. **`SupabaseService` (`supabase.service.ts`):**
+   - Atualizada a interface `SessaoTreino` para incluir `eficacia_medida?: number | null` e `observacoes?: string | null`.
+   - `getSessoesTreino()` passou a selecionar `eficacia_medida, observacoes`.
+   - Criado método `desmarcarSessaoConcluida(id: string)` que reseta `data_concluida`, `eficacia_medida` e `observacoes` para `null`.
+
+2. **`SessoesTreinoComponent` (`sessoes-treino.component.ts` e `.html`):**
+   - Cabeçalho com métricas resumidas: total prescritas, total concluídas e eficácia média das sprints concluídas.
+   - Botão sutil "Desmarcar / Reabrir" para caso o usuário tenha clicado por engano.
+   - Bloco visual de "Impacto nas partidas (Loop adaptativo)":
+     - Exibe badge de variação percentual (verde para redução, vermelho/âmbar para aumento) e o texto completo de `observacoes` quando a eficácia já foi medida.
+     - Exibe mensagem explicativa com pulse animado quando a sprint foi concluída recentemente e ainda está aguardando a janela de 15 dias para medição automática no pipeline semanal.
+
+3. **Testes Unitários:**
+   - Criada a suíte `sessoes-treino.component.spec.ts` com 8 testes unitários cobrindo renderização, cálculo de médias, marcação/desmarcação e tratamento de erros. Total da suíte frontend subiu para **100 testes passando** em 13 arquivos.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

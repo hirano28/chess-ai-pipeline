@@ -1,11 +1,29 @@
 <section class="mt-8 border-t border-[#304247] pt-10" aria-labelledby="sessoes-heading">
-  <div class="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+  <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
     <div>
       <p class="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#dea34c]">Plano de evolução</p>
       <h2 id="sessoes-heading" class="text-2xl font-semibold text-[#f4f0e6] sm:text-3xl">Sessões de treino</h2>
     </div>
+
     @if (!loading() && sessoes().length > 0) {
-      <p class="text-sm text-[#8fa5a7]">{{ sessoes().length }} sessões prescritas</p>
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="rounded-lg border border-[#304247] bg-[#121c20] px-3.5 py-1.5 text-center">
+          <span class="block text-xs font-medium text-[#8fa5a7]">Prescritas</span>
+          <span class="text-base font-bold text-[#f4f0e6]">{{ totalPrescritas() }}</span>
+        </div>
+        <div class="rounded-lg border border-[#304247] bg-[#121c20] px-3.5 py-1.5 text-center">
+          <span class="block text-xs font-medium text-[#8fa5a7]">Concluídas</span>
+          <span class="text-base font-bold text-[#a9d2bd]">{{ totalConcluidas() }}</span>
+        </div>
+        @if (mediaEficacia() !== null) {
+          <div class="rounded-lg border border-[#304247] bg-[#121c20] px-3.5 py-1.5 text-center">
+            <span class="block text-xs font-medium text-[#8fa5a7]">Eficácia média</span>
+            <span class="text-base font-bold text-[#dea34c]">
+              {{ mediaEficacia()! > 0 ? '↓ ' : '' }}{{ mediaEficacia() }}%
+            </span>
+          </div>
+        }
+      </div>
     }
   </div>
 
@@ -38,13 +56,26 @@
               </div>
 
               @if (sessao.data_concluida) {
-                <span class="inline-flex self-start rounded-full border border-[#557267] bg-[#20352e] px-3 py-1.5 text-xs font-semibold text-[#a9d2bd]">
-                  Concluída em {{ formatarData(sessao.data_concluida) }}
-                </span>
+                <div class="flex flex-col items-start gap-2 sm:items-end">
+                  <span class="inline-flex items-center gap-1.5 rounded-full border border-[#557267] bg-[#20352e] px-3 py-1.5 text-xs font-semibold text-[#a9d2bd]">
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                    </svg>
+                    Concluída em {{ formatarData(sessao.data_concluida) }}
+                  </span>
+                  <button
+                    type="button"
+                    class="text-xs text-[#8fa5a7] underline transition-colors hover:text-[#e7c4b3] disabled:opacity-50"
+                    [disabled]="sessoesAtualizando().has(sessao.id)"
+                    (click)="desmarcarComoConcluida(sessao)"
+                  >
+                    {{ sessoesAtualizando().has(sessao.id) ? 'Atualizando...' : 'Desmarcar / Reabrir' }}
+                  </button>
+                </div>
               } @else {
                 <button
                   type="button"
-                  class="inline-flex min-h-10 self-start items-center justify-center rounded-md bg-[#dea34c] px-4 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
+                  class="inline-flex min-h-10 self-start items-center justify-center rounded-md bg-[#dea34c] px-4 py-2 text-sm font-semibold text-[#162126] shadow-sm transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
                   [disabled]="sessoesAtualizando().has(sessao.id)"
                   (click)="marcarComoConcluida(sessao)"
                 >
@@ -52,6 +83,33 @@
                 </button>
               }
             </div>
+
+            <!-- Bloco de Eficácia do Treino (quando concluída) -->
+            @if (sessao.data_concluida) {
+              <div class="my-5 rounded-lg border p-4 sm:p-5"
+                   [class]="sessao.eficacia_medida != null ? 'border-[#30484d] bg-[#121e23]' : 'border-[#2d3a3e] bg-[#131b1f]'">
+                <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <span class="text-xs font-semibold uppercase tracking-[0.16em] text-[#8fa5a7]">
+                    Impacto nas partidas (Loop adaptativo)
+                  </span>
+                  @if (sessao.eficacia_medida != null) {
+                    <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold"
+                          [class]="obterBadgeEficacia(sessao.eficacia_medida).classe">
+                      {{ obterBadgeEficacia(sessao.eficacia_medida).texto }}
+                    </span>
+                  }
+                </div>
+
+                @if (sessao.eficacia_medida != null && sessao.observacoes) {
+                  <p class="text-sm leading-6 text-[#d0dede]">{{ sessao.observacoes }}</p>
+                } @else {
+                  <div class="flex items-center gap-2.5 text-xs leading-5 text-[#8fa5a7]">
+                    <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-[#dea34c]"></span>
+                    <span>Aguardando partidas suficientes pós-treino (janela de 15 dias). A eficácia será medida automaticamente pelo próximo pipeline semanal.</span>
+                  </div>
+                }
+              </div>
+            }
 
             <div class="divide-y divide-[#304247]">
               @for (modulo of modulosDaSessao(sessao); track $index) {
