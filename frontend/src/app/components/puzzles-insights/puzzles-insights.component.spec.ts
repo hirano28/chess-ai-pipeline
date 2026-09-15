@@ -119,19 +119,21 @@ describe('PuzzlesInsightsComponent', () => {
   });
 
   it('corBarraProgresso e corBadgeTaxa retornam classes corretas conforme taxa', () => {
-    expect(component.corBarraProgresso(80)).toBe('bg-emerald-500');
-    expect(component.corBarraProgresso(60)).toBe('bg-amber-500');
-    expect(component.corBarraProgresso(40)).toBe('bg-rose-500');
+    expect(component.corBarraProgresso(80)).toBe('bg-sucesso');
+    expect(component.corBarraProgresso(60)).toBe('bg-latao-500');
+    expect(component.corBarraProgresso(40)).toBe('bg-perigo');
 
-    expect(component.corBadgeTaxa(80)).toContain('emerald');
-    expect(component.corBadgeTaxa(60)).toContain('amber');
-    expect(component.corBadgeTaxa(40)).toContain('rose');
+    expect(component.corBadgeTaxa(80)).toBe('selo-sucesso');
+    expect(component.corBadgeTaxa(60)).toBe('selo-latao');
+    expect(component.corBadgeTaxa(40)).toBe('selo-perigo');
   });
 
   it('badgeCategoria retorna classes adequadas por tipo', () => {
-    expect(component.badgeCategoria('defesa')).toContain('rose');
-    expect(component.badgeCategoria('tatica')).toContain('sky');
-    expect(component.badgeCategoria('mate')).toContain('emerald');
-    expect(component.badgeCategoria('outro')).toContain('zinc');
+    expect(component.badgeCategoria('defesa')).toBe('selo-perigo');
+    expect(component.badgeCategoria('ataque')).toBe('selo-latao');
+    expect(component.badgeCategoria('tatica')).toBe('selo-info');
+    expect(component.badgeCategoria('final')).toBe('selo-roxo');
+    expect(component.badgeCategoria('mate')).toBe('selo-sucesso');
+    expect(component.badgeCategoria('outro')).toBe('selo-neutro');
   });
 });

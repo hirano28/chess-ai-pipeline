@@ -110,9 +110,9 @@ describe('ExplicadorPosicaoComponent', () => {
 
     expect(component.resultado()).toEqual(resultadoMock);
     const element = fixture.nativeElement as HTMLElement;
-    expect(element.textContent).toContain('Veredito Claro');
+    expect(element.textContent).toContain('Veredito claro');
     expect(element.textContent).toContain('Brancas têm ataque decisivo na ala do rei.');
-    expect(element.textContent).toContain('Ameaça Concreta');
+    expect(element.textContent).toContain('Ameaça concreta');
   });
 
   it('deve tratar erro na análise', async () => {
@@ -165,9 +165,9 @@ describe('ExplicadorPosicaoComponent', () => {
   });
 
   it('deve retornar cores corretas para corBadgeVencedor', () => {
-    expect(component.corBadgeVencedor('BRANCAS')).toContain('bg-[#173322]');
-    expect(component.corBadgeVencedor('PRETAS')).toContain('bg-[#331a17]');
-    expect(component.corBadgeVencedor('EQUILIBRADO')).toContain('bg-[#332c14]');
+    expect(component.corBadgeVencedor('BRANCAS')).toBe('selo-brancas');
+    expect(component.corBadgeVencedor('PRETAS')).toBe('selo-pretas');
+    expect(component.corBadgeVencedor('EQUILIBRADO')).toBe('selo-latao');
   });
 
 
@@ -296,7 +296,7 @@ describe('ExplicadorPosicaoComponent', () => {
       expect(component.syzygy()?.veredito_pt).toBe('Vitória matemática (brancas)');
 
       const element = fixture.nativeElement as HTMLElement;
-      expect(element.textContent).toContain('Syzygy Endgame Tablebase');
+      expect(element.textContent).toContain('Syzygy Tablebase');
       expect(element.textContent).toContain('Vitória matemática (brancas)');
       expect(element.textContent).toContain('Final com 3 peças');
     });

@@ -1,26 +1,26 @@
-<section class="mt-8 border-t border-[#304247] pt-10" aria-labelledby="sessoes-heading">
+<section class="mt-4 border-t border-linha pt-10" aria-labelledby="sessoes-heading">
   <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
     <div>
-      <p class="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#dea34c]">Plano de evolução</p>
-      <h2 id="sessoes-heading" class="text-2xl font-semibold text-[#f4f0e6] sm:text-3xl">Sessões de treino</h2>
+      <p class="sobrelinha">Plano de evolução</p>
+      <h2 id="sessoes-heading" class="titulo-secao mt-2 text-2xl">Sessões de treino</h2>
     </div>
 
     @if (!loading() && sessoes().length > 0) {
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="rounded-lg border border-[#304247] bg-[#121c20] px-3.5 py-1.5 text-center">
-          <span class="block text-xs font-medium text-[#8fa5a7]">Prescritas</span>
-          <span class="text-base font-bold text-[#f4f0e6]">{{ totalPrescritas() }}</span>
+      <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <div class="metrica text-center">
+          <span class="metrica-valor text-xl">{{ totalPrescritas() }}</span>
+          <span class="metrica-rotulo">Prescritas</span>
         </div>
-        <div class="rounded-lg border border-[#304247] bg-[#121c20] px-3.5 py-1.5 text-center">
-          <span class="block text-xs font-medium text-[#8fa5a7]">Concluídas</span>
-          <span class="text-base font-bold text-[#a9d2bd]">{{ totalConcluidas() }}</span>
+        <div class="metrica text-center">
+          <span class="metrica-valor text-xl text-sucesso">{{ totalConcluidas() }}</span>
+          <span class="metrica-rotulo">Concluídas</span>
         </div>
         @if (mediaEficacia() !== null) {
-          <div class="rounded-lg border border-[#304247] bg-[#121c20] px-3.5 py-1.5 text-center">
-            <span class="block text-xs font-medium text-[#8fa5a7]">Eficácia média</span>
-            <span class="text-base font-bold text-[#dea34c]">
+          <div class="metrica col-span-2 text-center sm:col-span-1">
+            <span class="metrica-valor text-xl text-latao-500">
               {{ mediaEficacia()! > 0 ? '↓ ' : '' }}{{ mediaEficacia() }}%
             </span>
+            <span class="metrica-rotulo">Eficácia média</span>
           </div>
         }
       </div>
@@ -28,99 +28,111 @@
   </div>
 
   @if (loading()) {
-    <div class="flex min-h-40 items-center justify-center rounded-lg border border-[#304247] bg-[#162126] text-[#b9c7c8]" role="status">
-      <span class="mr-3 h-3 w-3 animate-pulse rounded-full bg-[#dea34c]"></span>
-      Carregando sessões de treino...
+    <div class="space-y-3" role="status" aria-label="Carregando sessões de treino">
+      <div class="esqueleto h-40 w-full"></div>
+      <div class="esqueleto h-40 w-full opacity-60"></div>
     </div>
   } @else {
     @if (error()) {
-      <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
-        {{ error() }}
+      <div class="aviso aviso-erro mb-5" role="alert">
+        <span aria-hidden="true">!</span>
+        <span>{{ error() }}</span>
       </div>
     }
 
     @if (sessoes().length === 0) {
-      <div class="rounded-lg border border-dashed border-[#40565c] bg-[#162126] px-6 py-12 text-center text-[#b9c7c8]">
-        Nenhuma sessão de treino gerada ainda.
+      <div class="estado-vazio">
+        <span class="text-2xl" aria-hidden="true">◇</span>
+        <p>Nenhuma sessão de treino gerada ainda.</p>
       </div>
     } @else {
       <div class="grid gap-5">
         @for (sessao of sessoes(); track sessao.id) {
-          <article class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-7">
-            <div class="flex flex-col gap-4 border-b border-[#304247] pb-5 sm:flex-row sm:items-start sm:justify-between">
+          <article class="cartao">
+            <div class="flex flex-col gap-4 border-b border-linha pb-5 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p class="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-[#8fa5a7]">
+                <p class="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-bruma-500">
                   Prescrita em {{ formatarData(sessao.data_prescrita) }}
                 </p>
-                <h3 class="text-lg font-semibold leading-7 text-[#f4f0e6]">{{ sessao.diagnostico_gargalo }}</h3>
+                <h3 class="text-lg font-semibold leading-7 text-marfim">{{ sessao.diagnostico_gargalo }}</h3>
               </div>
 
               @if (sessao.data_concluida) {
-                <div class="flex flex-col items-start gap-2 sm:items-end">
-                  <span class="inline-flex items-center gap-1.5 rounded-full border border-[#557267] bg-[#20352e] px-3 py-1.5 text-xs font-semibold text-[#a9d2bd]">
-                    <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                <div class="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+                  <span class="selo selo-sucesso">
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <path
+                        fill-rule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clip-rule="evenodd"
+                      />
                     </svg>
                     Concluída em {{ formatarData(sessao.data_concluida) }}
                   </span>
                   <button
                     type="button"
-                    class="text-xs text-[#8fa5a7] underline transition-colors hover:text-[#e7c4b3] disabled:opacity-50"
+                    class="text-xs text-bruma-500 underline transition-colors hover:text-bruma-200 disabled:opacity-50"
                     [disabled]="sessoesAtualizando().has(sessao.id)"
                     (click)="desmarcarComoConcluida(sessao)"
                   >
-                    {{ sessoesAtualizando().has(sessao.id) ? 'Atualizando...' : 'Desmarcar / Reabrir' }}
+                    {{ sessoesAtualizando().has(sessao.id) ? 'Atualizando…' : 'Desmarcar / reabrir' }}
                   </button>
                 </div>
               } @else {
                 <button
                   type="button"
-                  class="inline-flex min-h-10 self-start items-center justify-center rounded-md bg-[#dea34c] px-4 py-2 text-sm font-semibold text-[#162126] shadow-sm transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
+                  class="btn btn-primario shrink-0 self-start"
                   [disabled]="sessoesAtualizando().has(sessao.id)"
                   (click)="marcarComoConcluida(sessao)"
                 >
-                  {{ sessoesAtualizando().has(sessao.id) ? 'Salvando...' : 'Marcar como concluída' }}
+                  @if (sessoesAtualizando().has(sessao.id)) {
+                    <span class="pulso" aria-hidden="true"></span>
+                    <span>Salvando…</span>
+                  } @else {
+                    <span>Marcar como concluída</span>
+                  }
                 </button>
               }
             </div>
 
-            <!-- Bloco de Eficácia do Treino (quando concluída) -->
+            <!-- Impacto medido do treino nas partidas seguintes (loop adaptativo) -->
             @if (sessao.data_concluida) {
-              <div class="my-5 rounded-lg border p-4 sm:p-5"
-                   [class]="sessao.eficacia_medida != null ? 'border-[#30484d] bg-[#121e23]' : 'border-[#2d3a3e] bg-[#131b1f]'">
+              <div class="painel my-5">
                 <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <span class="text-xs font-semibold uppercase tracking-[0.16em] text-[#8fa5a7]">
-                    Impacto nas partidas (Loop adaptativo)
+                  <span class="text-[11px] font-semibold uppercase tracking-[0.14em] text-bruma-500">
+                    Impacto nas partidas (loop adaptativo)
                   </span>
                   @if (sessao.eficacia_medida != null) {
-                    <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold"
-                          [class]="obterBadgeEficacia(sessao.eficacia_medida).classe">
+                    <span class="selo" [class]="obterBadgeEficacia(sessao.eficacia_medida).classe">
                       {{ obterBadgeEficacia(sessao.eficacia_medida).texto }}
                     </span>
                   }
                 </div>
 
                 @if (sessao.eficacia_medida != null && sessao.observacoes) {
-                  <p class="text-sm leading-6 text-[#d0dede]">{{ sessao.observacoes }}</p>
+                  <p class="text-sm leading-6 text-bruma-200">{{ sessao.observacoes }}</p>
                 } @else {
-                  <div class="flex items-center gap-2.5 text-xs leading-5 text-[#8fa5a7]">
-                    <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-[#dea34c]"></span>
-                    <span>Aguardando partidas suficientes pós-treino (janela de 15 dias). A eficácia será medida automaticamente pelo próximo pipeline semanal.</span>
+                  <div class="flex items-center gap-2.5 text-xs leading-5 text-bruma-400">
+                    <span class="pulso" aria-hidden="true"></span>
+                    <span>
+                      Aguardando partidas suficientes pós-treino (janela de 15 dias). A eficácia será
+                      medida automaticamente pelo próximo pipeline semanal.
+                    </span>
                   </div>
                 }
               </div>
             }
 
-            <div class="divide-y divide-[#304247]">
+            <div class="divide-y divide-linha">
               @for (modulo of modulosDaSessao(sessao); track $index) {
-                <section class="py-5 first:pt-5 last:pb-0">
+                <section class="py-5 last:pb-0">
                   <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h4 class="font-semibold text-[#f4f0e6]">{{ modulo.nome }}</h4>
-                    <span class="text-xs font-medium text-[#dea34c]">{{ modulo.duracao_min }} min</span>
+                    <h4 class="font-semibold text-marfim">{{ modulo.nome }}</h4>
+                    <span class="selo selo-latao">{{ modulo.duracao_min }} min</span>
                   </div>
-                  <p class="text-sm leading-6 text-[#b9c7c8]">{{ modulo.conteudo }}</p>
+                  <p class="text-sm leading-6 text-bruma-300">{{ modulo.conteudo }}</p>
                   @if (modulo.livro || modulo.capitulo || modulo.pagina_aprox != null) {
-                    <p class="mt-3 text-xs leading-5 text-[#8fa5a7]">
+                    <p class="legenda mt-3">
                       Fonte:
                       @if (modulo.livro) { <span>{{ modulo.livro }}</span> }
                       @if (modulo.capitulo) { <span> · {{ modulo.capitulo }}</span> }
@@ -129,7 +141,7 @@
                   }
                 </section>
               } @empty {
-                <p class="py-5 text-sm text-[#8fa5a7]">Esta sessão ainda não possui módulos detalhados.</p>
+                <p class="py-5 text-sm text-bruma-500">Esta sessão ainda não possui módulos detalhados.</p>
               }
             </div>
           </article>

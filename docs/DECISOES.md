@@ -2015,6 +2015,93 @@ o sistema nunca baixaria partidas nem geraria o hexágono.
 
 ---
 
+### D-47 — Sistema de design: tokens, biblioteca de componentes e identidade visual
+
+**Data:** 2026-09-15
+
+**Problema.** O frontend não tinha sistema de design nenhum. Cor, espaçamento,
+raio e sombra eram escritos à mão direto no template: **~1.000 ocorrências de
+hex em 70+ tons distintos**, com vários quase-duplicados que ninguém conseguia
+distinguir a olho nu (`#121a1e`, `#121c20`, `#131b1f`, `#121e23`, `#1a1e21`…).
+Cada tela reinventava botão, campo, selo e cartão com variações pequenas, e três
+componentes ainda misturavam a paleta padrão do Tailwind (`emerald-500`,
+`rose-800`, `zinc-100`, `sky-300`, `purple-800`) com a paleta da casa — duas
+linguagens de cor concorrentes na mesma tela. A inconsistência era estrutural,
+não estética: sem um lugar único de verdade, qualquer ajuste visual exigia achar
+e trocar dezenas de literais.
+
+**Decisão.** Refinar a identidade que já existia (ardósia + latão + marfim —
+"sala de estudo noturna") em vez de trocá-la, mas transformá-la em sistema:
+
+1. **`src/styles.css` vira a única fonte de verdade.** Um bloco `@theme` do
+   Tailwind 4 define os tokens — superfícies (`ardosia-950…600`), traços
+   (`linha`, `linha-forte`), texto (`marfim`, `bruma-200…600`), acento
+   (`latao-300…700`), semânticas (`sucesso`, `perigo`, `info`, `roxo`) e as
+   casas do tabuleiro. O Tailwind gera os utilitários automaticamente
+   (`bg-ardosia-800`, `text-latao-500`, `border-linha`…), então o template nunca
+   mais precisa escrever hex.
+2. **Biblioteca de componentes em `@layer components`:** `.cartao`, `.painel`,
+   `.btn` (+ `primario`/`secundario`/`fantasma`/`perigo`/`pequeno`/`largo`),
+   `.campo`, `.rotulo`, `.selo` (+ 8 variantes), `.aviso`, `.segmentado`,
+   `.metrica`, `.tabela`, `.estado-vazio`, `.esqueleto`, `.pulso`, `.prosa`,
+   `.nav-link`, `.titulo-pagina`/`.titulo-secao`/`.sobrelinha`.
+3. **Tipografia:** Fraunces (serifa editorial, com `WONK`/`SOFT` zerados) nos
+   títulos + Inter na interface, via Google Fonts com `display=swap`. Números de
+   dado em `tabular-nums` para alinharem em coluna.
+4. **Os helpers de cor em TypeScript passam a devolver nome de variante, não
+   classe de cor.** `corBadgeStatus()`, `corBadgeTaxa()`, `obterBadgeEficacia()`,
+   `corBadgeQualidadeLance()`, `badgeCategoria()` etc. agora retornam
+   `'selo-sucesso'`, `'selo-perigo'`… — a cor mora no CSS, não espalhada no TS.
+
+**Mudanças de UX que vieram junto (não são só pintura).**
+
+- **A navegação some para quem não tem sessão.** Antes o cabeçalho aparecia na
+  tela de login com 5 links que, por causa do `authGuard` (D-23), voltavam todos
+  para `/login`. Agora só renderiza autenticado — com teste cobrindo isso.
+- **Rótulos da navegação encurtados** ("Laboratório de Raciocínio" →
+  "Laboratório"): o nome completo continua no `<h1>` de cada página e no
+  `title`, mas o trilho horizontal deixa de estourar no celular.
+- **`index.html` saiu do padrão do Angular:** era `lang="en"` com título
+  "Frontend". Agora é `pt-BR`, título "Hexágono — laboratório de xadrez",
+  `description` e `theme-color`.
+- **Marca visual:** hexágono-radar em SVG inline (o próprio produto), no
+  cabeçalho e no login. Não usa nenhum asset externo.
+- **Esqueletos de carregamento** no lugar de "Carregando…" solto nas 8 telas que
+  esperam rede.
+- **Emoji saiu dos elementos de interface** (✅⏳❌🔄📷⚙️📚💥) e virou tipografia
+  ou SVG: emoji renderiza diferente em cada sistema e destoa do resto. Os que
+  são conteúdo (♔ ♚ ⚡) ficaram.
+- **`corBadgeVencedor` parou de pintar brancas de verde e pretas de vermelho** —
+  sugeria "bom/ruim" onde só existe "lado". Agora usa as cores das próprias
+  peças (`.selo-brancas` / `.selo-pretas`).
+- **Acessibilidade:** `:focus-visible` em latão global, `aria-pressed` em todo
+  controle segmentado, `label` amarrada por `id` em todo campo,
+  `prefers-reduced-motion` desliga as animações.
+
+**Verificação.**
+
+- 133 testes de frontend passando em 19 arquivos (eram 130; +3 dos novos casos:
+  navegação oculta sem sessão, `corBadgeTaxa` do repertório, variantes de selo).
+- 10 asserções de teste foram atualizadas junto — todas de apresentação
+  (rótulos com emoji, hex de badge, Title Case → caixa de sentença). Nenhuma
+  regra de negócio mudou.
+- `ng build` de produção com 0 warnings e 0 erros.
+- Hex escrito à mão em template/TS: de ~1.000 para **11**, todos dentro da
+  configuração do Chart.js em `hexagono-radar.component.ts`, que exige string
+  literal de cor e não aceita classe CSS (comentado no arquivo, apontando para
+  os tokens equivalentes).
+- CSS final: 42,4 kB cru / **7,5 kB transferido** — *menor* que antes do sistema
+  de design. Cada `bg-[#162126]` escrito à mão gerava uma classe de valor
+  arbitrário própria no bundle; trocar ~1.000 desses por um punhado de tokens
+  reaproveitados pagou a biblioteca de componentes com sobra.
+
+**Limite conhecido desta verificação.** Não havia Playwright nem outro browser
+automatizável nesta máquina, então a conferência foi por build, testes e
+inspeção do CSS gerado — **não houve screenshot de tela renderizada**. A
+validação visual final depende de abrir no navegador.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

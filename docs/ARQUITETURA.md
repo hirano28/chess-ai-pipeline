@@ -2,7 +2,7 @@
 doc: ARQUITETURA.md
 escopo: componentes, fluxo de dados, superfície de API, frontend, topologia de deploy
 nao_contem: estado factual (ver ESTADO.md), comandos (ver OPERACAO.md), schema (ver BANCO.md)
-verificado_em: 2026-09-13
+verificado_em: 2026-09-15
 ---
 
 # Arquitetura do Chess AI Pipeline
@@ -134,6 +134,9 @@ já foi atingido — mesmo princípio de "falhar rápido" de 🎫, mas para cust
 | `GET /lichess/oauth/status` 🎫👤 | informa se o usuário tem token Lichess ativo e válido (D-35); não expõe o token ao frontend |
 | `POST /lichess/oauth/desconectar` 🎫👤 | revoga localmente a conexão, removendo a linha de `lichess_oauth_tokens` (D-35) |
 | `GET /insights/repertorio` 🎫👤 | agregações de repertório por abertura (taxa de vitória, precisão por fase, lance de PICO, categoria do hexágono) — cálculo puro em Python sobre dado já persistido, sem Stockfish nem Gemini; ver `backend/agentes/insights_repertorio.py` e D-13 em `DECISOES.md`. As 4 buscas internas filtram por dono desde D-30 (achado correlato de D-29) |
+| `GET /insights/puzzles` 🎫👤 | compara a precisão por tema tático nos puzzles com as vulnerabilidades das partidas reais sob pressão de tempo — diagnóstico do "Gap Tático" (D-41); ver `backend/agentes/insights_puzzles.py`, filtrado pelo dono da sessão |
+| `GET /partidas/{partida_id}/teoria-abertura` 🎫👤 | identifica o ponto exato em que a partida sai da teoria de abertura de mestres, via Lichess Opening Explorer (D-42); partida de outro dono responde 404 |
+| `GET /analise/syzygy` 🎫 | consulta a Syzygy Tablebase para posições de final com até 7 peças, avaliando se um lance é o melhor plano teórico (D-42); `user_id` só protege acesso, não filtra dado — a posição vem por FEN |
 
 Recursos caros (Stockfish, cliente Gemini, cliente Supabase, `engine_lock`) são
 inicializados uma vez no startup e guardados em `_state`, um dict de módulo.
@@ -165,6 +168,30 @@ Cada uma das 3 telas interativas persiste o item ativo em `localStorage` para
 sobreviver a um F5 (`chess_analisador_partida_ativa`, `chess_explicador_ativo`,
 `chess_laboratorio_ativo`). `frontend/src/app/shared/data.ts` guarda o
 formatador de data compartilhado por todas elas.
+
+**Sistema de design — `frontend/src/styles.css` é a única fonte de verdade de
+cor, sombra, raio e tipografia (D-47).** Um bloco `@theme` do Tailwind 4 define
+os tokens (`ardosia-*` para superfície, `linha`/`linha-forte` para traço,
+`marfim`/`bruma-*` para texto, `latao-*` para o acento da marca, mais
+`sucesso`/`perigo`/`info`/`roxo` e as casas do tabuleiro), e o Tailwind gera os
+utilitários a partir deles (`bg-ardosia-800`, `text-latao-500`, `border-linha`).
+Um `@layer components` define o vocabulário que os templates usam: `.cartao`,
+`.painel`, `.btn` + variantes, `.campo`, `.selo` + variantes, `.aviso`,
+`.segmentado`, `.metrica`, `.estado-vazio`, `.esqueleto`, `.pulso`, `.prosa`,
+`.nav-link`, `.titulo-pagina`.
+
+Duas consequências práticas para quem for mexer aqui:
+
+- **Nenhum template deve escrever hex.** A única exceção viva é a configuração
+  do Chart.js em `hexagono-radar.component.ts`, que exige string literal de cor;
+  os valores lá espelham os tokens e estão comentados como tal.
+- **Helper de cor em TypeScript devolve nome de variante, não classe de cor** —
+  `corBadgeStatus()` e companhia retornam `'selo-sucesso'`, `'selo-perigo'`, e a
+  cor em si mora no CSS. Trocar a paleta é editar `styles.css` e nada mais.
+
+O cabeçalho de navegação (`app.html`) só renderiza para quem tem sessão: sem
+login a única rota alcançável é `/login` (authGuard, D-23), então mostrar os
+links ali seria oferecer 5 caminhos que voltam para a mesma tela.
 
 **Autenticação — um sistema só, desde D-25.** `AuthService`
 (`services/auth.service.ts`) é o Supabase Auth, e é tudo que existe:

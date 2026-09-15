@@ -51,31 +51,40 @@ export class PuzzlesInsightsComponent implements OnInit {
   }
 
   corBarraProgresso(taxa: number): string {
-    if (taxa >= 70) return 'bg-emerald-500';
-    if (taxa >= 55) return 'bg-amber-500';
-    return 'bg-rose-500';
+    if (taxa >= 70) return 'bg-sucesso';
+    if (taxa >= 55) return 'bg-latao-500';
+    return 'bg-perigo';
   }
 
+  /** Variante de `.selo` (ver src/styles.css). */
   corBadgeTaxa(taxa: number): string {
-    if (taxa >= 70) return 'text-emerald-400 bg-emerald-950/60 border-emerald-800';
-    if (taxa >= 55) return 'text-amber-400 bg-amber-950/60 border-amber-800';
-    return 'text-rose-400 bg-rose-950/60 border-rose-800';
+    if (taxa >= 70) return 'selo-sucesso';
+    if (taxa >= 55) return 'selo-latao';
+    return 'selo-perigo';
   }
 
+  /** Só a cor do texto: usada no número grande da métrica, onde selo não cabe. */
+  corTextoTaxa(taxa: number): string {
+    if (taxa >= 70) return 'text-sucesso';
+    if (taxa >= 55) return 'text-latao-500';
+    return 'text-perigo';
+  }
+
+  /** Variante de `.selo` (ver src/styles.css), uma cor por família tática. */
   badgeCategoria(categoria: string): string {
     switch (categoria) {
       case 'defesa':
-        return 'border-rose-800 bg-rose-950/40 text-rose-300';
+        return 'selo-perigo';
       case 'ataque':
-        return 'border-amber-800 bg-amber-950/40 text-amber-300';
+        return 'selo-latao';
       case 'tatica':
-        return 'border-sky-800 bg-sky-950/40 text-sky-300';
+        return 'selo-info';
       case 'final':
-        return 'border-purple-800 bg-purple-950/40 text-purple-300';
+        return 'selo-roxo';
       case 'mate':
-        return 'border-emerald-800 bg-emerald-950/40 text-emerald-300';
+        return 'selo-sucesso';
       default:
-        return 'border-zinc-700 bg-zinc-800 text-zinc-300';
+        return 'selo-neutro';
     }
   }
 }

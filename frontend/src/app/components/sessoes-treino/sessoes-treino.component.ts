@@ -56,22 +56,23 @@ export class SessoesTreinoComponent implements OnInit {
       : this.formatadorData.format(valor);
   }
 
+  /** `classe` é uma variante de `.selo` (ver src/styles.css). */
   obterBadgeEficacia(eficacia: number): { texto: string; classe: string } {
     if (eficacia > 0) {
       return {
         texto: `↓ ${eficacia.toFixed(1)}% de falhas`,
-        classe: 'border-[#426b52] bg-[#1a3326] text-[#7ce3a4]'
+        classe: 'selo-sucesso'
       };
     }
     if (eficacia < 0) {
       return {
         texto: `↑ ${Math.abs(eficacia).toFixed(1)}% de falhas`,
-        classe: 'border-[#765044] bg-[#2a211f] text-[#f8a893]'
+        classe: 'selo-perigo'
       };
     }
     return {
       texto: '0.0% de variação',
-      classe: 'border-[#40565c] bg-[#1d272a] text-[#b9c7c8]'
+      classe: 'selo-neutro'
     };
   }
 

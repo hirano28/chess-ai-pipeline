@@ -17,8 +17,8 @@ atualize também a data no cabeçalho.
 | Item | Valor verificado |
 |---|---|
 | Testes de backend | **520**, todos passando, em 30 módulos |
-| Testes de frontend (Vitest) | **130**, todos passando, em 19 arquivos |
-| `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44) e UI/UX de tabuleiro e repertório polida (D-45) |
+| Testes de frontend (Vitest) | **133**, todos passando, em 19 arquivos |
+| `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
 `.github/workflows/deploy-backend.yml` lista os 30 módulos de teste do backend
 à mão (incluindo `backend.rag.test_importar_indice_conceitual`, `backend.rag.test_processar_livro`,
@@ -43,21 +43,21 @@ pendência P-11 abaixo).
 
 | Tabela | Linhas |
 |---|---|
-| `partidas` | 230 (02/07/2026 a 14/09/2026); todas as 230 com status `concluido` e `abertura_normalizada` preenchida (ver D-12 e D-39 em `DECISOES.md`) |
-| `lances_criticos` | 685 (560 anteriores + 125 novos gerados pelo reprocessamento de P-5/D-39) |
-| `diagnosticos` | 473 |
+| `partidas` | 239 (02/07/2026 a 15/09/2026); todas as 239 com status `concluido`, 230 com `abertura_normalizada` preenchida (ver D-12 e D-39 em `DECISOES.md`) |
+| `lances_criticos` | 714 |
+| `diagnosticos` | 714 |
 | `puzzle_atividade` | 660, em 41 dias distintos |
-| `tempos_lance` | 13.708, cobrindo 193 partidas (2.863 do Lichess + 10.845 do Chess.com via backfill D-43) |
+| `tempos_lance` | 16.161, cobrindo 228 partidas (4.847 do Lichess + 11.314 do Chess.com via backfill D-43) |
 | `livros_chunks` | 621 (370 anteriores + 251 de *How to Reassess Your Chess*, Silman 3ª ed.) |
 | `indice_conceitual` | 189 (67 anteriores + 122 de *How to Reassess Your Chess*, Silman 3ª ed.) |
 | `anotacoes_pensamento` | 23, cobrindo 3 partidas |
 | `revisoes_pensamento` | 23, todas em 1 único dia |
-| `revisao_exercicio_avulso` | 11 |
+| `revisao_exercicio_avulso` | 17 |
 | `explicacoes_posicao` | 7 (tabela nova, ver D-11 em `DECISOES.md`) |
-| `metricas_lichess_partida` | 4, para 61 partidas do Lichess; nenhuma tem ainda `precisao_abertura`/`precisao_meiojogo`/`precisao_final` — colunas novas (ver `BANCO.md`), só preenchidas a partir de agora, sem reprocessamento retroativo das 4 já existentes |
-| `analises_hexagono` | 3 |
-| `sessoes_treino` | 3 |
-| `resumo_partida` | 3 |
+| `metricas_lichess_partida` | 18, para 67 partidas do Lichess; 14 já têm `precisao_abertura`/`precisao_meiojogo` preenchidas e 12 têm `precisao_final` — colunas novas (ver `BANCO.md`) sendo preenchidas prospectivamente pelo pipeline automatizado (D-37), sem reprocessamento retroativo das linhas mais antigas |
+| `analises_hexagono` | 5 |
+| `sessoes_treino` | 5 |
+| `resumo_partida` | 135 |
 
 ## 3. Composição do corpus — dado que muda a leitura de tudo
 
@@ -545,8 +545,8 @@ precisão por fase (`precisao_abertura`/`precisao_meiojogo`/`precisao_final`)
 daqui pra frente no enriquecimento Lichess (ver D-12 em `DECISOES.md`);
 `GET /insights/repertorio` já consome isso (D-13) e cruza com resultado, lance
 de PICO e categoria do hexágono por abertura — testado contra o banco de
-produção em 11/09/2026, ver a distribuição da Francesa na seção 3. Ainda não
-consumido por nenhuma tela do frontend.
+produção em 11/09/2026, ver a distribuição da Francesa na seção 3. Consumido
+pelo frontend desde D-40 (`RepertorioInsightsComponent`).
 
 **Login (Fase B.1, 12/09/2026), paridade RLS (13/09/2026) e identidade real
 nas escritas (Fase B.2, 13/09/2026) funcionam de ponta a ponta.** Cadastro,
@@ -557,9 +557,11 @@ agora é idêntico entre anônimo e autenticado, confirmado caractere a
 caractere e via `curl` direto no PostgREST com o JWT real. Uma análise real
 no Laboratório (Stockfish + Gemini, não mock), salva estando logado, grava
 com o `user_id` real da conta (D-17); a mesma ação sem sessão continua
-gravando `DEFAULT_USER_ID`, como sempre. `authGuard` existe e passa nos
-testes, mas continua deliberadamente desligado de qualquer rota (decisão de
-B.1, ainda válida).
+gravando `DEFAULT_USER_ID`, como sempre. `authGuard` está ligado nas 5 rotas
+do dashboard desde D-23 (Fase B efetivamente concluída) — a frase acima sobre
+"deliberadamente desligado" descrevia só o estado transitório de B.1
+(12/09/2026) e ficou desatualizada quando B foi fechada no dia seguinte; ver
+`app.routes.ts`.
 
 ## 6. Como re-verificar
 

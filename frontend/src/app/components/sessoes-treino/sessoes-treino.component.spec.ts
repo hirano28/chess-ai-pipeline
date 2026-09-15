@@ -137,14 +137,15 @@ describe('SessoesTreinoComponent (P-4 / D-38)', () => {
   it('formata adequadamente badges de eficácia positiva, negativa e neutra', () => {
     const badgePositivo = component.obterBadgeEficacia(40.5);
     expect(badgePositivo.texto).toBe('↓ 40.5% de falhas');
-    expect(badgePositivo.classe).toContain('text-[#7ce3a4]');
+    expect(badgePositivo.classe).toBe('selo-sucesso');
 
     const badgeNegativo = component.obterBadgeEficacia(-25.0);
     expect(badgeNegativo.texto).toBe('↑ 25.0% de falhas');
-    expect(badgeNegativo.classe).toContain('text-[#f8a893]');
+    expect(badgeNegativo.classe).toBe('selo-perigo');
 
     const badgeNeutro = component.obterBadgeEficacia(0);
     expect(badgeNeutro.texto).toBe('0.0% de variação');
+    expect(badgeNeutro.classe).toBe('selo-neutro');
   });
 
   it('trata erro ao carregar sessões', async () => {

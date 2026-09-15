@@ -1,79 +1,104 @@
-<main class="flex min-h-screen items-center justify-center bg-[#10191d] px-5 py-10 text-[#f4f0e6] sm:px-8">
-  <section class="w-full max-w-md rounded-lg border border-[#304247] bg-[#162126] p-6 shadow-lg shadow-black/10 sm:p-8">
-    <p class="mb-2 text-xs font-semibold uppercase tracking-[0.28em] text-[#dea34c]">
-      Chess AI Pipeline
-    </p>
-    <h1 class="mb-6 text-2xl font-semibold tracking-tight">
-      {{ modo() === 'login' ? 'Entrar' : 'Criar conta' }}
-    </h1>
-
-    <div class="mb-6 flex gap-2 text-xs font-semibold uppercase tracking-[0.1em]">
-      <button
-        type="button"
-        class="rounded-md border px-4 py-2 transition-colors"
-        [class]="modo() === 'login' ? 'border-[#dea34c] bg-[#dea34c] text-[#162126]' : 'border-[#40565c] bg-[#10191d] text-[#b9c7c8] hover:border-[#dea34c]'"
-        (click)="alternarModo('login')"
-      >
-        Entrar
-      </button>
-      <button
-        type="button"
-        class="rounded-md border px-4 py-2 transition-colors"
-        [class]="modo() === 'cadastro' ? 'border-[#dea34c] bg-[#dea34c] text-[#162126]' : 'border-[#40565c] bg-[#10191d] text-[#b9c7c8] hover:border-[#dea34c]'"
-        (click)="alternarModo('cadastro')"
-      >
-        Criar conta
-      </button>
+<main class="flex min-h-screen items-center justify-center px-5 py-12 sm:px-8">
+  <section class="w-full max-w-md">
+    <div class="mb-8 flex flex-col items-center text-center">
+      <span class="text-latao-500" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="h-11 w-11" fill="none">
+          <path
+            d="M12 2 20.66 7v10L12 22 3.34 17V7z"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linejoin="round"
+            opacity="0.5"
+          />
+          <path
+            d="M12 5 15.9 9.75 17.2 15 12 15.5 6.37 15.25 7.67 9.5z"
+            fill="currentColor"
+            opacity="0.9"
+          />
+        </svg>
+      </span>
+      <h1 class="mt-4 font-display text-3xl font-semibold tracking-tight text-marfim">Hexágono</h1>
+      <p class="mt-2 max-w-xs text-sm leading-6 text-bruma-400">
+        Seu xadrez lido a partir das suas próprias partidas — não de conselhos genéricos.
+      </p>
     </div>
 
-    @if (confirmacaoPendente()) {
-      <div class="mb-5 rounded-lg border border-[#3f6b4c] bg-[#173322] px-5 py-4 text-sm text-[#8fd6a6]" role="status">
-        Conta criada! Confira seu e-mail e confirme o cadastro antes de entrar.
-      </div>
-    } @else {
-      @if (erro()) {
-        <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
-          {{ erro() }}
-        </div>
-      }
+    <div class="cartao">
+      <h2 class="titulo-secao">
+        {{ modo() === 'login' ? 'Entrar' : 'Criar conta' }}
+      </h2>
 
-      <form (submit)="$event.preventDefault(); modo() === 'login' ? entrar() : cadastrar()">
-        <div class="mb-4">
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-            E-mail
-          </label>
-          <input
-            type="email"
-            autocomplete="email"
-            class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
-            placeholder="voce@exemplo.com"
-            [value]="email()"
-            (input)="email.set($any($event.target).value)"
-          />
-        </div>
-
-        <div class="mb-6">
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-            Senha
-          </label>
-          <input
-            type="password"
-            [attr.autocomplete]="modo() === 'login' ? 'current-password' : 'new-password'"
-            class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
-            placeholder="Mínimo 6 caracteres"
-            [value]="senha()"
-            (input)="senha.set($any($event.target).value)"
-          />
-        </div>
-
+      <div class="mt-5 mb-6 segmentado" role="group" aria-label="Alternar entre entrar e criar conta">
         <button
-          type="submit"
-          class="inline-flex min-h-10 w-full items-center justify-center rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-not-allowed disabled:opacity-60"
-          [disabled]="!formularioValido || carregando()"
+          type="button"
+          class="segmentado-opcao"
+          [class.segmentado-opcao-ativa]="modo() === 'login'"
+          [attr.aria-pressed]="modo() === 'login'"
+          (click)="alternarModo('login')"
         >
-          {{ carregando() ? 'Aguarde…' : modo() === 'login' ? 'Entrar' : 'Criar conta' }}
+          Entrar
         </button>
-      </form>
-    }
+        <button
+          type="button"
+          class="segmentado-opcao"
+          [class.segmentado-opcao-ativa]="modo() === 'cadastro'"
+          [attr.aria-pressed]="modo() === 'cadastro'"
+          (click)="alternarModo('cadastro')"
+        >
+          Criar conta
+        </button>
+      </div>
+
+      @if (confirmacaoPendente()) {
+        <div class="aviso aviso-sucesso surgir" role="status">
+          <span aria-hidden="true">✓</span>
+          <span>Conta criada! Confira seu e-mail e confirme o cadastro antes de entrar.</span>
+        </div>
+      } @else {
+        @if (erro()) {
+          <div class="aviso aviso-erro mb-5 surgir" role="alert">
+            <span aria-hidden="true">!</span>
+            <span>{{ erro() }}</span>
+          </div>
+        }
+
+        <form (submit)="$event.preventDefault(); modo() === 'login' ? entrar() : cadastrar()">
+          <div class="mb-4">
+            <label class="rotulo" for="campo-email">E-mail</label>
+            <input
+              id="campo-email"
+              type="email"
+              autocomplete="email"
+              class="campo"
+              placeholder="voce@exemplo.com"
+              [value]="email()"
+              (input)="email.set($any($event.target).value)"
+            />
+          </div>
+
+          <div class="mb-6">
+            <label class="rotulo" for="campo-senha">Senha</label>
+            <input
+              id="campo-senha"
+              type="password"
+              [attr.autocomplete]="modo() === 'login' ? 'current-password' : 'new-password'"
+              class="campo"
+              placeholder="Mínimo 6 caracteres"
+              [value]="senha()"
+              (input)="senha.set($any($event.target).value)"
+            />
+          </div>
+
+          <button type="submit" class="btn btn-primario btn-largo" [disabled]="!formularioValido || carregando()">
+            @if (carregando()) {
+              <span class="pulso" aria-hidden="true"></span>
+              <span>Aguarde…</span>
+            } @else {
+              <span>{{ modo() === 'login' ? 'Entrar' : 'Criar conta' }}</span>
+            }
+          </button>
+        </form>
+      }
+    </div>
   </section>
 </main>

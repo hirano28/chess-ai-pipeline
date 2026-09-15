@@ -91,15 +91,16 @@ export class RepertorioInsightsComponent implements OnInit {
   }
 
   corBarraProgresso(taxa: number): string {
-    if (taxa >= 50) return 'bg-emerald-500';
-    if (taxa >= 40) return 'bg-amber-500';
-    return 'bg-rose-500';
+    if (taxa >= 50) return 'bg-sucesso';
+    if (taxa >= 40) return 'bg-latao-500';
+    return 'bg-perigo';
   }
 
+  /** Variante de `.selo` (ver src/styles.css). */
   corBadgeTaxa(taxa: number): string {
-    if (taxa >= 50) return 'text-emerald-400 bg-emerald-950/60 border-emerald-800';
-    if (taxa >= 40) return 'text-amber-400 bg-amber-950/60 border-amber-800';
-    return 'text-rose-400 bg-rose-950/60 border-rose-800';
+    if (taxa >= 50) return 'selo-sucesso';
+    if (taxa >= 40) return 'selo-latao';
+    return 'selo-perigo';
   }
 }
 

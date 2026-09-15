@@ -1,63 +1,41 @@
-<main class="min-h-screen bg-[#10191d] px-5 py-10 text-[#f4f0e6] sm:px-8 lg:px-12">
-  <section class="mx-auto flex w-full max-w-4xl flex-col gap-8">
-
-    <!-- Cabeçalho Principal -->
+<main class="pagina">
+  <section class="conteudo max-w-4xl">
     <header class="max-w-3xl">
-      <p class="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-[#dea34c]">
-        Diagnóstico Estratégico · Stockfish + Gemini
-      </p>
+      <p class="sobrelinha">Diagnóstico estratégico · Stockfish + Gemini</p>
       <div class="flex flex-wrap items-center justify-between gap-4">
-        <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl text-[#f4f0e6]">
-          Analisador de Partida
-        </h1>
+        <h1 class="titulo-pagina">Analisador de Partida</h1>
         @if (estado() === 'CONCLUIDO' || estado() === 'FALHOU' || estado() === 'PROCESSANDO') {
-          <button
-            type="button"
-            (click)="novaAnalise()"
-            class="inline-flex items-center gap-1.5 rounded-md border border-[#304247] bg-[#162126] px-4 py-2 text-xs font-semibold text-[#dea34c] transition-colors hover:border-[#dea34c] hover:bg-[#1f2e34]"
-          >
-            <span>+</span> Nova Partida
+          <button type="button" (click)="novaAnalise()" class="btn btn-secundario btn-pequeno mt-3">
+            <span aria-hidden="true">+</span>
+            <span>Nova partida</span>
           </button>
         }
       </div>
-      <p class="mt-4 text-base leading-7 text-[#b9c7c8]">
+      <p class="subtitulo">
         Cole o PGN de uma partida inteira para receber uma narrativa profunda com picos de erro,
         janelas de erosão estratégica e o momento-chave que definiu o resultado.
       </p>
     </header>
 
-    <!-- Configuração da Chave de API (se ausente) -->
-
-    <!-- Mensagem de Erro Geral -->
     @if (erro() && estado() !== 'PROCESSANDO' && estado() !== 'FALHOU') {
-      <div class="rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3] flex items-center justify-between gap-3" role="alert">
+      <div class="aviso aviso-erro items-center justify-between surgir" role="alert">
         <div class="flex items-center gap-3">
-          <span class="text-base">⚠️</span>
+          <span aria-hidden="true">!</span>
           <span class="font-medium">{{ erro() }}</span>
         </div>
-        <button
-          type="button"
-          (click)="erro.set(null)"
-          class="text-xs text-[#e7c4b3]/70 hover:text-[#e7c4b3] font-bold p-1"
-        >
+        <button type="button" (click)="erro.set(null)" class="shrink-0 p-1 font-bold opacity-70 hover:opacity-100" aria-label="Fechar aviso">
           ✕
         </button>
       </div>
     }
 
-    <!-- ESTADO: Formulário de Entrada (INICIAL / ENVIANDO) -->
+    <!-- Entrada -->
     @if (estado() === 'INICIAL' || estado() === 'ENVIANDO') {
-      <section class="space-y-6">
-        <div class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8">
-          <div class="mb-3 flex items-center justify-between">
-            <label for="pgnInput" class="block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-              PGN da Partida
-            </label>
-            <button
-              type="button"
-              (click)="carregarExemplo()"
-              class="text-xs font-semibold text-[#dea34c] hover:underline"
-            >
+      <section class="flex flex-col gap-5">
+        <div class="cartao">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <label for="pgnInput" class="rotulo mb-0">PGN da partida</label>
+            <button type="button" (click)="carregarExemplo()" class="btn-texto">
               Carregar partida de exemplo
             </button>
           </div>
@@ -65,41 +43,41 @@
           <textarea
             id="pgnInput"
             rows="9"
-            placeholder="Cole aqui o PGN completo com cabeçalhos e lances (ex: 1. e4 c5 2. Nf3 d6...)"
+            placeholder="Cole aqui o PGN completo, com cabeçalhos e lances (ex.: 1. e4 c5 2. Nf3 d6…)"
             [value]="pgn()"
             (input)="pgn.set($any($event.target).value)"
             [disabled]="estado() === 'ENVIANDO'"
-            class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3.5 font-mono text-xs leading-5 text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
+            class="campo campo-mono"
           ></textarea>
 
-          <!-- Seleção de Cor e Botão de Ação -->
           <div class="mt-6 flex flex-col items-stretch justify-between gap-5 sm:flex-row sm:items-end">
             <div>
-              <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-                Você jogou de:
-              </label>
-              <div class="inline-flex rounded-md border border-[#40565c] bg-[#10191d] p-1" role="group">
+              <span class="rotulo">Você jogou de:</span>
+              <div class="segmentado" role="group" aria-label="Cor que você jogou">
                 <button
                   type="button"
                   (click)="cor.set('AUTO')"
-                  [class]="cor() === 'AUTO' ? 'bg-[#dea34c] text-[#162126] font-semibold' : 'text-[#b9c7c8] hover:text-[#f4f0e6]'"
-                  class="rounded px-3 py-1.5 text-xs transition-colors"
+                  class="segmentado-opcao"
+                  [class.segmentado-opcao-ativa]="cor() === 'AUTO'"
+                  [attr.aria-pressed]="cor() === 'AUTO'"
                 >
-                  Automático (detectar)
+                  Detectar
                 </button>
                 <button
                   type="button"
                   (click)="cor.set('BRANCAS')"
-                  [class]="cor() === 'BRANCAS' ? 'bg-[#dea34c] text-[#162126] font-semibold' : 'text-[#b9c7c8] hover:text-[#f4f0e6]'"
-                  class="rounded px-3 py-1.5 text-xs transition-colors"
+                  class="segmentado-opcao"
+                  [class.segmentado-opcao-ativa]="cor() === 'BRANCAS'"
+                  [attr.aria-pressed]="cor() === 'BRANCAS'"
                 >
                   Brancas ♔
                 </button>
                 <button
                   type="button"
                   (click)="cor.set('PRETAS')"
-                  [class]="cor() === 'PRETAS' ? 'bg-[#dea34c] text-[#162126] font-semibold' : 'text-[#b9c7c8] hover:text-[#f4f0e6]'"
-                  class="rounded px-3 py-1.5 text-xs transition-colors"
+                  class="segmentado-opcao"
+                  [class.segmentado-opcao-ativa]="cor() === 'PRETAS'"
+                  [attr.aria-pressed]="cor() === 'PRETAS'"
                 >
                   Pretas ♚
                 </button>
@@ -110,227 +88,196 @@
               type="button"
               (click)="analisar()"
               [disabled]="!formularioValido || estado() === 'ENVIANDO'"
-              class="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[#dea34c] px-6 py-2.5 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-not-allowed disabled:opacity-50"
+              class="btn btn-primario"
             >
               @if (estado() === 'ENVIANDO') {
-                <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#162126] border-t-transparent"></span>
-                <span>Iniciando Pipeline...</span>
+                <span
+                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+                  aria-hidden="true"
+                ></span>
+                <span>Iniciando pipeline…</span>
               } @else {
-                <span>Analisar Partida com IA</span>
+                <span>Analisar partida com IA</span>
               }
             </button>
           </div>
         </div>
 
-        <!-- Guia dos Passos do Pipeline -->
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-sm">
-            <div class="text-xs font-semibold uppercase tracking-wider text-[#dea34c]">1. Stockfish Local</div>
-            <p class="mt-2 text-xs leading-relaxed text-[#b9c7c8]">
-              Avaliação lance a lance em Win% para isolar erros de pico (&gt;100cp) e janelas de erosão posicional.
+        <!-- O que vai acontecer: deixa o tempo de espera previsível -->
+        <ol class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <li class="cartao">
+            <p class="metrica-rotulo mt-0 text-latao-500">1. Stockfish local</p>
+            <p class="mt-2 text-xs leading-relaxed text-bruma-300">
+              Avaliação lance a lance em Win% para isolar erros de pico (acima de 100cp) e janelas de
+              erosão posicional.
             </p>
-          </div>
-          <div class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-sm">
-            <div class="text-xs font-semibold uppercase tracking-wider text-[#dea34c]">2. Diagnóstico Gemini</div>
-            <p class="mt-2 text-xs leading-relaxed text-[#b9c7c8]">
-              Classificação do tipo de erro em 16 categorias controladas e detecção de apuro de tempo real.
+          </li>
+          <li class="cartao">
+            <p class="metrica-rotulo mt-0 text-latao-500">2. Diagnóstico Gemini</p>
+            <p class="mt-2 text-xs leading-relaxed text-bruma-300">
+              Classificação do tipo de erro em 16 categorias controladas e detecção de apuro de tempo.
             </p>
-          </div>
-          <div class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-sm">
-            <div class="text-xs font-semibold uppercase tracking-wider text-[#dea34c]">3. Síntese Narrativa</div>
-            <p class="mt-2 text-xs leading-relaxed text-[#b9c7c8]">
-              História completa da partida com identificação do momento-chave e validação anti-alucinação.
+          </li>
+          <li class="cartao">
+            <p class="metrica-rotulo mt-0 text-latao-500">3. Síntese narrativa</p>
+            <p class="mt-2 text-xs leading-relaxed text-bruma-300">
+              História completa da partida com identificação do momento-chave e validação
+              anti-alucinação.
             </p>
-          </div>
-        </div>
+          </li>
+        </ol>
       </section>
     }
 
-    <!-- ESTADO: Em Processamento Assíncrono -->
+    <!-- Processando -->
     @if (estado() === 'PROCESSANDO') {
-      <section class="rounded-lg border border-[#304247] bg-[#162126] p-8 sm:p-12 text-center shadow-xl shadow-black/20">
-        <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-[#dea34c]/30 bg-[#dea34c]/10 text-3xl text-[#dea34c]">
-          <span class="animate-bounce">♟️</span>
+      <section class="cartao p-8 text-center sm:p-12">
+        <div
+          class="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-latao-borda bg-latao-fundo text-3xl text-latao-500"
+          aria-hidden="true"
+        >
+          <span class="animate-bounce">♟</span>
         </div>
 
-        <h2 class="mt-5 text-xl font-semibold text-[#f4f0e6]">
-          Análise Profunda em Andamento
-        </h2>
-        <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-[#b9c7c8]">
-          O Stockfish está avaliando as posições e o Gemini sintetizará o diagnóstico narrativo da partida.
+        <h2 class="titulo-secao mt-5 text-xl">Análise profunda em andamento</h2>
+        <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-bruma-300">
+          O Stockfish está avaliando as posições e o Gemini vai sintetizar o diagnóstico narrativo da
+          partida.
         </p>
 
-        <!-- Tempo decorrido -->
-        <div class="mt-5 inline-flex items-center gap-2.5 rounded-full border border-[#40565c] bg-[#10191d] px-4 py-1.5 text-xs text-[#dea34c]">
-          <span class="h-2 w-2 animate-ping rounded-full bg-[#dea34c]"></span>
+        <div
+          class="mt-5 inline-flex items-center gap-2.5 rounded-full border border-linha-forte bg-ardosia-850 px-4 py-1.5 text-xs text-latao-500"
+        >
+          <span class="pulso" aria-hidden="true"></span>
           <span class="font-mono font-medium">Tempo decorrido: {{ formatarTempo(segundosProcessamento()) }}</span>
         </div>
 
-        <!-- Etapas Ilustradas -->
-        <div class="mx-auto mt-8 max-w-lg space-y-3 text-left text-xs">
-          <div class="flex items-center gap-3.5 rounded-lg border border-[#304247] bg-[#10191d] p-3.5 text-[#f4f0e6]">
-            <span class="text-lg">⚙️</span>
-            <div class="flex-1">
-              <div class="font-semibold text-[#dea34c]">1. Stockfish & Lances Críticos</div>
-              <div class="text-xs text-[#8fa5a7]">Avaliando posições, picos táticos e erosão posicional</div>
-            </div>
-          </div>
-          <div class="flex items-center gap-3.5 rounded-lg border border-[#304247] bg-[#10191d] p-3.5 text-[#f4f0e6]">
-            <span class="text-lg">🔬</span>
-            <div class="flex-1">
-              <div class="font-semibold text-[#dea34c]">2. Diagnósticos de Causa Raiz</div>
-              <div class="text-xs text-[#8fa5a7]">Classificando tags de falha e processo mental</div>
-            </div>
-          </div>
-          <div class="flex items-center gap-3.5 rounded-lg border border-[#304247] bg-[#10191d] p-3.5 text-[#f4f0e6]">
-            <span class="text-lg">📖</span>
-            <div class="flex-1">
-              <div class="font-semibold text-[#dea34c]">3. Síntese Narrativa & Validação</div>
-              <div class="text-xs text-[#8fa5a7]">Construindo a história da partida com anti-alucinação</div>
-            </div>
-          </div>
-        </div>
+        <ol class="mx-auto mt-8 max-w-lg space-y-2 text-left">
+          <li class="painel">
+            <p class="text-xs font-semibold text-latao-500">1. Stockfish e lances críticos</p>
+            <p class="mt-0.5 text-xs text-bruma-500">
+              Avaliando posições, picos táticos e erosão posicional
+            </p>
+          </li>
+          <li class="painel">
+            <p class="text-xs font-semibold text-latao-500">2. Diagnósticos de causa raiz</p>
+            <p class="mt-0.5 text-xs text-bruma-500">Classificando tags de falha e processo mental</p>
+          </li>
+          <li class="painel">
+            <p class="text-xs font-semibold text-latao-500">3. Síntese narrativa e validação</p>
+            <p class="mt-0.5 text-xs text-bruma-500">
+              Construindo a história da partida com anti-alucinação
+            </p>
+          </li>
+        </ol>
 
-        <!-- Dica de segurança / persistência -->
-        <div class="mx-auto mt-8 max-w-lg rounded-lg border border-[#304247] bg-[#10191d] p-4 text-left text-xs text-[#b9c7c8]">
-          <p class="font-semibold text-[#dea34c]">
-            💡 A análise roda em segundo plano no servidor
-          </p>
-          <p class="mt-1 text-[11px] leading-relaxed">
-            Você pode fechar esta aba ou recarregar a página com segurança. A análise está vinculada ao seu histórico e você poderá consultá-la ou retomá-la a qualquer momento.
+        <div class="mx-auto mt-8 max-w-lg painel text-left">
+          <p class="text-xs font-semibold text-latao-500">A análise roda em segundo plano no servidor</p>
+          <p class="mt-1.5 text-[11px] leading-relaxed text-bruma-400">
+            Você pode fechar esta aba ou recarregar a página com segurança. A análise fica vinculada ao
+            seu histórico e pode ser consultada ou retomada a qualquer momento.
           </p>
           <div class="mt-4 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              (click)="estado.set('INICIAL')"
-              class="rounded border border-[#304247] bg-[#162126] px-3 py-1.5 text-xs font-semibold text-[#f4f0e6] transition-colors hover:border-[#dea34c]"
-            >
-              Voltar ao Início / Ver Histórico
+            <button type="button" (click)="estado.set('INICIAL')" class="btn btn-secundario btn-pequeno">
+              Voltar ao início / ver histórico
             </button>
-            <button
-              type="button"
-              (click)="reprocessarPartidaAtual()"
-              class="rounded border border-[#765044] bg-[#2a211f] px-3 py-1.5 text-xs font-semibold text-[#e7c4b3] transition-colors hover:border-[#dea34c]"
-            >
-              Reiniciar Análise
+            <button type="button" (click)="reprocessarPartidaAtual()" class="btn btn-perigo btn-pequeno">
+              Reiniciar análise
             </button>
           </div>
         </div>
-
       </section>
     }
 
-    <!-- ESTADO: Falha -->
+    <!-- Falha -->
     @if (estado() === 'FALHOU') {
-      <section class="rounded-lg border border-[#765044] bg-[#2a211f] p-8 text-center shadow-lg">
-        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#331a17] text-2xl text-[#e7c4b3]">
-          ❌
+      <section class="cartao border-perigo-borda bg-perigo-fundo p-8 text-center">
+        <div
+          class="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-perigo-borda bg-ardosia-900/50 text-2xl text-perigo"
+          aria-hidden="true"
+        >
+          ✕
         </div>
-        <h2 class="mt-4 text-xl font-semibold text-[#f4f0e6]">
-          Falha no Processamento da Partida
-        </h2>
-        <p class="mx-auto mt-2 max-w-md text-sm text-[#e7c4b3]">
-          {{ erro() || 'Não foi possível concluir a análise do motor ou síntese narrativa.' }}
+        <h2 class="titulo-secao mt-4 text-xl">Falha no processamento da partida</h2>
+        <p class="mx-auto mt-2 max-w-md text-sm text-perigo">
+          {{ erro() || 'Não foi possível concluir a análise do motor ou a síntese narrativa.' }}
         </p>
-        <div class="mt-6 flex justify-center gap-3">
-          <button
-            type="button"
-            (click)="reprocessarPartidaAtual()"
-            class="rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] hover:bg-[#efbd6d]"
-          >
-            Tentar Reprocessar Análise
+        <div class="mt-6 flex flex-wrap justify-center gap-3">
+          <button type="button" (click)="reprocessarPartidaAtual()" class="btn btn-primario">
+            Tentar reprocessar análise
           </button>
-          <button
-            type="button"
-            (click)="novaAnalise()"
-            class="rounded-md border border-[#304247] bg-[#162126] px-5 py-2 text-sm font-semibold text-[#f4f0e6] hover:border-[#dea34c]"
-          >
-            Nova Partida
-          </button>
+          <button type="button" (click)="novaAnalise()" class="btn btn-secundario">Nova partida</button>
         </div>
       </section>
     }
 
-    <!-- ESTADO: Concluído -->
+    <!-- Concluído -->
     @if (estado() === 'CONCLUIDO' && resumo()) {
-      <section class="space-y-8">
-
-        <!-- Card Destaque: Momento-Chave Estratégico -->
+      <section class="flex flex-col gap-6 surgir">
         @if (resumo()?.momento_chave_estrategico) {
-          <div class="rounded-lg border border-[#dea34c]/60 bg-gradient-to-br from-[#262015] to-[#162126] p-6 shadow-xl">
-            <div class="flex items-start gap-4">
-              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#dea34c]/20 text-xl text-[#dea34c]">
-                🔑
-              </div>
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[#dea34c]">
-                  Momento-Chave Estratégico
-                </p>
-                <p class="mt-2 text-base sm:text-lg font-medium leading-relaxed text-[#f4f0e6]">
-                  {{ resumo()?.momento_chave_estrategico }}
-                </p>
-              </div>
-            </div>
+          <div
+            class="rounded-[var(--radius-cartao)] border border-latao-borda bg-gradient-to-br from-latao-fundo to-ardosia-800 p-6 shadow-cartao"
+          >
+            <p class="sobrelinha">Momento-chave estratégico</p>
+            <p class="mt-3 font-display text-lg leading-relaxed text-marfim sm:text-xl">
+              {{ resumo()?.momento_chave_estrategico }}
+            </p>
           </div>
         }
 
-        <!-- Card: Saída da Teoria de Abertura (Lichess Opening Explorer) -->
+        <!-- Saída da teoria de abertura (Lichess Opening Explorer) -->
         @if (teoriaAbertura(); as teoria) {
           @if (teoria.disponivel) {
-            <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5 shadow-md">
-              <div class="flex items-start justify-between gap-3">
-                <div class="flex items-center gap-2.5">
-                  <span class="flex h-7 w-7 items-center justify-center rounded-md border border-[#dea34c]/40 bg-[#dea34c]/10 text-sm text-[#dea34c]">
-                    📖
-                  </span>
-                  <div>
-                    <h3 class="text-sm font-semibold text-[#f4f0e6]">
-                      Saída da Teoria de Abertura (Mestres)
-                    </h3>
-                    <p class="text-xs text-[#8fa5a7]">
-                      Identificação do ponto exato onde a partida deixou a base de mestres do Lichess.
-                    </p>
-                  </div>
+            <div class="cartao">
+              <div class="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-start">
+                <div>
+                  <h3 class="titulo-bloco">Saída da teoria de abertura (mestres)</h3>
+                  <p class="legenda mt-1">
+                    Identificação do ponto exato onde a partida deixou a base de mestres do Lichess.
+                  </p>
                 </div>
 
                 @if (teoria.ficou_no_livro) {
-                  <span class="rounded border border-emerald-800 bg-emerald-950/60 px-2.5 py-1 text-xs font-semibold text-emerald-300">
-                    Seguiu a Teoria Completa
-                  </span>
+                  <span class="selo selo-sucesso shrink-0">Seguiu a teoria completa</span>
                 } @else {
                   <span
-                    class="rounded border px-2.5 py-1 text-xs font-semibold"
-                    [class]="teoria.quem_saiu === 'JOGADOR' ? 'border-amber-800 bg-amber-950/60 text-amber-300' : 'border-sky-800 bg-sky-950/60 text-sky-300'"
+                    class="selo shrink-0"
+                    [class]="teoria.quem_saiu === 'JOGADOR' ? 'selo-latao' : 'selo-info'"
                   >
-                    Desvio por: {{ teoria.quem_saiu === 'JOGADOR' ? 'Você (Jogador)' : 'Oponente' }}
+                    Desvio por: {{ teoria.quem_saiu === 'JOGADOR' ? 'você' : 'oponente' }}
                   </span>
                 }
               </div>
 
               @if (!teoria.ficou_no_livro && teoria.numero_lance_saida) {
-                <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3 border-t border-[#26373c] pt-4 text-xs">
+                <div class="mt-4 grid grid-cols-1 gap-3 border-t border-linha pt-4 text-xs sm:grid-cols-3">
                   <div>
-                    <span class="text-[#8fa5a7]">Lance da saída:</span>
-                    <p class="font-semibold text-[#f4f0e6]">
-                      Lance {{ teoria.numero_lance_saida }} de {{ teoria.cor_saida === 'BRANCAS' ? 'Brancas' : 'Pretas' }}
-                      <span class="text-amber-400 font-mono font-bold">({{ teoria.lance_san || teoria.lance_uci }})</span>
+                    <p class="text-bruma-500">Lance da saída:</p>
+                    <p class="mt-1 font-semibold text-marfim">
+                      Lance {{ teoria.numero_lance_saida }} de
+                      {{ teoria.cor_saida === 'BRANCAS' ? 'brancas' : 'pretas' }}
+                      <span class="font-mono font-bold text-latao-500">
+                        ({{ teoria.lance_san || teoria.lance_uci }})
+                      </span>
                     </p>
                   </div>
                   <div>
-                    <span class="text-[#8fa5a7]">Última variante teórica:</span>
-                    <p class="font-semibold text-[#f4f0e6]">
-                      {{ teoria.nome_abertura || 'Abertura Padrão' }}
+                    <p class="text-bruma-500">Última variante teórica:</p>
+                    <p class="mt-1 font-semibold text-marfim">
+                      {{ teoria.nome_abertura || 'Abertura padrão' }}
                       @if (teoria.eco) {
-                        <span class="text-zinc-400">({{ teoria.eco }})</span>
+                        <span class="font-normal text-bruma-500">({{ teoria.eco }})</span>
                       }
                     </p>
                   </div>
                   <div>
-                    <span class="text-[#8fa5a7]">Base de mestres no ponto:</span>
-                    <p class="font-semibold text-[#f4f0e6]">
+                    <p class="text-bruma-500">Base de mestres no ponto:</p>
+                    <p class="mt-1 font-semibold text-marfim">
                       {{ teoria.stats_ultimo_livro?.total ?? 0 }} partidas
-                      <span class="text-[#8fa5a7] font-normal">
-                        ({{ teoria.stats_ultimo_livro?.white ?? 0 }}V - {{ teoria.stats_ultimo_livro?.draws ?? 0 }}E - {{ teoria.stats_ultimo_livro?.black ?? 0 }}D)
+                      <span class="font-normal text-bruma-500">
+                        ({{ teoria.stats_ultimo_livro?.white ?? 0 }}V ·
+                        {{ teoria.stats_ultimo_livro?.draws ?? 0 }}E ·
+                        {{ teoria.stats_ultimo_livro?.black ?? 0 }}D)
                       </span>
                     </p>
                   </div>
@@ -340,60 +287,57 @@
           }
         }
 
-        <!-- Narrativa da Partida -->
-        <section class="rounded-lg border border-[#304247] bg-[#162126] p-6 sm:p-8 shadow-lg">
-          <div class="mb-5 flex items-center justify-between border-b border-[#304247] pb-4">
-            <h2 class="text-lg font-semibold text-[#f4f0e6]">
-              História da Partida
-            </h2>
-            <span class="text-xs uppercase tracking-wider text-[#8fa5a7]">Síntese Gemini</span>
+        <!-- Narrativa -->
+        <section class="cartao">
+          <div class="mb-5 flex items-center justify-between gap-3 border-b border-linha pb-4">
+            <h2 class="titulo-secao">História da partida</h2>
+            <span class="selo selo-neutro">Síntese Gemini</span>
           </div>
 
-          <div class="space-y-4 text-base leading-7 text-[#dbe6e7]">
+          <div class="prosa">
             @for (paragrafo of resumo()?.narrativa?.split('\n\n'); track $index) {
-              <p class="leading-relaxed">
-                {{ paragrafo }}
-              </p>
+              <p>{{ paragrafo }}</p>
             }
           </div>
         </section>
 
-        <!-- Pontos Críticos -->
+        <!-- Pontos críticos -->
         @if (resumo()?.pontos_criticos && (resumo()?.pontos_criticos)!.length > 0) {
-          <section class="space-y-4">
-            <h3 class="text-lg font-semibold text-[#f4f0e6]">
-              Pontos Críticos Identificados ({{ (resumo()?.pontos_criticos)!.length }})
+          <section class="flex flex-col gap-4">
+            <h3 class="titulo-secao">
+              Pontos críticos identificados ({{ (resumo()?.pontos_criticos)!.length }})
             </h3>
 
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               @for (pc of resumo()?.pontos_criticos; track pc.numero_lance) {
-                <div class="rounded-lg border border-[#304247] bg-[#10191d] p-4 transition-colors hover:border-[#dea34c]/50">
-                  <div class="flex items-center justify-between gap-2">
+                <div class="cartao p-4 transition-colors hover:border-linha-forte">
+                  <div class="flex items-start justify-between gap-2">
                     <div class="flex flex-wrap items-center gap-1.5">
-                      <span
-                        [class]="pc.tipo_evento === 'PICO' ? 'border-[#765044] bg-[#2a211f] text-[#e7c4b3]' : 'border-[#7a6a2a] bg-[#332c14] text-[#e8cf7a]'"
-                        class="rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
-                      >
-                        {{ pc.tipo_evento === 'PICO' ? '💥 Pico de Erro' : '📉 Janela de Erosão' }}
+                      <span class="selo" [class]="pc.tipo_evento === 'PICO' ? 'selo-perigo' : 'selo-latao'">
+                        {{ pc.tipo_evento === 'PICO' ? 'Pico de erro' : 'Janela de erosão' }}
                       </span>
                       @if (pc.tipo_erro && pc.tipo_erro !== 'INDETERMINADO') {
                         <span
-                          [class]="pc.tipo_erro === 'PROCESSO' ? 'border-amber-700/60 bg-amber-950/40 text-amber-300' : 'border-sky-700/60 bg-sky-950/40 text-sky-300'"
-                          class="rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
-                          [title]="pc.tipo_erro === 'PROCESSO' ? 'Falha no processo cognitivo / checklist mental' : 'Lacuna de conteúdo teórico ou conceitual'"
+                          class="selo"
+                          [class]="pc.tipo_erro === 'PROCESSO' ? 'selo-latao' : 'selo-info'"
+                          [title]="
+                            pc.tipo_erro === 'PROCESSO'
+                              ? 'Falha no processo cognitivo / checklist mental'
+                              : 'Lacuna de conteúdo teórico ou conceitual'
+                          "
                         >
-                          {{ pc.tipo_erro === 'PROCESSO' ? '⚙️ Processo' : '📚 Conteúdo' }}
+                          {{ pc.tipo_erro === 'PROCESSO' ? 'Processo' : 'Conteúdo' }}
                         </span>
                       }
                     </div>
-                    <span class="shrink-0 font-mono text-xs text-[#8fa5a7]">
-                      Lance {{ pc.numero_lance }}
-                    </span>
+                    <span class="shrink-0 font-mono text-xs text-bruma-500">Lance {{ pc.numero_lance }}</span>
                   </div>
 
                   <div class="mt-3.5 flex flex-wrap gap-1.5">
                     @for (tag of pc.tags_falha; track tag) {
-                      <span class="rounded border border-[#304247] bg-[#162126] px-2 py-0.5 text-xs font-medium text-[#b9c7c8]">
+                      <span
+                        class="rounded-md border border-linha bg-ardosia-850 px-2 py-0.5 text-xs font-medium text-bruma-300"
+                      >
                         {{ formatarTag(tag) }}
                       </span>
                     }
@@ -404,29 +348,21 @@
           </section>
         }
 
-        <!-- Ações Finais -->
-        <div class="flex justify-center gap-4 pt-4">
-          <button
-            type="button"
-            (click)="novaAnalise()"
-            class="inline-flex min-h-11 items-center justify-center rounded-md bg-[#dea34c] px-8 py-2.5 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d]"
-          >
-            Analisar Outra Partida
+        <div class="flex justify-center pt-2">
+          <button type="button" (click)="novaAnalise()" class="btn btn-primario">
+            Analisar outra partida
           </button>
         </div>
-
       </section>
     }
 
-    <!-- SEÇÃO: Histórico de Análises Recentes -->
-      <app-historico-analise
-        titulo="Histórico de Análises"
-        [itens]="itensHistoricoComponent()"
-        [carregando]="carregandoHistorico()"
-        mensagemVazio="Nenhuma análise recente registrada. Cole um PGN acima para iniciar a primeira análise!"
-        (itemClicado)="selecionarPartidaDoHistorico($event)"
-        (atualizarClicado)="carregarHistorico()"
-      />
-
+    <app-historico-analise
+      titulo="Histórico de análises"
+      [itens]="itensHistoricoComponent()"
+      [carregando]="carregandoHistorico()"
+      mensagemVazio="Nenhuma análise recente registrada. Cole um PGN acima para iniciar a primeira."
+      (itemClicado)="selecionarPartidaDoHistorico($event)"
+      (atualizarClicado)="carregarHistorico()"
+    />
   </section>
 </main>

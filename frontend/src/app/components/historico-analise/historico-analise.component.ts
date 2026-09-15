@@ -45,42 +45,43 @@ export class HistoricoAnaliseComponent {
   @Output() itemClicado = new EventEmitter<string>();
   @Output() atualizarClicado = new EventEmitter<void>();
 
+  /** Variante de `.selo` (ver src/styles.css) correspondente ao status. */
   corBadgeStatus(status: StatusHistoricoAnalise | undefined): string {
     switch (status) {
       case 'concluido':
-        return 'border-[#2e613b] bg-[#1b3323] text-[#7ae89c]';
+        return 'selo-sucesso';
       case 'processando':
-        return 'border-[#2b4c61] bg-[#1a2e3b] text-[#5bc0de]';
+        return 'selo-info';
       case 'falhou':
-        return 'border-[#765044] bg-[#2a211f] text-[#e7c4b3]';
+        return 'selo-perigo';
       default:
-        return 'border-[#7a6a2a] bg-[#332c14] text-[#e8cf7a]';
+        return 'selo-latao';
     }
   }
 
   rotuloBadgeStatus(status: StatusHistoricoAnalise | undefined): string {
     switch (status) {
       case 'concluido':
-        return '✅ Concluída';
+        return 'Concluída';
       case 'processando':
-        return '⏳ Processando';
+        return 'Processando';
       case 'falhou':
-        return '❌ Falhou';
+        return 'Falhou';
       default:
-        return '⏱️ Na Fila';
+        return 'Na fila';
     }
   }
 
   rotuloBotaoAcao(status: StatusHistoricoAnalise | undefined): string {
     switch (status) {
       case 'concluido':
-        return 'Ver Análise →';
+        return 'Ver análise →';
       case 'processando':
-        return 'Acompanhar ⏳';
+        return 'Acompanhar';
       case 'falhou':
-        return 'Reprocessar 🔄';
+        return 'Reprocessar';
       case 'pendente':
-        return 'Acompanhar ⏱️';
+        return 'Acompanhar';
       default:
         // Sem pipeline assíncrono (Explicador, Laboratório): item já é um
         // resultado salvo e pronto, só falta reabri-lo.

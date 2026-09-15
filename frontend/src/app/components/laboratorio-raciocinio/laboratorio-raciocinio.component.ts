@@ -393,25 +393,27 @@ export class LaboratorioRaciocinioComponent implements OnInit {
     return captura ? `${peca} captura em ${casa}` : `${peca} para ${casa}`;
   }
 
+  /** Variante de `.selo` (ver src/styles.css). */
   corBadgeQualidadeLance(qualidade: string): string {
     switch (qualidade) {
       case 'BOM':
-        return 'border-[#3f6b4c] bg-[#173322] text-[#8fd6a6]';
+        return 'selo-sucesso';
       case 'SUBOTIMO':
-        return 'border-[#7a6a2a] bg-[#332c14] text-[#e8cf7a]';
+        return 'selo-latao';
       default:
-        return 'border-[#7a3a34] bg-[#331a17] text-[#e79a90]';
+        return 'selo-perigo';
     }
   }
 
+  /** Variante de `.selo` (ver src/styles.css). */
   corBadgeQualidadeRaciocinio(qualidade: string): string {
     switch (qualidade) {
       case 'SOLIDO':
-        return 'border-[#3f6b4c] bg-[#173322] text-[#8fd6a6]';
+        return 'selo-sucesso';
       case 'FALHO':
-        return 'border-[#7a3a34] bg-[#331a17] text-[#e79a90]';
+        return 'selo-perigo';
       default:
-        return 'border-[#40565c] bg-[#10191d] text-[#b9c7c8]';
+        return 'selo-neutro';
     }
   }
 
@@ -441,11 +443,11 @@ export class LaboratorioRaciocinioComponent implements OnInit {
   corIconeChecklist(valor: string | undefined): string {
     switch (valor) {
       case 'SIM':
-        return 'text-[#8fd6a6]';
+        return 'text-sucesso';
       case 'NAO':
-        return 'text-[#e79a90]';
+        return 'text-perigo';
       default:
-        return 'text-[#8fa5a7]';
+        return 'text-bruma-500';
     }
   }
 }

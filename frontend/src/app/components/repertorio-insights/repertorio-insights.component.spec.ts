@@ -125,9 +125,15 @@ describe('RepertorioInsightsComponent', () => {
   });
 
   it('corBarraProgresso retorna classes corretas conforme taxa', () => {
-    expect(component.corBarraProgresso(60)).toBe('bg-emerald-500');
-    expect(component.corBarraProgresso(45)).toBe('bg-amber-500');
-    expect(component.corBarraProgresso(30)).toBe('bg-rose-500');
+    expect(component.corBarraProgresso(60)).toBe('bg-sucesso');
+    expect(component.corBarraProgresso(45)).toBe('bg-latao-500');
+    expect(component.corBarraProgresso(30)).toBe('bg-perigo');
+  });
+
+  it('corBadgeTaxa retorna a variante de selo conforme taxa', () => {
+    expect(component.corBadgeTaxa(60)).toBe('selo-sucesso');
+    expect(component.corBadgeTaxa(45)).toBe('selo-latao');
+    expect(component.corBadgeTaxa(30)).toBe('selo-perigo');
   });
 });
 

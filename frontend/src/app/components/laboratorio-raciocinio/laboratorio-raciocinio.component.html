@@ -1,326 +1,336 @@
-<main class="min-h-screen bg-[#10191d] px-5 py-10 text-[#f4f0e6] sm:px-8 lg:px-12">
-  <section class="mx-auto flex w-full max-w-3xl flex-col gap-8">
+<main class="pagina">
+  <section class="conteudo max-w-3xl">
     <header class="max-w-2xl">
-      <p class="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-[#dea34c]">
-        Feedback imediato
-      </p>
-      <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">Laboratório de Raciocínio</h1>
-      <p class="mt-4 text-base leading-7 text-[#b9c7c8]">
+      <p class="sobrelinha">Feedback imediato</p>
+      <h1 class="titulo-pagina">Laboratório de Raciocínio</h1>
+      <p class="subtitulo">
         Cole uma posição avulsa (FEN ou PGN), o lance que você jogou e o que estava pensando —
         receba feedback na hora, sem esperar o pipeline em lote.
       </p>
     </header>
 
-    <section class="rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-lg shadow-black/10 sm:p-8">
+    <section class="cartao">
       @if (visualizandoHistorico(); as item) {
-        <!-- Registro salvo, reaberto do histórico: schema mais enxuto que o
-             card de uma análise recém-gerada (revisao_exercicio_avulso não
-             guarda top_candidatos/analise_mestre/checklist_rotina). -->
-        <div class="mb-4 flex items-center justify-between">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+        <!--
+          Registro salvo, reaberto do histórico: schema mais enxuto que o card de
+          uma análise recém-gerada (revisao_exercicio_avulso não guarda
+          top_candidatos/analise_mestre/checklist_rotina).
+        -->
+        <div class="mb-5 flex items-center justify-between gap-3 border-b border-linha pb-4">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-bruma-500">
             Exercício salvo — só leitura
           </p>
-          <button
-            type="button"
-            class="text-xs font-semibold text-[#dea34c] hover:underline"
-            (click)="novaAnalise()"
-          >
-            ← Nova análise
-          </button>
+          <button type="button" class="btn-texto" (click)="novaAnalise()">← Nova análise</button>
         </div>
 
-        <div class="mb-4 flex flex-wrap items-center gap-3">
-          <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#b9c7c8]">
-            Lance {{ item.lance_jogado }}
-          </span>
+        <div class="mb-5 flex flex-wrap items-center gap-2">
+          <span class="selo selo-neutro">Lance {{ item.lance_jogado }}</span>
           @if (item.qualidade_lance) {
-            <span
-              class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
-              [class]="corBadgeQualidadeLance(item.qualidade_lance)"
-            >
+            <span class="selo" [class]="corBadgeQualidadeLance(item.qualidade_lance)">
               Lance: {{ item.qualidade_lance }}
             </span>
           }
           @if (item.qualidade_raciocinio) {
-            <span
-              class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
-              [class]="corBadgeQualidadeRaciocinio(item.qualidade_raciocinio)"
-            >
+            <span class="selo" [class]="corBadgeQualidadeRaciocinio(item.qualidade_raciocinio)">
               Raciocínio: {{ item.qualidade_raciocinio }}
             </span>
           }
         </div>
 
-        <app-tabuleiro-preview class="mt-1 mb-4 block" [fen]="item.fen" />
+        <app-tabuleiro-preview class="mb-5 block" [fen]="item.fen" />
 
-        <div class="mb-4 grid gap-3 text-sm sm:grid-cols-3">
-          <p><span class="text-[#8fa5a7]">Lance jogado:</span> <span class="font-semibold">{{ item.lance_jogado }}</span></p>
-          <p><span class="text-[#8fa5a7]">Melhor lance:</span> <span class="font-semibold">{{ item.melhor_lance ?? '—' }}</span></p>
-          <p><span class="text-[#8fa5a7]">Queda de win%:</span> <span class="font-semibold">{{ item.queda_win_percent ?? '—' }}</span></p>
+        <div class="mb-5 grid gap-2 sm:grid-cols-3">
+          <div class="painel">
+            <p class="metrica-rotulo mt-0">Lance jogado</p>
+            <p class="mt-1 font-semibold text-marfim">{{ item.lance_jogado }}</p>
+          </div>
+          <div class="painel">
+            <p class="metrica-rotulo mt-0">Melhor lance</p>
+            <p class="mt-1 font-semibold text-marfim">{{ item.melhor_lance ?? '—' }}</p>
+          </div>
+          <div class="painel">
+            <p class="metrica-rotulo mt-0">Queda de win%</p>
+            <p class="mt-1 font-semibold text-marfim">{{ item.queda_win_percent ?? '—' }}</p>
+          </div>
         </div>
 
         @if (item.feedback_texto) {
-          <p class="mb-2 text-base leading-7 text-[#d7dede]">{{ item.feedback_texto }}</p>
+          <p class="prosa mb-3">{{ item.feedback_texto }}</p>
         }
         @if (item.texto_pensamento) {
-          <p class="text-sm leading-6 text-[#b9c7c8]">
-            <span class="text-[#8fa5a7]">O que você estava pensando:</span> {{ item.texto_pensamento }}
+          <p class="text-sm leading-6 text-bruma-300">
+            <span class="text-bruma-500">O que você estava pensando:</span> {{ item.texto_pensamento }}
           </p>
         }
       } @else {
-      <div class="mb-5">
-        <input
-          #inputImagemPosicao
-          type="file"
-          accept="image/*"
-          class="hidden"
-          [disabled]="carregando() || reconhecendoImagem()"
-          (change)="onImagemSelecionada($event)"
-        />
-        <button
-          type="button"
-          class="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[#40565c] px-4 py-2 text-sm font-semibold text-[#b9c7c8] transition-colors hover:border-[#dea34c] hover:text-[#dea34c] disabled:cursor-wait disabled:opacity-60"
-          [disabled]="carregando() || reconhecendoImagem()"
-          (click)="inputImagemPosicao.click()"
-        >
-          {{ reconhecendoImagem() ? '📷 Reconhecendo posição...' : '📷 Reconhecer posição de uma foto' }}
-        </button>
-
-        @if (erroReconhecimento()) {
-          <p class="mt-2 rounded-md border border-[#765044] bg-[#2a211f] px-4 py-3 text-xs leading-5 text-[#e7c4b3]" role="alert">
-            {{ erroReconhecimento() }}
-          </p>
-        }
-
-        @if (avisoConferirPosicao()) {
-          <p class="mt-2 flex items-start gap-2 rounded-md border border-[#7a6a2a] bg-[#332c14] px-4 py-3 text-xs font-semibold leading-5 text-[#e8cf7a]" role="alert">
-            <span aria-hidden="true">⚠️</span>
-            <span>Confira se a posição reconhecida bate com a foto antes de analisar.</span>
-          </p>
-        }
-      </div>
-
-      <div class="mb-5">
-        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-          Posição (FEN ou PGN)
-        </label>
-        <textarea
-          rows="4"
-          class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm leading-6 text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
-          placeholder="Ex: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1  ou  1. e4 e5 2. Nf3"
-          [value]="posicao()"
-          [disabled]="carregando() || reconhecendoImagem()"
-          (input)="posicao.set($any($event.target).value)"
-        ></textarea>
-
-        <app-tabuleiro-preview class="mt-3 block" [fen]="fenPreview()" />
-
-        @if (linkLichess(); as urlLichess) {
-          <p class="mt-2 text-center">
-            <a
-              [href]="urlLichess"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="inline-flex items-center gap-1.5 rounded-md border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold text-[#b9c7c8] transition hover:border-[#dea34c] hover:text-[#dea34c]"
-            >
-              <span aria-hidden="true">♟️</span> Ver posição na engine (Lichess)
-            </a>
-          </p>
-        }
-      </div>
-
-      <div class="mb-5">
-        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-          Seu(s) lance(s)
-        </label>
-        <input
-          type="text"
-          class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
-          placeholder="Um lance (Cxe5) ou uma sequência (Cd5, Dc6, Bxe6)"
-          [value]="lance()"
-          [disabled]="carregando()"
-          (input)="lance.set($any($event.target).value)"
-        />
-        <p class="mt-2 text-xs leading-5 text-[#8fa5a7]">
-          Em uma sequência, o 1º lance é seu, o 2º é a resposta do adversário, o 3º é
-          seu de novo, e assim por diante — só os seus lances são avaliados.
-          Aceita notação em português (C, T, D, R, B) ou em inglês (N, R, Q, K, B);
-          o resultado mostra como cada lance foi interpretado.
-        </p>
-      </div>
-
-      <div class="mb-6">
-        <div class="mb-2 flex items-center gap-2">
-          <label class="block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-            O que você estava pensando?
-          </label>
-          @if (guiaPassos().length > 0) {
-            <button
-              type="button"
-              class="flex h-5 w-5 items-center justify-center rounded-full border border-[#40565c] text-xs font-bold text-[#8fa5a7] transition-colors hover:border-[#dea34c] hover:text-[#dea34c]"
-              [attr.aria-expanded]="guiaAberto()"
-              aria-label="Ver a rotina dos 8 passos"
-              title="Ver a rotina dos 8 passos"
-              (click)="toggleGuia()"
-            >?</button>
-          }
-        </div>
-
-        @if (guiaAberto()) {
-          <ol class="mb-3 list-decimal space-y-1 rounded-md border border-[#304247] bg-[#10191d] px-6 py-3 text-xs leading-5 text-[#b9c7c8]">
-            @for (passo of guiaPassos(); track passo.numero) {
-              <li>{{ passo.titulo }}</li>
+        <div class="mb-5">
+          <input
+            #inputImagemPosicao
+            type="file"
+            accept="image/*"
+            class="hidden"
+            [disabled]="carregando() || reconhecendoImagem()"
+            (change)="onImagemSelecionada($event)"
+          />
+          <button
+            type="button"
+            class="btn btn-secundario"
+            [disabled]="carregando() || reconhecendoImagem()"
+            (click)="inputImagemPosicao.click()"
+          >
+            @if (reconhecendoImagem()) {
+              <span class="pulso" aria-hidden="true"></span>
+              <span>Reconhecendo posição…</span>
+            } @else {
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.8"
+                  d="M3 9a2 2 0 0 1 2-2h1.5l1-2h7l1 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+                />
+                <circle cx="12" cy="13" r="3.2" stroke-width="1.8" />
+              </svg>
+              <span>Reconhecer posição de uma foto</span>
             }
-          </ol>
-        }
+          </button>
 
-        <textarea
-          rows="4"
-          class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm leading-6 text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none disabled:opacity-60"
-          placeholder="Descreva seu raciocínio, alternativas consideradas e por que escolheu esse lance."
-          [value]="pensamento()"
-          [disabled]="carregando()"
-          (input)="pensamento.set($any($event.target).value)"
-        ></textarea>
-      </div>
+          @if (erroReconhecimento()) {
+            <div class="aviso aviso-erro mt-3 text-xs" role="alert">
+              <span aria-hidden="true">!</span>
+              <span>{{ erroReconhecimento() }}</span>
+            </div>
+          }
 
-      @if (erro()) {
-        <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
-          {{ erro() }}
-        </div>
-      }
-
-      @if (!resultado()) {
-        <button
-          type="button"
-          class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
-          [disabled]="!formularioValido || carregando()"
-          (click)="analisar()"
-        >
-          {{ carregando() ? 'Analisando...' : 'Analisar' }}
-        </button>
-      } @else {
-        <p class="mb-4 text-sm text-[#8fa5a7]">
-          Linha avaliada: <span class="font-semibold text-[#d7dede]">{{ resultado()!.lances.join(' ') }}</span>
-          — {{ resultado()!.avaliacoes.length }} lance(s) seu(s) avaliado(s).
-        </p>
-
-        <div class="flex flex-col gap-5">
-          @for (item of resultado()!.avaliacoes; track item.indice_na_sequencia) {
-            <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5 sm:p-6">
-              <div class="mb-4 flex flex-wrap items-center gap-3">
-                <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#b9c7c8]">
-                  Lance {{ item.lance_jogado }}
-                </span>
-                <span
-                  class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
-                  [class]="corBadgeQualidadeLance(item.qualidade_lance)"
-                >
-                  Lance: {{ item.qualidade_lance }}
-                </span>
-                <span
-                  class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
-                  [class]="corBadgeQualidadeRaciocinio(item.qualidade_raciocinio)"
-                >
-                  Raciocínio: {{ item.qualidade_raciocinio }}
-                </span>
-              </div>
-
-              @if (item.lance_interpretado) {
-                <p class="mb-4 rounded-md border border-[#40565c] bg-[#162126] px-4 py-2.5 text-sm text-[#b9c7c8]">
-                  <span class="text-[#8fa5a7]">Lance interpretado:</span>&ngsp;<span
-                    class="font-semibold text-[#d7dede]"
-                    >{{ item.lance_interpretado }}</span
-                  >&ngsp;@if (descricaoLanceInterpretado(item.lance_interpretado); as descricao) {
-                    <span class="text-[#8fa5a7]">({{ descricao }})</span>
-                  }
-                </p>
-              }
-
-              <div class="mb-4 grid gap-3 text-sm sm:grid-cols-3">
-                <p><span class="text-[#8fa5a7]">Lance jogado:</span> <span class="font-semibold">{{ item.lance_jogado }}</span></p>
-                <p><span class="text-[#8fa5a7]">Melhor lance:</span> <span class="font-semibold">{{ item.melhor_lance ?? '—' }}</span></p>
-                <p><span class="text-[#8fa5a7]">Queda de win%:</span> <span class="font-semibold">{{ item.queda_win_percent }}</span></p>
-              </div>
-
-              @if (item.top_candidatos.length > 0) {
-                <p class="mb-3 text-sm text-[#8fa5a7]">
-                  Top candidatos:
-                  <span class="font-semibold text-[#d7dede]">
-                    @for (cand of item.top_candidatos; track cand.lance) {
-                      {{ cand.lance }} ({{ cand.avaliacao }})@if (!$last) {, }
-                    }
-                  </span>
-                </p>
-              }
-
-              <p class="mb-2 text-base leading-7 text-[#d7dede]">{{ item.feedback_texto }}</p>
-              <p class="text-sm leading-6 text-[#b9c7c8]"><span class="text-[#8fa5a7]">Análise do mestre:</span> {{ item.analise_mestre }}</p>
-
-              @if (item.checklist_rotina) {
-                <div class="mt-4 rounded-md border border-[#304247] bg-[#162126] p-4">
-                  <p class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">Rotina seguida</p>
-                  <ul class="flex flex-col gap-2">
-                    @for (passo of checklistPassos; track passo.chave) {
-                      <li class="flex items-start gap-2 text-sm text-[#d7dede]">
-                        <span class="mt-0.5 font-bold" [class]="corIconeChecklist(item.checklist_rotina[passo.chave])">
-                          {{ iconeChecklist(item.checklist_rotina[passo.chave]) }}
-                        </span>
-                        <span>{{ passo.rotulo }}</span>
-                      </li>
-                    }
-                  </ul>
-                </div>
-              }
+          @if (avisoConferirPosicao()) {
+            <div class="aviso aviso-latao mt-3 text-xs" role="alert">
+              <span aria-hidden="true">⚠</span>
+              <span>Confira se a posição reconhecida bate com a foto antes de analisar.</span>
             </div>
           }
         </div>
 
-        @if (resultado()!.resumo_geral) {
-          <div class="mt-5 rounded-lg border border-[#3a4d33] bg-[#141d13] p-5 sm:p-6">
-            <p class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#8fbf6f]">Resumo geral da sequência</p>
-            <p class="text-base leading-7 text-[#d7dede]">{{ resultado()!.resumo_geral }}</p>
+        <div class="mb-5">
+          <label class="rotulo" for="campo-posicao">Posição (FEN ou PGN)</label>
+          <textarea
+            id="campo-posicao"
+            rows="4"
+            class="campo campo-mono"
+            placeholder="Ex.: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1   ou   1. e4 e5 2. Nf3"
+            [value]="posicao()"
+            [disabled]="carregando() || reconhecendoImagem()"
+            (input)="posicao.set($any($event.target).value)"
+          ></textarea>
+
+          <app-tabuleiro-preview class="mt-4 block" [fen]="fenPreview()" />
+
+          @if (linkLichess(); as urlLichess) {
+            <p class="mt-3 text-center">
+              <a
+                [href]="urlLichess"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-secundario btn-pequeno"
+              >
+                <span>Ver posição na engine (Lichess)</span>
+                <span aria-hidden="true">↗</span>
+              </a>
+            </p>
+          }
+        </div>
+
+        <div class="mb-5">
+          <label class="rotulo" for="campo-lance">Seu(s) lance(s)</label>
+          <input
+            id="campo-lance"
+            type="text"
+            class="campo"
+            placeholder="Um lance (Cxe5) ou uma sequência (Cd5, Dc6, Bxe6)"
+            [value]="lance()"
+            [disabled]="carregando()"
+            (input)="lance.set($any($event.target).value)"
+          />
+          <p class="ajuda">
+            Em uma sequência, o 1º lance é seu, o 2º é a resposta do adversário, o 3º é seu de novo, e
+            assim por diante — só os seus lances são avaliados. Aceita notação em português (C, T, D,
+            R, B) ou em inglês (N, R, Q, K, B); o resultado mostra como cada lance foi interpretado.
+          </p>
+        </div>
+
+        <div class="mb-6">
+          <div class="mb-2 flex items-center gap-2">
+            <label class="rotulo mb-0" for="campo-pensamento">O que você estava pensando?</label>
+            @if (guiaPassos().length > 0) {
+              <button
+                type="button"
+                class="flex h-5 w-5 items-center justify-center rounded-full border border-linha-forte text-[11px] font-bold text-bruma-500 transition-colors hover:border-latao-500 hover:text-latao-500"
+                [attr.aria-expanded]="guiaAberto()"
+                aria-label="Ver a rotina dos 8 passos"
+                title="Ver a rotina dos 8 passos"
+                (click)="toggleGuia()"
+              >
+                ?
+              </button>
+            }
+          </div>
+
+          @if (guiaAberto()) {
+            <ol class="painel mb-3 list-decimal space-y-1 pl-8 text-xs leading-5 text-bruma-300 surgir">
+              @for (passo of guiaPassos(); track passo.numero) {
+                <li>{{ passo.titulo }}</li>
+              }
+            </ol>
+          }
+
+          <textarea
+            id="campo-pensamento"
+            rows="4"
+            class="campo leading-6"
+            placeholder="Descreva seu raciocínio, alternativas consideradas e por que escolheu esse lance."
+            [value]="pensamento()"
+            [disabled]="carregando()"
+            (input)="pensamento.set($any($event.target).value)"
+          ></textarea>
+        </div>
+
+        @if (erro()) {
+          <div class="aviso aviso-erro mb-5" role="alert">
+            <span aria-hidden="true">!</span>
+            <span>{{ erro() }}</span>
           </div>
         }
 
-        <div class="mt-6 flex flex-wrap gap-3">
-          @if (!salvo()) {
-            <button
-              type="button"
-              class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-4 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-wait disabled:opacity-60"
-              [disabled]="salvando()"
-              (click)="salvarExercicio()"
-            >
-              {{ salvando() ? 'Salvando...' : 'Salvar este exercício' }}
-            </button>
-          } @else {
-            <span class="inline-flex items-center rounded-full border border-[#557267] bg-[#20352e] px-4 py-2 text-sm font-semibold text-[#a9d2bd]">
-              Exercício salvo
-            </span>
-          }
-
+        @if (!resultado()) {
           <button
             type="button"
-            class="inline-flex min-h-10 items-center justify-center rounded-md border border-[#40565c] px-4 py-2 text-sm font-semibold text-[#b9c7c8] transition-colors hover:text-[#f4f0e6]"
-            (click)="novaAnalise()"
+            class="btn btn-primario"
+            [disabled]="!formularioValido || carregando()"
+            (click)="analisar()"
           >
-            Nova análise
+            @if (carregando()) {
+              <span class="pulso" aria-hidden="true"></span>
+              <span>Analisando…</span>
+            } @else {
+              <span>Analisar</span>
+            }
           </button>
-        </div>
-      }
+        } @else {
+          <p class="mb-4 text-sm text-bruma-400">
+            Linha avaliada:
+            <span class="font-semibold text-bruma-200">{{ resultado()!.lances.join(' ') }}</span>
+            — {{ resultado()!.avaliacoes.length }} lance(s) seu(s) avaliado(s).
+          </p>
+
+          <div class="flex flex-col gap-4">
+            @for (item of resultado()!.avaliacoes; track item.indice_na_sequencia) {
+              <div class="painel surgir">
+                <div class="mb-4 flex flex-wrap items-center gap-2">
+                  <span class="selo selo-neutro">Lance {{ item.lance_jogado }}</span>
+                  <span class="selo" [class]="corBadgeQualidadeLance(item.qualidade_lance)">
+                    Lance: {{ item.qualidade_lance }}
+                  </span>
+                  <span class="selo" [class]="corBadgeQualidadeRaciocinio(item.qualidade_raciocinio)">
+                    Raciocínio: {{ item.qualidade_raciocinio }}
+                  </span>
+                </div>
+
+                @if (item.lance_interpretado) {
+                  <p class="mb-4 rounded-lg border border-linha bg-ardosia-800 px-4 py-2.5 text-sm text-bruma-300">
+                    <span class="text-bruma-500">Lance interpretado:</span>&ngsp;<span
+                      class="font-semibold text-bruma-200"
+                      >{{ item.lance_interpretado }}</span
+                    >&ngsp;@if (descricaoLanceInterpretado(item.lance_interpretado); as descricao) {
+                      <span class="text-bruma-500">({{ descricao }})</span>
+                    }
+                  </p>
+                }
+
+                <div class="mb-4 grid gap-2 sm:grid-cols-3">
+                  <div class="rounded-lg border border-linha bg-ardosia-800 px-3 py-2">
+                    <p class="metrica-rotulo mt-0">Lance jogado</p>
+                    <p class="mt-1 font-semibold text-marfim">{{ item.lance_jogado }}</p>
+                  </div>
+                  <div class="rounded-lg border border-linha bg-ardosia-800 px-3 py-2">
+                    <p class="metrica-rotulo mt-0">Melhor lance</p>
+                    <p class="mt-1 font-semibold text-marfim">{{ item.melhor_lance ?? '—' }}</p>
+                  </div>
+                  <div class="rounded-lg border border-linha bg-ardosia-800 px-3 py-2">
+                    <p class="metrica-rotulo mt-0">Queda de win%</p>
+                    <p class="mt-1 font-semibold text-marfim">{{ item.queda_win_percent }}</p>
+                  </div>
+                </div>
+
+                @if (item.top_candidatos.length > 0) {
+                  <p class="mb-3 text-sm text-bruma-400">
+                    Top candidatos:
+                    <span class="font-semibold text-bruma-200">
+                      @for (cand of item.top_candidatos; track cand.lance) {
+                        {{ cand.lance }} ({{ cand.avaliacao }})@if (!$last) {, }
+                      }
+                    </span>
+                  </p>
+                }
+
+                <p class="prosa mb-3">{{ item.feedback_texto }}</p>
+                <p class="text-sm leading-6 text-bruma-300">
+                  <span class="text-bruma-500">Análise do mestre:</span> {{ item.analise_mestre }}
+                </p>
+
+                @if (item.checklist_rotina) {
+                  <div class="mt-4 rounded-lg border border-linha bg-ardosia-800 p-4">
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-bruma-500">
+                      Rotina seguida
+                    </p>
+                    <ul class="mt-3 flex flex-col gap-2">
+                      @for (passo of checklistPassos; track passo.chave) {
+                        <li class="flex items-start gap-2 text-sm text-bruma-200">
+                          <span class="mt-0.5 font-bold" [class]="corIconeChecklist(item.checklist_rotina[passo.chave])">
+                            {{ iconeChecklist(item.checklist_rotina[passo.chave]) }}
+                          </span>
+                          <span>{{ passo.rotulo }}</span>
+                        </li>
+                      }
+                    </ul>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+
+          @if (resultado()!.resumo_geral) {
+            <div class="aviso aviso-sucesso mt-5 flex-col items-start gap-2">
+              <p class="text-[11px] font-semibold uppercase tracking-[0.16em]">Resumo geral da sequência</p>
+              <p class="text-base leading-7 text-bruma-200">{{ resultado()!.resumo_geral }}</p>
+            </div>
+          }
+
+          <div class="mt-6 flex flex-wrap items-center gap-3">
+            @if (!salvo()) {
+              <button type="button" class="btn btn-primario" [disabled]="salvando()" (click)="salvarExercicio()">
+                @if (salvando()) {
+                  <span class="pulso" aria-hidden="true"></span>
+                  <span>Salvando…</span>
+                } @else {
+                  <span>Salvar este exercício</span>
+                }
+              </button>
+            } @else {
+              <span class="selo selo-sucesso">✓ Exercício salvo</span>
+            }
+
+            <button type="button" class="btn btn-secundario" (click)="novaAnalise()">Nova análise</button>
+          </div>
+        }
       }
     </section>
 
-    <!-- SEÇÃO: Histórico de Exercícios Salvos -->
-      <app-historico-analise
-        titulo="Histórico de Exercícios Salvos"
-        [itens]="itensHistoricoComponent()"
-        [carregando]="carregandoHistorico()"
-        mensagemVazio="Nenhum exercício salvo ainda. Analise um lance acima e clique em 'Salvar este exercício'."
-        (itemClicado)="selecionarHistorico($event)"
-        (atualizarClicado)="carregarHistorico()"
-      />
+    <app-historico-analise
+      titulo="Histórico de exercícios salvos"
+      [itens]="itensHistoricoComponent()"
+      [carregando]="carregandoHistorico()"
+      mensagemVazio="Nenhum exercício salvo ainda. Analise um lance acima e clique em 'Salvar este exercício'."
+      (itemClicado)="selecionarHistorico($event)"
+      (atualizarClicado)="carregarHistorico()"
+    />
   </section>
 </main>
-
-

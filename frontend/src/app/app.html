@@ -1,58 +1,93 @@
-<nav class="border-b border-[#304247] bg-[#10191d] px-4 py-2.5 sm:px-8 lg:px-12">
-  <div class="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
-    <div class="flex items-center gap-5 overflow-x-auto whitespace-nowrap py-0.5 scrollbar-none text-sm">
+<!--
+  Casca da aplicação. O cabeçalho só existe para quem está logado: sem sessão a
+  única rota alcançável é /login (authGuard, D-23), então mostrar a navegação ali
+  seria oferecer 5 links que voltam todos para a mesma tela.
+-->
+@if (authService.autenticado()) {
+  <header class="sticky top-0 z-40 border-b border-linha bg-ardosia-900/80 backdrop-blur-xl">
+    <div
+      class="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-1 px-5 py-3 sm:px-8 lg:px-12"
+    >
       <a
         routerLink="/"
-        routerLinkActive="font-semibold text-[#dea34c] border-b-2 border-[#dea34c] pb-0.5"
-        [routerLinkActiveOptions]="{ exact: true }"
-        class="shrink-0 text-[#b9c7c8] transition-colors hover:text-[#dea34c]"
+        class="group flex shrink-0 items-center gap-2.5 text-marfim"
+        aria-label="Hexágono — início"
       >
-        Meu Hexágono
-      </a>
-      <a
-        routerLink="/laboratorio"
-        routerLinkActive="font-semibold text-[#dea34c] border-b-2 border-[#dea34c] pb-0.5"
-        class="shrink-0 text-[#b9c7c8] transition-colors hover:text-[#dea34c]"
-      >
-        Laboratório de Raciocínio
-      </a>
-      <a
-        routerLink="/explicador"
-        routerLinkActive="font-semibold text-[#dea34c] border-b-2 border-[#dea34c] pb-0.5"
-        class="shrink-0 text-[#b9c7c8] transition-colors hover:text-[#dea34c]"
-      >
-        Explicador de Posição
-      </a>
-      <a
-        routerLink="/analisador"
-        routerLinkActive="font-semibold text-[#dea34c] border-b-2 border-[#dea34c] pb-0.5"
-        class="shrink-0 text-[#b9c7c8] transition-colors hover:text-[#dea34c]"
-      >
-        Analisador de Partida
-      </a>
-      <a
-        routerLink="/perfil"
-        routerLinkActive="font-semibold text-[#dea34c] border-b-2 border-[#dea34c] pb-0.5"
-        class="shrink-0 text-[#b9c7c8] transition-colors hover:text-[#dea34c]"
-      >
-        Meu Perfil
-      </a>
-    </div>
-
-    @if (authService.autenticado()) {
-      <div class="shrink-0 flex items-center gap-2.5 text-xs text-[#8fa5a7]">
-        <span class="hidden md:inline">{{ authService.usuario()?.email }}</span>
-        <button
-          type="button"
-          class="rounded-md border border-[#40565c] px-2.5 py-1 text-xs font-semibold text-[#b9c7c8] transition-colors hover:border-[#dea34c] hover:text-[#dea34c]"
-          (click)="sair()"
-          title="Encerrar sessão"
+        <span
+          class="text-latao-500 transition-transform duration-300 group-hover:rotate-[30deg]"
+          aria-hidden="true"
         >
+          <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none">
+            <path
+              d="M12 2 20.66 7v10L12 22 3.34 17V7z"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linejoin="round"
+              opacity="0.5"
+            />
+            <path
+              d="M12 5 15.9 9.75 17.2 15 12 15.5 6.37 15.25 7.67 9.5z"
+              fill="currentColor"
+              opacity="0.9"
+            />
+          </svg>
+        </span>
+        <span class="font-display text-lg font-semibold tracking-tight">Hexágono</span>
+      </a>
+
+      <nav
+        class="order-3 -mx-1 flex w-full items-center gap-1 overflow-x-auto sem-barra pb-1 sm:order-none sm:mx-0 sm:w-auto sm:pb-0"
+        aria-label="Navegação principal"
+      >
+        <a
+          routerLink="/"
+          routerLinkActive="nav-link-ativo"
+          [routerLinkActiveOptions]="{ exact: true }"
+          class="nav-link"
+          title="Meu Hexágono de Xadrez"
+        >
+          Hexágono
+        </a>
+        <a
+          routerLink="/laboratorio"
+          routerLinkActive="nav-link-ativo"
+          class="nav-link"
+          title="Laboratório de Raciocínio"
+        >
+          Laboratório
+        </a>
+        <a
+          routerLink="/explicador"
+          routerLinkActive="nav-link-ativo"
+          class="nav-link"
+          title="Explicador de Posição"
+        >
+          Explicador
+        </a>
+        <a
+          routerLink="/analisador"
+          routerLinkActive="nav-link-ativo"
+          class="nav-link"
+          title="Analisador de Partida"
+        >
+          Analisador
+        </a>
+        <a routerLink="/perfil" routerLinkActive="nav-link-ativo" class="nav-link" title="Meu Perfil">
+          Perfil
+        </a>
+      </nav>
+
+      <div class="ml-auto flex shrink-0 items-center gap-2.5">
+        <span class="hidden text-xs text-bruma-500 md:inline" [title]="authService.usuario()?.email">
+          {{ authService.usuario()?.email }}
+        </span>
+        <button type="button" class="btn btn-secundario btn-pequeno" (click)="sair()" title="Encerrar sessão">
           Sair
         </button>
       </div>
-    }
-  </div>
-</nav>
+    </div>
+  </header>
+}
+
 <router-outlet />
 <app-modal-onboarding-contas />

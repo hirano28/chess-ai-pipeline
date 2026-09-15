@@ -82,16 +82,23 @@ describe('HistoricoAnaliseComponent', () => {
     fixture.detectChanges();
 
     const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(texto).toContain('✅ Concluída');
+    expect(texto).toContain('Concluída');
     // O item sem status usa o rótulo de ação padrão, sem nenhum badge colorido.
     expect(texto).toContain('Ver detalhes →');
   });
 
+  it('deve escolher a variante de selo de acordo com o status', () => {
+    expect(component.corBadgeStatus('concluido')).toBe('selo-sucesso');
+    expect(component.corBadgeStatus('processando')).toBe('selo-info');
+    expect(component.corBadgeStatus('falhou')).toBe('selo-perigo');
+    expect(component.corBadgeStatus('pendente')).toBe('selo-latao');
+  });
+
   it('deve escolher o rótulo do botão de acordo com o status', () => {
-    expect(component.rotuloBotaoAcao('concluido')).toBe('Ver Análise →');
-    expect(component.rotuloBotaoAcao('processando')).toBe('Acompanhar ⏳');
-    expect(component.rotuloBotaoAcao('falhou')).toBe('Reprocessar 🔄');
-    expect(component.rotuloBotaoAcao('pendente')).toBe('Acompanhar ⏱️');
+    expect(component.rotuloBotaoAcao('concluido')).toBe('Ver análise →');
+    expect(component.rotuloBotaoAcao('processando')).toBe('Acompanhar');
+    expect(component.rotuloBotaoAcao('falhou')).toBe('Reprocessar');
+    expect(component.rotuloBotaoAcao('pendente')).toBe('Acompanhar');
     expect(component.rotuloBotaoAcao(undefined)).toBe('Ver detalhes →');
   });
 

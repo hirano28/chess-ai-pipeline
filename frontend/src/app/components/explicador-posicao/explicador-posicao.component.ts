@@ -243,14 +243,15 @@ export class ExplicadorPosicaoComponent implements OnInit {
     this.salvarAtivo(null);
   }
 
+  /** Variante de `.selo` (ver src/styles.css): a cor do selo é a cor do lado. */
   corBadgeVencedor(lado: string): string {
     switch (lado) {
       case 'BRANCAS':
-        return 'border-[#3f6b4c] bg-[#173322] text-[#8fd6a6]';
+        return 'selo-brancas';
       case 'PRETAS':
-        return 'border-[#7a3a34] bg-[#331a17] text-[#e79a90]';
+        return 'selo-pretas';
       default:
-        return 'border-[#7a6a2a] bg-[#332c14] text-[#e8cf7a]';
+        return 'selo-latao';
     }
   }
 }

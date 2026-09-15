@@ -38,6 +38,9 @@ Chart.register(
   Legend
 );
 
+/** Mesma pilha de --font-sans em src/styles.css: o gráfico não pode destoar da UI. */
+const FAMILIA_UI = "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif";
+
 const CATEGORIAS = [
   'TATICA',
   'ESTRATEGIA',
@@ -151,20 +154,23 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
           {
             label,
             data: dadosExibidos,
-            backgroundColor: 'rgba(222, 163, 76, 0.2)',
+            backgroundColor: 'rgba(222, 163, 76, 0.18)',
             borderColor: '#dea34c',
             pointBackgroundColor: '#f4c878',
-            pointBorderColor: '#162126',
+            pointBorderColor: '#142228',
             pointHoverBackgroundColor: '#fff8e8',
             pointHoverBorderColor: '#dea34c',
             borderWidth: 2,
-            pointRadius: 4
+            pointRadius: 3.5,
+            pointHoverRadius: 6,
+            pointBorderWidth: 2
           }
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        // As cores espelham os tokens de src/styles.css (latão, marfim, bruma).
         scales: {
           r: {
             beginAtZero: true,
@@ -173,19 +179,31 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
             ticks: {
               stepSize: 25,
               backdropColor: 'transparent',
-              color: '#b9c7c8'
+              color: '#74898c',
+              font: { size: 10, family: FAMILIA_UI }
             },
-            grid: { color: 'rgba(185, 199, 200, 0.24)' },
-            angleLines: { color: 'rgba(185, 199, 200, 0.24)' },
+            grid: { color: 'rgba(147, 169, 171, 0.14)' },
+            angleLines: { color: 'rgba(147, 169, 171, 0.14)' },
             pointLabels: {
-              color: '#f4f0e6',
-              font: { size: 11, weight: 600 }
+              color: '#d5e0e1',
+              font: { size: 11, weight: 600, family: FAMILIA_UI }
             }
           }
         },
         plugins: {
-          legend: {
-            labels: { color: '#f4f0e6' }
+          // O título do cartão e o controle segmentado já dizem o que está no
+          // gráfico; a legenda só repetiria isso ocupando espaço vertical.
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#101b20',
+            borderColor: '#2b3f47',
+            borderWidth: 1,
+            titleColor: '#f4f0e6',
+            bodyColor: '#b9c7c8',
+            titleFont: { family: FAMILIA_UI, weight: 600 },
+            bodyFont: { family: FAMILIA_UI },
+            padding: 10,
+            displayColors: false
           }
         }
       }

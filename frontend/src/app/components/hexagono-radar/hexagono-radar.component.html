@@ -1,11 +1,9 @@
-<main class="min-h-screen bg-[#10191d] px-5 py-10 text-[#f4f0e6] sm:px-8 lg:px-12">
-  <section class="mx-auto flex w-full max-w-5xl flex-col gap-8">
+<main class="pagina">
+  <section class="conteudo">
     <header class="max-w-2xl">
-      <p class="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-[#dea34c]">
-        Diagnóstico de desempenho
-      </p>
-      <h1 class="text-3xl font-semibold tracking-tight sm:text-5xl">Meu Hexágono de Xadrez</h1>
-      <p class="mt-4 text-base leading-7 text-[#b9c7c8]">
+      <p class="sobrelinha">Diagnóstico de desempenho</p>
+      <h1 class="titulo-pagina">Meu Hexágono de Xadrez</h1>
+      <p class="subtitulo">
         Uma visão das categorias que mais aparecem nos seus erros críticos.
       </p>
     </header>
@@ -14,15 +12,15 @@
 
     <app-perguntas-pendentes />
 
-    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-      <section class="min-h-[30rem] rounded-lg border border-[#304247] bg-[#162126] p-5 shadow-2xl shadow-black/20 sm:p-8" aria-labelledby="radar-heading">
+    <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
+      <section class="cartao flex flex-col" aria-labelledby="radar-heading">
         <div class="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h2 id="radar-heading" class="text-lg font-medium">Frequência por categoria</h2>
-          <div class="inline-flex self-start rounded-md border border-[#40565c] bg-[#10191d] p-1" role="group" aria-label="Modo de visualização">
+          <h2 id="radar-heading" class="titulo-secao">Frequência por categoria</h2>
+          <div class="segmentado" role="group" aria-label="Modo de visualização">
             <button
               type="button"
-              class="rounded px-3 py-2 text-xs font-semibold transition-colors"
-              [class]="modoVisualizacao() === 'erros' ? 'rounded bg-[#dea34c] px-3 py-2 text-xs font-semibold text-[#162126]' : 'rounded px-3 py-2 text-xs font-semibold text-[#b9c7c8] hover:text-[#f4f0e6]'"
+              class="segmentado-opcao"
+              [class.segmentado-opcao-ativa]="modoVisualizacao() === 'erros'"
               [attr.aria-pressed]="modoVisualizacao() === 'erros'"
               (click)="selecionarModo('erros')"
             >
@@ -30,8 +28,8 @@
             </button>
             <button
               type="button"
-              class="rounded px-3 py-2 text-xs font-semibold transition-colors"
-              [class]="modoVisualizacao() === 'forcas' ? 'rounded bg-[#dea34c] px-3 py-2 text-xs font-semibold text-[#162126]' : 'rounded px-3 py-2 text-xs font-semibold text-[#b9c7c8] hover:text-[#f4f0e6]'"
+              class="segmentado-opcao"
+              [class.segmentado-opcao-ativa]="modoVisualizacao() === 'forcas'"
               [attr.aria-pressed]="modoVisualizacao() === 'forcas'"
               (click)="selecionarModo('forcas')"
             >
@@ -41,18 +39,19 @@
         </div>
 
         @if (loading()) {
-          <div class="flex min-h-[23rem] items-center justify-center text-[#b9c7c8]" role="status">
-            <div class="flex items-center gap-3">
-              <span class="h-3 w-3 animate-pulse rounded-full bg-[#dea34c]"></span>
-              <span>Carregando sua análise...</span>
+          <div class="flex min-h-[25rem] flex-col items-center justify-center gap-5" role="status">
+            <div class="esqueleto h-48 w-48 rounded-full"></div>
+            <div class="flex items-center gap-3 text-sm text-bruma-400">
+              <span class="pulso" aria-hidden="true"></span>
+              <span>Carregando sua análise…</span>
             </div>
           </div>
         } @else if (error()) {
-          <div class="flex min-h-[23rem] items-center justify-center text-center" role="alert">
-            <p class="max-w-md leading-7 text-[#d7b9a7]">{{ error() }}</p>
+          <div class="flex min-h-[25rem] items-center justify-center" role="alert">
+            <p class="aviso aviso-erro max-w-md">{{ error() }}</p>
           </div>
         } @else {
-          <div class="relative h-[400px] w-full">
+          <div class="relative h-[400px] w-full surgir">
             <canvas
               #radarCanvas
               class="h-full w-full"
@@ -64,22 +63,26 @@
         }
       </section>
 
-      <aside class="rounded-lg border border-[#304247] bg-[#dbe4df] p-6 text-[#162126]">
-        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[#5b706d]">Como ler</p>
+      <aside class="cartao">
+        <p class="sobrelinha">Como ler</p>
         @if (modoVisualizacao() === 'erros') {
-          <p class="mt-4 text-sm leading-6">
-            Quanto mais distante do centro, maior a frequência relativa daquela categoria entre os seus erros críticos.
+          <p class="mt-4 text-sm leading-6 text-bruma-200">
+            Quanto mais distante do centro, maior a frequência relativa daquela categoria entre os seus
+            erros críticos.
           </p>
-          <div class="mt-8 border-t border-[#b8c8c1] pt-5 text-sm leading-6 text-[#405451]">
+          <hr class="divisoria my-5" />
+          <p class="legenda">
             Os valores são normalizados em relação à categoria mais frequente nesta análise.
-          </div>
-        } @else {
-          <p class="mt-4 text-sm leading-6">
-            Quanto mais próximo da borda, menos essa categoria aparece nos seus erros recentes, uma aproximação de onde você está relativamente mais consistente.
           </p>
-          <div class="mt-8 border-t border-[#b8c8c1] pt-5 text-sm leading-6 text-[#405451]">
+        } @else {
+          <p class="mt-4 text-sm leading-6 text-bruma-200">
+            Quanto mais próximo da borda, menos essa categoria aparece nos seus erros recentes — uma
+            aproximação de onde você está relativamente mais consistente.
+          </p>
+          <hr class="divisoria my-5" />
+          <p class="legenda">
             Isso não mede habilidade real, apenas a ausência relativa de erros registrados nessa área.
-          </div>
+          </p>
         }
       </aside>
     </div>

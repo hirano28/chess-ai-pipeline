@@ -1,138 +1,141 @@
-<main class="mx-auto w-full max-w-2xl px-5 py-10 text-[#f4f0e6] sm:px-8">
-  <p class="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#dea34c]">Meu perfil</p>
-  <h1 class="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl">Suas contas de xadrez</h1>
-  <p class="mb-8 text-sm leading-6 text-[#8fa5a7]">
-    Informe pelo menos uma conta (Lichess ou Chess.com) para baixarmos suas partidas
-    automaticamente, colocá-las na fila de análise e montar o seu hexágono. As duas não são
-    obrigatórias - uma já é suficiente.
-  </p>
+<main class="pagina">
+  <div class="mx-auto flex w-full max-w-2xl flex-col gap-6">
+    <header>
+      <p class="sobrelinha">Meu perfil</p>
+      <h1 class="titulo-pagina text-3xl sm:text-4xl">Suas contas de xadrez</h1>
+      <p class="subtitulo text-sm">
+        Informe pelo menos uma conta (Lichess ou Chess.com) para baixarmos suas partidas
+        automaticamente, colocá-las na fila de análise e montar o seu hexágono. As duas não são
+        obrigatórias — uma já é suficiente.
+      </p>
+    </header>
 
-  @if (carregando()) {
-    <div class="flex min-h-24 items-center justify-center rounded-lg border border-[#304247] bg-[#10191d] text-[#b9c7c8]" role="status">
-      <span class="mr-3 h-3 w-3 animate-pulse rounded-full bg-[#dea34c]"></span>
-      Carregando seu perfil...
-    </div>
-  } @else {
-    @if (erro()) {
-      <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
-        {{ erro() }}
+    @if (carregando()) {
+      <div class="space-y-3" role="status" aria-label="Carregando seu perfil">
+        <div class="esqueleto h-44 w-full"></div>
+        <div class="esqueleto h-28 w-full opacity-60"></div>
       </div>
-    }
-    @if (salvo()) {
-      <div class="mb-5 rounded-lg border border-[#3f6b4c] bg-[#173322] px-5 py-4 text-sm text-[#8fd6a6]" role="status">
-        Perfil salvo! A próxima coleta automática já vai buscar suas partidas.
-      </div>
-    }
-
-    <form (submit)="$event.preventDefault(); salvar()" class="rounded-lg border border-[#304247] bg-[#162126] p-6 shadow-lg shadow-black/10 sm:p-8">
-      <div class="mb-5">
-        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-          Usuário no Lichess
-        </label>
-        <input
-          type="text"
-          autocomplete="off"
-          class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
-          placeholder="ex.: laisxadrez"
-          [value]="lichessUsername()"
-          (input)="lichessUsername.set($any($event.target).value)"
-        />
-      </div>
-
-      <div class="mb-6">
-        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
-          Usuário no Chess.com
-        </label>
-        <input
-          type="text"
-          autocomplete="off"
-          class="w-full rounded-md border border-[#40565c] bg-[#10191d] p-3 text-sm text-[#f4f0e6] placeholder:text-[#5b706d] focus:border-[#dea34c] focus:outline-none"
-          placeholder="ex.: laisxadrez"
-          [value]="chesscomUsername()"
-          (input)="chesscomUsername.set($any($event.target).value)"
-        />
-      </div>
-
-      <button
-        type="submit"
-        class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-not-allowed disabled:opacity-60"
-        [disabled]="!formularioValido || salvando()"
-      >
-        {{ salvando() ? 'Salvando...' : 'Salvar' }}
-      </button>
-    </form>
-
-    <!-- Seção de Autorização OAuth com o Lichess (D-35) -->
-    <section class="mt-8 rounded-lg border border-[#304247] bg-[#162126] p-6 shadow-lg shadow-black/10 sm:p-8">
-      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
-        <div>
-          <h2 class="text-lg font-semibold text-[#f4f0e6]">Conexão com o Lichess (OAuth)</h2>
-          <p class="text-xs text-[#8fa5a7] mt-1">
-            Permite sincronizar automaticamente o seu histórico de puzzles resolvidos no Lichess.
-          </p>
+    } @else {
+      @if (erro()) {
+        <div class="aviso aviso-erro surgir" role="alert">
+          <span aria-hidden="true">!</span>
+          <span>{{ erro() }}</span>
         </div>
-        <div>
+      }
+      @if (salvo()) {
+        <div class="aviso aviso-sucesso surgir" role="status">
+          <span aria-hidden="true">✓</span>
+          <span>Perfil salvo! A próxima coleta automática já vai buscar suas partidas.</span>
+        </div>
+      }
+
+      <form (submit)="$event.preventDefault(); salvar()" class="cartao">
+        <div class="mb-5">
+          <label class="rotulo" for="campo-lichess">Usuário no Lichess</label>
+          <input
+            id="campo-lichess"
+            type="text"
+            autocomplete="off"
+            class="campo"
+            placeholder="ex.: laisxadrez"
+            [value]="lichessUsername()"
+            (input)="lichessUsername.set($any($event.target).value)"
+          />
+        </div>
+
+        <div class="mb-6">
+          <label class="rotulo" for="campo-chesscom">Usuário no Chess.com</label>
+          <input
+            id="campo-chesscom"
+            type="text"
+            autocomplete="off"
+            class="campo"
+            placeholder="ex.: laisxadrez"
+            [value]="chesscomUsername()"
+            (input)="chesscomUsername.set($any($event.target).value)"
+          />
+        </div>
+
+        <button type="submit" class="btn btn-primario" [disabled]="!formularioValido || salvando()">
+          @if (salvando()) {
+            <span class="pulso" aria-hidden="true"></span>
+            <span>Salvando…</span>
+          } @else {
+            <span>Salvar</span>
+          }
+        </button>
+      </form>
+
+      <!-- Autorização OAuth com o Lichess (D-35) -->
+      <section class="cartao">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 class="titulo-secao text-lg">Conexão com o Lichess</h2>
+            <p class="legenda mt-1.5">
+              Permite sincronizar automaticamente o seu histórico de puzzles resolvidos no Lichess.
+            </p>
+          </div>
           @if (oauthStatus()?.conectado) {
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-[#173322] px-3 py-1 text-xs font-semibold text-[#8fd6a6] border border-[#3f6b4c]">
-              <span class="h-2 w-2 rounded-full bg-[#34d399]"></span>
+            <span class="selo selo-sucesso shrink-0 self-start">
+              <span class="h-1.5 w-1.5 rounded-full bg-sucesso" aria-hidden="true"></span>
               Conectado
             </span>
           } @else {
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-[#202b30] px-3 py-1 text-xs font-semibold text-[#8fa5a7] border border-[#304247]">
-              Desconectado
-            </span>
+            <span class="selo selo-neutro shrink-0 self-start">Desconectado</span>
           }
         </div>
-      </div>
 
-      @if (oauthMensagemSucesso()) {
-        <div class="mb-5 rounded-lg border border-[#3f6b4c] bg-[#173322] px-5 py-3 text-sm text-[#8fd6a6]" role="status">
-          {{ oauthMensagemSucesso() }}
-        </div>
-      }
-      @if (oauthMensagemErro()) {
-        <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-3 text-sm text-[#e7c4b3]" role="alert">
-          {{ oauthMensagemErro() }}
-        </div>
-      }
+        @if (oauthMensagemSucesso()) {
+          <div class="aviso aviso-sucesso mb-5 surgir" role="status">
+            <span aria-hidden="true">✓</span>
+            <span>{{ oauthMensagemSucesso() }}</span>
+          </div>
+        }
+        @if (oauthMensagemErro()) {
+          <div class="aviso aviso-erro mb-5 surgir" role="alert">
+            <span aria-hidden="true">!</span>
+            <span>{{ oauthMensagemErro() }}</span>
+          </div>
+        }
 
-      @if (oauthCarregando()) {
-        <div class="flex items-center text-xs text-[#8fa5a7]">
-          <span class="mr-2 h-2.5 w-2.5 animate-pulse rounded-full bg-[#dea34c]"></span>
-          Verificando conexão com o Lichess...
-        </div>
-      } @else {
-        <div class="flex flex-wrap items-center gap-3">
-          @if (!oauthStatus()?.conectado) {
-            <button
-              type="button"
-              (click)="conectarLichess()"
-              [disabled]="oauthIniciando()"
-              class="inline-flex min-h-10 items-center justify-center rounded-md bg-[#dea34c] px-5 py-2 text-sm font-semibold text-[#162126] transition-colors hover:bg-[#efbd6d] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {{ oauthIniciando() ? 'Iniciando conexão...' : 'Conectar com Lichess' }}
-            </button>
-          } @else {
-            <button
-              type="button"
-              (click)="conectarLichess()"
-              [disabled]="oauthIniciando()"
-              class="inline-flex min-h-10 items-center justify-center rounded-md border border-[#40565c] bg-[#10191d] px-4 py-2 text-sm font-semibold text-[#f4f0e6] transition-colors hover:border-[#dea34c] hover:text-[#dea34c] disabled:opacity-60"
-            >
-              {{ oauthIniciando() ? 'Redirecionando...' : 'Reconectar conta' }}
-            </button>
+        @if (oauthCarregando()) {
+          <p class="flex items-center gap-2.5 text-xs text-bruma-400">
+            <span class="pulso" aria-hidden="true"></span>
+            Verificando conexão com o Lichess…
+          </p>
+        } @else {
+          <div class="flex flex-wrap items-center gap-3">
+            @if (!oauthStatus()?.conectado) {
+              <button
+                type="button"
+                (click)="conectarLichess()"
+                [disabled]="oauthIniciando()"
+                class="btn btn-primario"
+              >
+                {{ oauthIniciando() ? 'Iniciando conexão…' : 'Conectar com Lichess' }}
+              </button>
+            } @else {
+              <button
+                type="button"
+                (click)="conectarLichess()"
+                [disabled]="oauthIniciando()"
+                class="btn btn-secundario"
+              >
+                {{ oauthIniciando() ? 'Redirecionando…' : 'Reconectar conta' }}
+              </button>
 
-            <button
-              type="button"
-              (click)="desconectarLichess()"
-              [disabled]="oauthDesconectando()"
-              class="inline-flex min-h-10 items-center justify-center rounded-md border border-[#765044] bg-transparent px-4 py-2 text-sm font-semibold text-[#e7c4b3] transition-colors hover:bg-[#2a211f] disabled:opacity-60"
-            >
-              {{ oauthDesconectando() ? 'Desconectando...' : 'Desconectar' }}
-            </button>
-          }
-        </div>
-      }
-    </section>
-  }
+              <button
+                type="button"
+                (click)="desconectarLichess()"
+                [disabled]="oauthDesconectando()"
+                class="btn btn-perigo"
+              >
+                {{ oauthDesconectando() ? 'Desconectando…' : 'Desconectar' }}
+              </button>
+            }
+          </div>
+        }
+      </section>
+    }
+  </div>
 </main>
