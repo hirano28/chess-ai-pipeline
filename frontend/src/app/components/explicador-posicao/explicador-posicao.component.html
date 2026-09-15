@@ -67,6 +67,23 @@
           </div>
         </div>
 
+        @if (!resultado() && fenPreviewEntrada()) {
+          <div class="mb-6 rounded-lg border border-[#304247] bg-[#10191d] p-4 text-center">
+            <div class="mb-2 flex items-center justify-between">
+              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#8fa5a7]">
+                Preview da Posição
+              </p>
+              <span class="text-[11px] text-[#5b706d]">
+                {{ orientacaoTabuleiro() === 'BRANCAS' ? 'Visão: Brancas' : 'Visão: Pretas' }}
+              </span>
+            </div>
+            <app-tabuleiro-preview
+              [fen]="fenPreviewEntrada()"
+              [orientacao]="orientacaoTabuleiro()"
+            />
+          </div>
+        }
+
         @if (erro()) {
           <div class="mb-5 rounded-lg border border-[#765044] bg-[#2a211f] px-5 py-4 text-sm text-[#e7c4b3]" role="alert">
             {{ erro() }}
@@ -85,28 +102,50 @@
         } @else {
           <!-- PAINEL DE RESULTADOS -->
           <div class="flex flex-col gap-6">
-            <!-- Header da Posição Analisada -->
-            <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5">
-              <div class="mb-4 flex flex-wrap items-center gap-3">
-                <span
-                  class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
-                  [class]="corBadgeVencedor(resultado()!.avaliacao.lado_vencedor)"
-                >
-                  Vencedor: {{ resultado()!.avaliacao.lado_vencedor }}
-                </span>
-                <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#dea34c]">
-                  {{ resultado()!.avaliacao.descricao }}
-                </span>
-                <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#b9c7c8]">
-                  Vez: {{ resultado()!.lado_a_jogar }}
-                </span>
-                <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#8fd6a6]">
-                  Win%: {{ resultado()!.avaliacao.win_percent }}%
-                </span>
+            <!-- Header da Posição Analisada com Tabuleiro Integrado -->
+            <div class="rounded-lg border border-[#304247] bg-[#10191d] p-5 shadow-lg shadow-black/20">
+              <div class="grid grid-cols-1 items-center gap-6 md:grid-cols-12">
+                <div class="flex justify-center md:col-span-5">
+                  <app-tabuleiro-preview
+                    [fen]="resultado()!.fen"
+                    [orientacao]="orientacaoTabuleiro()"
+                  />
+                </div>
+                <div class="flex flex-col gap-4 md:col-span-7">
+                  <div class="flex flex-wrap items-center gap-2.5">
+                    <span
+                      class="rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em]"
+                      [class]="corBadgeVencedor(resultado()!.avaliacao.lado_vencedor)"
+                    >
+                      Vencedor: {{ resultado()!.avaliacao.lado_vencedor }}
+                    </span>
+                    <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#dea34c]">
+                      {{ resultado()!.avaliacao.descricao }}
+                    </span>
+                    <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#b9c7c8]">
+                      Vez: {{ resultado()!.lado_a_jogar }}
+                    </span>
+                    <span class="rounded-full border border-[#40565c] bg-[#162126] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-[#8fd6a6]">
+                      Win%: {{ resultado()!.avaliacao.win_percent }}%
+                    </span>
+                  </div>
+
+                  @if (resultado()!.explicacao.veredito) {
+                    <div class="rounded-md border border-[#304247] bg-[#162126] p-3.5">
+                      <p class="text-[11px] font-semibold uppercase tracking-wider text-[#dea34c]">
+                        Veredito Geral
+                      </p>
+                      <p class="mt-1 text-sm leading-relaxed text-[#f4f0e6]">
+                        {{ resultado()!.explicacao.veredito }}
+                      </p>
+                    </div>
+                  }
+
+                  <p class="font-mono text-[11px] text-[#8fa5a7] break-all">
+                    <span class="text-[#dea34c]">FEN:</span> {{ resultado()!.fen }}
+                  </p>
+                </div>
               </div>
-              <p class="font-mono text-xs text-[#8fa5a7] break-all">
-                <span class="text-[#dea34c]">FEN:</span> {{ resultado()!.fen }}
-              </p>
             </div>
 
             <!-- BANNER SYZYGY TABLEBASE (quando posição tem <= 7 peças) -->

@@ -1,26 +1,80 @@
-<div
-  class="mx-auto grid w-full grid-cols-8 overflow-hidden rounded-md border border-[#40565c]"
-  [class]="miniatura ? 'max-w-[96px]' : 'max-w-[320px]'"
->
-  @for (casa of casas; track $index) {
-    <div
-      class="flex aspect-square items-center justify-center p-0.5"
-      [class]="casa.clara ? 'bg-[#f0d9b5]' : 'bg-[#b58863]'"
-    >
-      @if (casa.peca) {
-        <img
-          [src]="piecesBaseUrl + '/' + casa.peca + '.svg'"
-          [alt]="casa.peca"
-          class="h-full w-full select-none"
-          draggable="false"
-        />
-      }
+<div class="mx-auto flex flex-col items-center" [class]="miniatura ? 'max-w-[96px]' : 'max-w-[340px]'">
+  <!-- Barra de Ferramentas / Status (quando não for miniatura) -->
+  @if (!miniatura && mostrarBarraFerramentas) {
+    <div class="mb-1.5 flex w-full items-center justify-between px-1 text-xs text-[#8fa5a7]">
+      <!-- Vez de jogar -->
+      <div class="flex items-center gap-1.5">
+        @if (vezDeJogar(); as turno) {
+          <span
+            class="inline-block h-2.5 w-2.5 rounded-full border border-black/40 shadow-sm"
+            [class]="turno === 'BRANCAS' ? 'bg-[#f4f0e6]' : 'bg-[#1a1e21] border-[#5b706d]'"
+          ></span>
+          <span class="text-[11px] font-medium text-[#b9c7c8]">
+            Vez das {{ turno === 'BRANCAS' ? 'Brancas' : 'Pretas' }}
+          </span>
+        } @else {
+          <span class="text-[11px] text-[#5b706d]">Posição</span>
+        }
+      </div>
+
+      <!-- Botão Virar Tabuleiro -->
+      <button
+        type="button"
+        class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-[#b9c7c8] transition-colors hover:bg-[#202d33] hover:text-[#dea34c]"
+        title="Alternar perspectiva do tabuleiro (Brancas / Pretas)"
+        (click)="alternarOrientacao()"
+      >
+        <span>🔄</span>
+        <span>{{ orientacaoAtiva() === 'BRANCAS' ? 'Brancas' : 'Pretas' }}</span>
+      </button>
     </div>
   }
-</div>
 
-@if (!miniatura) {
-  <p class="mx-auto mt-2 max-w-[320px] text-center text-[10px] leading-tight text-[#5b706d]">
-    Peças: conjunto cburnett, Colin M.L. Burnett (CC-BY-SA/GPL)
-  </p>
-}
+  <!-- Tabuleiro Grid 8x8 -->
+  <div
+    class="grid w-full grid-cols-8 overflow-hidden rounded-md border border-[#40565c] shadow-md shadow-black/30 select-none"
+  >
+    @for (casa of casas; track $index) {
+      <div
+        class="relative flex aspect-square items-center justify-center p-0.5 transition-colors"
+        [class]="casa.clara ? 'bg-[#f0d9b5]' : 'bg-[#b58863]'"
+      >
+        <!-- Coordenada de Rank (número no canto superior esquerdo) -->
+        @if (casa.rankLabel) {
+          <span
+            class="absolute top-0.5 left-0.5 text-[9px] font-bold leading-none pointer-events-none"
+            [class]="casa.clara ? 'text-[#b58863]' : 'text-[#f0d9b5]'"
+          >
+            {{ casa.rankLabel }}
+          </span>
+        }
+
+        <!-- Coordenada de File (letra no canto inferior direito) -->
+        @if (casa.fileLabel) {
+          <span
+            class="absolute right-0.5 bottom-0.5 text-[9px] font-bold leading-none pointer-events-none"
+            [class]="casa.clara ? 'text-[#b58863]' : 'text-[#f0d9b5]'"
+          >
+            {{ casa.fileLabel }}
+          </span>
+        }
+
+        <!-- Peça SVG -->
+        @if (casa.peca) {
+          <img
+            [src]="piecesBaseUrl + '/' + casa.peca + '.svg'"
+            [alt]="casa.peca"
+            class="h-full w-full select-none"
+            draggable="false"
+          />
+        }
+      </div>
+    }
+  </div>
+
+  @if (!miniatura) {
+    <p class="mt-1.5 text-center text-[10px] leading-tight text-[#5b706d]">
+      Peças: conjunto cburnett (CC-BY-SA/GPL)
+    </p>
+  }
+</div>

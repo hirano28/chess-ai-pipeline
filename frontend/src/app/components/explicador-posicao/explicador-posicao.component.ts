@@ -13,6 +13,7 @@ import {
   HistoricoAnaliseComponent,
   HistoricoAnaliseItem
 } from '../historico-analise/historico-analise.component';
+import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-preview.component';
 
 /** Chave de localStorage que sobrevive a um F5, mesmo padrão do Analisador de Partida. */
 export const STORAGE_KEY_EXPLICADOR_ATIVO = 'chess_explicador_ativo';
@@ -29,12 +30,27 @@ const TITULO_HISTORICO_MAX_CHARS = 90;
 @Component({
   selector: 'app-explicador-posicao',
   standalone: true,
-  imports: [CommonModule, HistoricoAnaliseComponent],
+  imports: [CommonModule, HistoricoAnaliseComponent, TabuleiroPreviewComponent],
   templateUrl: './explicador-posicao.component.html'
 })
 export class ExplicadorPosicaoComponent implements OnInit {
   readonly posicao = signal('');
   readonly lado = signal<'TODOS' | 'BRANCAS' | 'PRETAS'>('TODOS');
+
+  /** Orientação do tabuleiro sincronizada com a perspectiva escolhida. */
+  readonly orientacaoTabuleiro = computed<'BRANCAS' | 'PRETAS'>(() => {
+    return this.lado() === 'PRETAS' ? 'PRETAS' : 'BRANCAS';
+  });
+
+  /** FEN válida detectada na entrada para exibição em tempo real do preview. */
+  readonly fenPreviewEntrada = computed<string>(() => {
+    const raw = this.posicao().trim();
+    const colocacao = raw.split(/\s+/)[0];
+    if (colocacao && colocacao.split('/').length === 8) {
+      return raw;
+    }
+    return '';
+  });
 
   readonly carregando = signal(false);
   readonly erro = signal<string | null>(null);

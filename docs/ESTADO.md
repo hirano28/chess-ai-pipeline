@@ -17,8 +17,8 @@ atualize também a data no cabeçalho.
 | Item | Valor verificado |
 |---|---|
 | Testes de backend | **516**, todos passando, em 29 módulos |
-| Testes de frontend (Vitest) | **125**, todos passando, em 18 arquivos |
-| `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial reduzido para ~10.73 kB via lazy loading de rotas (D-44) |
+| Testes de frontend (Vitest) | **130**, todos passando, em 19 arquivos |
+| `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44) e UI/UX de tabuleiro e repertório polida (D-45) |
 
 `.github/workflows/deploy-backend.yml` lista os 29 módulos de teste do backend
 à mão (incluindo `backend.rag.test_processar_livro`,

@@ -1955,6 +1955,38 @@ o sistema nunca baixaria partidas nem geraria o hexágono.
 
 ---
 
+### D-45 — Melhorias de UI & UX: Coordenadas e Inversão no Tabuleiro, Preview Visual no Explicador e Precisão por Fase no Repertório
+
+**Data:** 2026-09-15  
+**Contexto:**
+1. **Tabuleiro Preview:** O componente `tabuleiro-preview` era estático, sem coordenadas de xadrez (letras a-h e números 1-8), sem possibilidade de inversão de perspectiva (Brancas vs Pretas) e sem indicador de vez de jogar.
+2. **Explicador de Posição:** A tela exibia apenas o texto cru da FEN em fonte mono pequena, sem exibir o tabuleiro de xadrez visual nem no formulário de entrada nem no cabeçalho do resultado.
+3. **Repertório no Dashboard:** Os cards de abertura exibiam taxa de vitória e momentos críticos, mas não aproveitavam os dados enriquecidos de precisão média por fase (`precisao_media_abertura`, `precisao_media_meiojogo`, `precisao_media_final`).
+
+**O que mudou:**
+
+1. **Evolução do `tabuleiro-preview`:**
+   - Adicionadas coordenadas periféricas discretas (letras a-h e números 1-8) com contraste dinâmico de cor estilo Lichess.
+   - Suporte a inversão de perspectiva (`orientacao: 'BRANCAS' | 'PRETAS'`) e botão de rotação rápida `🔄`.
+   - Detecção automática de vez de jogar (`vezDeJogar: 'BRANCAS' | 'PRETAS'`) a partir do 2º campo da FEN, exibindo badge com círculo indicativo.
+   - Refatoração para Signals Angular eliminando `NG0100` e otimizando o change detection.
+   - Criada suíte com 5 testes unitários em `tabuleiro-preview.component.spec.ts`.
+
+2. **Integração no `explicador-posicao`:**
+   - Adicionado preview visual em tempo real no formulário de inserção assim que uma FEN válida é colada ou ao clicar em "Carregar exemplo clássico".
+   - Integrado o tabuleiro de xadrez em tamanho de destaque no painel de resultados ao lado da avaliação objetiva e do veredito conceitual.
+   - Sincronização automática da perspectiva do tabuleiro com o filtro de perspectiva do usuário ("Jogando de Pretas" inverte o tabuleiro automaticamente).
+
+3. **Refinamento no `repertorio-insights`:**
+   - Exibição de badges de precisão média por fase (Abertura, Meio-jogo, Final) em cada card de abertura quando disponível.
+
+4. **Verificação:**
+   - 130 testes no frontend passando em 19 arquivos (`npm test -- --run`).
+   - Build do Angular (`ng build`) concluído com 0 warnings e 0 erros.
+   - 516 testes no backend passando em 29 módulos. Total global: 646 testes.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a
