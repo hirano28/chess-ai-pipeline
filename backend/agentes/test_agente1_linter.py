@@ -2,7 +2,13 @@
 
 import unittest
 
-from backend.agentes.agente1_linter import build_prompt, montar_prompt
+from backend.agentes.agente1_linter import (
+    DiagnosticoLance,
+    assegurar_tag_apuro_de_tempo,
+    build_prompt,
+    montar_prompt,
+    montar_thought_note,
+)
 
 PGN = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5"
 
@@ -102,5 +108,78 @@ class ApuroDeTempoNoPromptTest(unittest.TestCase):
         )
 
 
+class AssegurarTagApuroTempoTest(unittest.TestCase):
+    def _criar_diagnostico(self, tags: list[str]) -> DiagnosticoLance:
+        return DiagnosticoLance(
+            fase_do_jogo="MEIO_JOGO",
+            tags_falha=tags,  # type: ignore[arg-type]
+            tipo_erro="INDETERMINADO",
+            diagnostico_mecanico="Erro mecânico",
+            raiz_conceitual_violada="Princípio violado",
+            refinamento_pos_revisao="Refinamento",
+            acao_corretiva_sugerida="Ação corretiva",
+            confianca_diagnostico="ALTA",
+        )
+
+    def test_inclui_gestao_tempo_quando_em_apuro(self) -> None:
+        diag = self._criar_diagnostico(["calculo_tatico_deficiente"])
+        lance = {"tempo_restante_seg": 10.0, "tempo_gasto_seg": 2.0}
+
+        resultado = assegurar_tag_apuro_de_tempo(diag, lance, limiar_seg=15.0)
+
+        self.assertIn("gestao_de_tempo_ruim", resultado.tags_falha)
+        self.assertIn("calculo_tatico_deficiente", resultado.tags_falha)
+
+    def test_substitui_terceira_tag_quando_ja_atingiu_limite_de_tres(self) -> None:
+        diag = self._criar_diagnostico(
+            ["calculo_tatico_deficiente", "seguranca_do_rei", "visao_em_tunel"]
+        )
+        lance = {"tempo_restante_seg": 8.0, "tempo_gasto_seg": 3.0}
+
+        resultado = assegurar_tag_apuro_de_tempo(diag, lance, limiar_seg=15.0)
+
+        self.assertEqual(len(resultado.tags_falha), 3)
+        self.assertIn("gestao_de_tempo_ruim", resultado.tags_falha)
+
+    def test_nao_altera_quando_fora_de_apuro(self) -> None:
+        diag = self._criar_diagnostico(["calculo_tatico_deficiente"])
+        lance = {"tempo_restante_seg": 120.0, "tempo_gasto_seg": 15.0}
+
+        resultado = assegurar_tag_apuro_de_tempo(diag, lance, limiar_seg=15.0)
+
+        self.assertEqual(resultado.tags_falha, ["calculo_tatico_deficiente"])
+
+
+class ThoughtNoteTest(unittest.TestCase):
+    def test_montar_thought_note_com_anotacao(self) -> None:
+        lance = {"texto_pensamento": "Achei que ele jogaria d5"}
+        note = montar_thought_note(lance)
+
+        self.assertIn("Achei que ele jogaria d5", note)
+        self.assertIn("PROCESSO", note)
+        self.assertIn("CONTEUDO", note)
+
+    def test_montar_thought_note_sem_anotacao(self) -> None:
+        lance = {}
+        note = montar_thought_note(lance)
+
+        self.assertIn("Nenhuma anotação registrada", note)
+        self.assertIn("INDETERMINADO", note)
+
+    def test_diagnostico_lance_valida_tipo_erro(self) -> None:
+        diag = DiagnosticoLance(
+            fase_do_jogo="FINAL",
+            tags_falha=["erro_tecnico_de_final"],
+            tipo_erro="PROCESSO",
+            diagnostico_mecanico="Final de peões",
+            raiz_conceitual_violada="Oposição",
+            refinamento_pos_revisao="Regra do quadrado",
+            acao_corretiva_sugerida="Calcular oposição",
+            confianca_diagnostico="ALTA",
+        )
+        self.assertEqual(diag.tipo_erro, "PROCESSO")
+
+
 if __name__ == "__main__":
     unittest.main()
+

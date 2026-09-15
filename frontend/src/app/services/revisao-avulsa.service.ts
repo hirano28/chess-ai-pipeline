@@ -192,6 +192,7 @@ export interface PontoCriticoPartida {
   numero_lance: number;
   tipo_evento: string;
   tags_falha: string[];
+  tipo_erro?: 'PROCESSO' | 'CONTEUDO' | 'INDETERMINADO' | string | null;
 }
 
 export interface ResumoPartidaData {

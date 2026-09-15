@@ -69,6 +69,7 @@ class CriticalMove:
     tipo_evento: str = "PICO"
     move_number_fim: int | None = None
     fen_antes_lance: str | None = None
+    origem: str = "GRAVIDADE"
 
 
 @dataclass(frozen=True)
@@ -273,6 +274,23 @@ def recuperar_partidas_com_falha(client: Client, logger: logging.Logger) -> int:
     )
     return len(falhas)
 
+
+def fetch_lances_anotados_partida(client: Client, partida_id: str) -> set[int]:
+    """Retorna o conjunto de números de lances que possuem anotações de pensamento registradas."""
+    try:
+        resp = (
+            client.table("anotacoes_pensamento")
+            .select("numero_lance")
+            .eq("partida_id", partida_id)
+            .execute()
+        )
+        return {
+            int(row["numero_lance"])
+            for row in (resp.data or [])
+            if row.get("numero_lance") is not None
+        }
+    except Exception:
+        return set()
 
 
 def evaluation_to_cp(evaluation: dict[str, str | int]) -> int:
@@ -516,7 +534,44 @@ def processar_partida(partida: dict, engine: Stockfish) -> ProcessResult:
             threshold,
         )
     )
+    lances_anotados = set(partida.get("lances_anotados") or [])
+    critical_moves = promover_lances_anotados(
+        player_moves, critical_moves, lances_anotados
+    )
     return ProcessResult(partida_id=partida_id, critical_moves=critical_moves)
+
+
+def promover_lances_anotados(
+    player_moves: list[PlayerMoveEval],
+    critical_moves: list[CriticalMove],
+    lances_anotados: set[int],
+) -> list[CriticalMove]:
+    """Promove lances que possuem anotações de pensamento no Lichess Study (Fase 16)."""
+    if not lances_anotados:
+        return critical_moves
+
+    resultado = list(critical_moves)
+    numeros_ja_selecionados = {m.move_number for m in critical_moves}
+
+    for move in player_moves:
+        if move.move_number in lances_anotados and move.move_number not in numeros_ja_selecionados:
+            queda = round(max(0.0, move.win_percent_before - move.win_percent_after), 2)
+            resultado.append(
+                CriticalMove(
+                    move_number=move.move_number,
+                    notation=move.notation,
+                    evaluation_before_cp=move.evaluation_before_cp,
+                    evaluation_after_cp=move.evaluation_after_cp,
+                    win_percent_drop=queda,
+                    tipo_evento="PICO",
+                    fen_antes_lance=move.fen_antes,
+                    origem="ANOTACAO",
+                )
+            )
+            numeros_ja_selecionados.add(move.move_number)
+
+    resultado.sort(key=lambda m: m.move_number)
+    return resultado
 
 
 def _processar_partida_em_processo(
@@ -627,19 +682,24 @@ def insert_critical_moves(
 
     inserted = 0
     for move in result.critical_moves:
-        client.table("lances_criticos").insert(
-            {
-                "partida_id": result.partida_id,
-                "numero_lance": move.move_number,
-                "numero_lance_fim": move.move_number_fim,
-                "lance_notacao": move.notation,
-                "avaliacao_antes_cp": move.evaluation_before_cp,
-                "avaliacao_depois_cp": move.evaluation_after_cp,
-                "queda_win_percent": move.win_percent_drop,
-                "tipo_evento": move.tipo_evento,
-                "fen_antes_lance": move.fen_antes_lance,
-            }
-        ).execute()
+        payload = {
+            "partida_id": result.partida_id,
+            "numero_lance": move.move_number,
+            "numero_lance_fim": move.move_number_fim,
+            "lance_notacao": move.notation,
+            "avaliacao_antes_cp": move.evaluation_before_cp,
+            "avaliacao_depois_cp": move.evaluation_after_cp,
+            "queda_win_percent": move.win_percent_drop,
+            "tipo_evento": move.tipo_evento,
+            "fen_antes_lance": move.fen_antes_lance,
+            "origem": getattr(move, "origem", "GRAVIDADE"),
+        }
+        try:
+            client.table("lances_criticos").insert(payload).execute()
+        except Exception:
+            # Fallback caso a migração lances_criticos_origem.sql ainda não tenha sido aplicada no banco
+            payload.pop("origem", None)
+            client.table("lances_criticos").insert(payload).execute()
         inserted += 1
     return inserted
 
@@ -726,6 +786,10 @@ def main() -> None:
         for index, partida in enumerate(pending_games, start=1):
             partida_id = partida.get("id", "desconhecida")
             external_id = partida.get("external_id", partida_id)
+            if "lances_anotados" not in partida:
+                partida["lances_anotados"] = list(
+                    fetch_lances_anotados_partida(client, partida_id)
+                )
             log_and_print(
                 logger,
                 f"Iniciando análise da partida {index}/{total} "

@@ -50,6 +50,7 @@ from backend.agentes.gerar_resumo_partida import (  # noqa: E402
 )
 from backend.analise_engine.analisar_partidas import (  # noqa: E402
     AnalysisSettings,
+    fetch_lances_anotados_partida,
     insert_critical_moves,
     load_settings as load_analysis_settings,
     load_timeout_setting,
@@ -351,6 +352,11 @@ def etapa_stockfish(
     partida = response.data[0] if response.data else None
     if not partida:
         raise RuntimeError(f"Partida {partida_id} não encontrada no banco.")
+
+    if "lances_anotados" not in partida:
+        partida["lances_anotados"] = list(
+            fetch_lances_anotados_partida(client, partida_id)
+        )
 
     update_status(client, partida_id, "processando")
 

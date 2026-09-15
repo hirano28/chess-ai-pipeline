@@ -25,6 +25,9 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.ingestao.backfill_tempos_chesscom import (  # noqa: E402
+    extrair_tempos_pgn_chesscom,
+)
 from backend.ingestao.common_ingestao import (  # noqa: E402
     already_exists,
     carregar_perfis,
@@ -250,8 +253,16 @@ def coletar_para_perfil(
             if already_exists(client, record["external_id"]):
                 existing += 1
             else:
-                insert_game(client, record, user_id)
+                inserted_row = insert_game(client, record, user_id)
                 inserted += 1
+                if inserted_row and record.get("pgn"):
+                    tempos = extrair_tempos_pgn_chesscom(
+                        record["pgn"], inserted_row["id"]
+                    )
+                    if tempos:
+                        client.table("tempos_lance").upsert(
+                            tempos, on_conflict="partida_id,numero_lance,cor"
+                        ).execute()
         except Exception:
             failed += 1
             logger.error(

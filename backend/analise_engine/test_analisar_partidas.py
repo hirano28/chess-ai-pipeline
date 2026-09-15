@@ -6,13 +6,18 @@ from unittest.mock import MagicMock, patch
 import chess
 from backend.analise_engine.analisar_partidas import (
     AnalysisSettings,
+    CriticalMove,
     PlayerMoveEval,
+    ProcessResult,
     detectar_erosao,
     evaluate_position,
+    fetch_lances_anotados_partida,
+    insert_critical_moves,
     limpar_registros_derivados_partida,
     parse_args,
     processar_partida,
     processar_partida_com_timeout,
+    promover_lances_anotados,
     recuperar_partidas_com_falha,
     recuperar_partidas_orfas,
     resetar_partida_para_pendente,
@@ -349,6 +354,113 @@ class ParseArgsTest(unittest.TestCase):
         with patch("sys.argv", ["analisar_partidas.py", "--partida-id", "uuid-123"]):
             args = parse_args()
             self.assertEqual(args.partida_id, "uuid-123")
+
+
+class PromoverLancesAnotadosTest(unittest.TestCase):
+    def test_sem_lances_anotados_retorna_inalterado(self) -> None:
+        moves = [
+            PlayerMoveEval(10, "Nf3", 0, 0, 50.0, 50.0, "fen1"),
+        ]
+        criticos = [
+            CriticalMove(10, "Nf3", 0, 0, 0.0, "PICO", "fen1", origem="GRAVIDADE"),
+        ]
+        res = promover_lances_anotados(moves, criticos, set())
+        self.assertEqual(res, criticos)
+
+    def test_promove_lance_anotado_inexistente_nos_criticos(self) -> None:
+        moves = [
+            PlayerMoveEval(10, "Nf3", 0, 0, 50.0, 50.0, "fen1"),
+            PlayerMoveEval(15, "d4", 10, -50, 50.0, 42.0, "fen2"),
+        ]
+        criticos = [
+            CriticalMove(10, "Nf3", 0, 0, 0.0, "PICO", "fen1", origem="GRAVIDADE"),
+        ]
+        res = promover_lances_anotados(moves, criticos, {15})
+        self.assertEqual(len(res), 2)
+        lance15 = next(m for m in res if m.move_number == 15)
+        self.assertEqual(lance15.origem, "ANOTACAO")
+        self.assertEqual(lance15.notation, "d4")
+        self.assertEqual(lance15.win_percent_drop, 8.0)
+
+    def test_nao_duplica_lance_ja_presente(self) -> None:
+        moves = [
+            PlayerMoveEval(10, "Nf3", 0, 0, 50.0, 50.0, "fen1"),
+        ]
+        criticos = [
+            CriticalMove(10, "Nf3", 0, 0, 0.0, "PICO", "fen1", origem="GRAVIDADE"),
+        ]
+        res = promover_lances_anotados(moves, criticos, {10})
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0].origem, "GRAVIDADE")
+
+
+class FetchLancesAnotadosPartidaTest(unittest.TestCase):
+    def test_fetch_lances_anotados_sucesso(self) -> None:
+        client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.data = [{"numero_lance": 12}, {"numero_lance": 25}]
+        client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_resp
+
+        resultado = fetch_lances_anotados_partida(client, "partida-123")
+        self.assertEqual(resultado, {12, 25})
+
+    def test_fetch_lances_anotados_erro_retorna_vazio(self) -> None:
+        client = MagicMock()
+        client.table.side_effect = Exception("DB error")
+
+        resultado = fetch_lances_anotados_partida(client, "partida-123")
+        self.assertEqual(resultado, set())
+
+
+class InsertCriticalMovesTest(unittest.TestCase):
+    def test_insert_critical_moves_com_origem(self) -> None:
+        client = MagicMock()
+        client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
+
+        move = CriticalMove(
+            move_number=12,
+            notation="e4",
+            evaluation_before_cp=10,
+            evaluation_after_cp=-20,
+            win_percent_drop=5.0,
+            tipo_evento="PICO",
+            fen_antes_lance="fen",
+            origem="ANOTACAO",
+        )
+        res = ProcessResult(partida_id="p1", critical_moves=[move])
+        count = insert_critical_moves(client, res)
+        self.assertEqual(count, 1)
+
+        insert_calls = client.table("lances_criticos").insert.call_args_list
+        self.assertTrue(len(insert_calls) >= 1)
+        payload = insert_calls[-1][0][0]
+        self.assertEqual(payload.get("origem"), "ANOTACAO")
+
+    def test_insert_critical_moves_fallback_sem_coluna_origem(self) -> None:
+        client = MagicMock()
+        client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
+
+        insert_mock = MagicMock()
+        insert_mock.execute.side_effect = [Exception("column origem does not exist"), MagicMock()]
+        client.table("lances_criticos").insert.return_value = insert_mock
+
+        move = CriticalMove(
+            move_number=12,
+            notation="e4",
+            evaluation_before_cp=10,
+            evaluation_after_cp=-20,
+            win_percent_drop=5.0,
+            tipo_evento="PICO",
+            fen_antes_lance="fen",
+            origem="ANOTACAO",
+        )
+        res = ProcessResult(partida_id="p1", critical_moves=[move])
+        count = insert_critical_moves(client, res)
+        self.assertEqual(count, 1)
+
+        self.assertEqual(client.table("lances_criticos").insert.call_count, 2)
+        fallback_payload = client.table("lances_criticos").insert.call_args_list[1][0][0]
+        self.assertNotIn("origem", fallback_payload)
 
 
 if __name__ == "__main__":

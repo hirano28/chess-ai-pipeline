@@ -424,6 +424,26 @@ class TestGerarResumoGemini(unittest.TestCase):
         self.assertIn("BRANCAS", resumo.narrativa)
         self.assertIn("Bxf7+", resumo.narrativa)
 
+    def test_enriquecer_pontos_criticos_com_tipo_erro(self):
+        json_ok = json.dumps({
+            "narrativa": "O lance 15 Bxf7+ foi decisivo.",
+            "pontos_criticos": [{"numero_lance": 15, "tipo_evento": "PICO", "tags_falha": ["perda_de_material"]}],
+            "momento_chave_estrategico": "Momento.",
+        })
+        mock_client = MagicMock()
+        response_mock = MagicMock()
+        response_mock.text = json_ok
+        mock_client.models.generate_content.return_value = response_mock
+
+        lance = _lance_pico(numero=15, notacao="Bxf7+")
+        lance.tipo_erro = "PROCESSO"
+        dados = _dados_partida(lances=[lance])
+        logger = MagicMock()
+
+        resumo = gerar_resumo_gemini(mock_client, "prompt", dados, logger)
+        self.assertEqual(len(resumo.pontos_criticos), 1)
+        self.assertEqual(resumo.pontos_criticos[0].tipo_erro, "PROCESSO")
+
 
 # ---------------------------------------------------------------------------
 # Testes: coletar_dados_partida (mock Supabase)

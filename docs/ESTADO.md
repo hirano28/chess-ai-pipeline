@@ -1,12 +1,12 @@
 ---
 doc: ESTADO.md
 escopo: ÚNICO lugar do repositório onde mora estado factual (contagens, status, pendências)
-verificado_em: 2026-09-14
+verificado_em: 2026-09-15
 como_reverificar: rode as queries da seção 6 e os comandos da seção 1
 aviso: número sem data de verificação em qualquer outro documento deve ser tratado como suspeito
 ---
 
-# Estado verificado — 2026-09-14
+# Estado verificado — 2026-09-15
 
 Tudo nesta página foi conferido nesta data contra o banco real
 (`pmzmershonrqzwbmhaco`), o código e os workflows. Ao mudar qualquer fato aqui,
@@ -16,12 +16,13 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **483**, todos passando, em 27 módulos |
+| Testes de backend | **504**, todos passando, em 28 módulos |
 | Testes de frontend (Vitest) | **125**, todos passando, em 18 arquivos |
-| `ng build` de produção | passa; avisa excesso de bundle (~844 kB), conhecido e aceito |
+| `ng build` de produção | passa; avisa excesso de bundle (~845 kB), conhecido e aceito |
 
-`.github/workflows/deploy-backend.yml` lista os 27 módulos de teste do backend
-à mão (incluindo `backend.common.test_lichess_explorer`, `backend.common.test_syzygy_tablebase`,
+`.github/workflows/deploy-backend.yml` lista os 28 módulos de teste do backend
+à mão (incluindo `backend.ingestao.test_backfill_tempos_chesscom`,
+`backend.common.test_lichess_explorer`, `backend.common.test_syzygy_tablebase`,
 `backend.agentes.test_insights_repertorio`, `backend.agentes.test_insights_puzzles`,
 `backend.agentes.test_medir_eficacia`, `backend.common.test_lichess_oauth`,
 `backend.ingestao.test_importar_puzzle_activity`, `backend.agentes.test_agente2_analista`,
@@ -45,7 +46,7 @@ pendência P-11 abaixo).
 | `lances_criticos` | 685 (560 anteriores + 125 novos gerados pelo reprocessamento de P-5/D-39) |
 | `diagnosticos` | 473 |
 | `puzzle_atividade` | 660, em 41 dias distintos |
-| `tempos_lance` | 2.863, cobrindo 40 partidas |
+| `tempos_lance` | 13.708, cobrindo 193 partidas (2.863 do Lichess + 10.845 do Chess.com via backfill D-43) |
 | `livros_chunks` | 370 |
 | `indice_conceitual` | 67 |
 | `anotacoes_pensamento` | 23, cobrindo 3 partidas |

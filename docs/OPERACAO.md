@@ -48,6 +48,7 @@ python -m unittest \
   backend.common.test_notacao_pt \
   backend.common.test_syzygy_tablebase \
   backend.common.test_tenant \
+  backend.ingestao.test_backfill_tempos_chesscom \
   backend.ingestao.test_coletar_partidas \
   backend.ingestao.test_coletar_partidas_chesscom \
   backend.ingestao.test_common_ingestao \

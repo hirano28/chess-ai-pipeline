@@ -81,7 +81,9 @@ def already_exists(client: Client, external_id: str) -> bool:
     return bool(result.data)
 
 
-def insert_game(client: Client, record: dict[str, Any], user_id: str) -> None:
+def insert_game(
+    client: Client, record: dict[str, Any], user_id: str
+) -> dict[str, Any] | None:
     """Insere um registro de partida na tabela partidas, atribuída a `user_id`.
 
     Sem fallback (D-28): desde que a coleta passou a percorrer `perfis_usuario`
@@ -89,7 +91,9 @@ def insert_game(client: Client, record: dict[str, Any], user_id: str) -> None:
     silenciosamente atribuí-la a quem quer que seja o dono padrão.
     """
 
-    client.table("partidas").insert({**record, "user_id": user_id}).execute()
+    resp = client.table("partidas").insert({**record, "user_id": user_id}).execute()
+    data = resp.data or []
+    return data[0] if data else None
 
 
 def carregar_perfis(client: Client, coluna_username: str) -> list[dict[str, Any]]:

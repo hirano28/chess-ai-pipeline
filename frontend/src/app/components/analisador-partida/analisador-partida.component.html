@@ -368,14 +368,25 @@
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               @for (pc of resumo()?.pontos_criticos; track pc.numero_lance) {
                 <div class="rounded-lg border border-[#304247] bg-[#10191d] p-4 transition-colors hover:border-[#dea34c]/50">
-                  <div class="flex items-center justify-between">
-                    <span
-                      [class]="pc.tipo_evento === 'PICO' ? 'border-[#765044] bg-[#2a211f] text-[#e7c4b3]' : 'border-[#7a6a2a] bg-[#332c14] text-[#e8cf7a]'"
-                      class="rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
-                    >
-                      {{ pc.tipo_evento === 'PICO' ? '💥 Pico de Erro' : '📉 Janela de Erosão' }}
-                    </span>
-                    <span class="font-mono text-xs text-[#8fa5a7]">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span
+                        [class]="pc.tipo_evento === 'PICO' ? 'border-[#765044] bg-[#2a211f] text-[#e7c4b3]' : 'border-[#7a6a2a] bg-[#332c14] text-[#e8cf7a]'"
+                        class="rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                      >
+                        {{ pc.tipo_evento === 'PICO' ? '💥 Pico de Erro' : '📉 Janela de Erosão' }}
+                      </span>
+                      @if (pc.tipo_erro && pc.tipo_erro !== 'INDETERMINADO') {
+                        <span
+                          [class]="pc.tipo_erro === 'PROCESSO' ? 'border-amber-700/60 bg-amber-950/40 text-amber-300' : 'border-sky-700/60 bg-sky-950/40 text-sky-300'"
+                          class="rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                          [title]="pc.tipo_erro === 'PROCESSO' ? 'Falha no processo cognitivo / checklist mental' : 'Lacuna de conteúdo teórico ou conceitual'"
+                        >
+                          {{ pc.tipo_erro === 'PROCESSO' ? '⚙️ Processo' : '📚 Conteúdo' }}
+                        </span>
+                      }
+                    </div>
+                    <span class="shrink-0 font-mono text-xs text-[#8fa5a7]">
                       Lance {{ pc.numero_lance }}
                     </span>
                   </div>

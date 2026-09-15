@@ -65,6 +65,7 @@ class PontoCritico(BaseModel):
     numero_lance: int
     tipo_evento: str
     tags_falha: list[str]
+    tipo_erro: str | None = None
 
 
 class ResumoPartida(BaseModel):
@@ -673,6 +674,7 @@ def fallback_resumo(dados: DadosPartida) -> ResumoPartida:
             numero_lance=lc.numero_lance,
             tipo_evento=lc.tipo_evento,
             tags_falha=lc.tags_falha,
+            tipo_erro=lc.tipo_erro,
         )
         for lc in dados.lances_criticos
     ]
@@ -753,6 +755,20 @@ def parse_resumo(text: str) -> ResumoPartida:
     return ResumoPartida.model_validate_json(strip_json_fences(text))
 
 
+def _enriquecer_pontos_criticos_com_tipo_erro(
+    pontos: list[PontoCritico], lances_criticos: list[LanceCriticoComDiagnostico]
+) -> None:
+    """Preenche tipo_erro nos pontos críticos a partir dos diagnósticos da partida."""
+    tipo_erro_map = {
+        lc.numero_lance: lc.tipo_erro
+        for lc in lances_criticos
+        if lc.tipo_erro is not None
+    }
+    for pc in pontos:
+        if pc.tipo_erro is None and pc.numero_lance in tipo_erro_map:
+            pc.tipo_erro = tipo_erro_map[pc.numero_lance]
+
+
 def gerar_resumo_gemini(
     client_gemini: Any,
     prompt: str,
@@ -779,6 +795,7 @@ def gerar_resumo_gemini(
     # Anti-alucinação
     inventados = validar_narrativa(resumo.narrativa, dados.lances_criticos)
     if not inventados:
+        _enriquecer_pontos_criticos_com_tipo_erro(resumo.pontos_criticos, dados.lances_criticos)
         return resumo
 
     logger.warning(
@@ -796,6 +813,7 @@ def gerar_resumo_gemini(
         resumo = parse_resumo(response_text)
         inventados = validar_narrativa(resumo.narrativa, dados.lances_criticos)
         if not inventados:
+            _enriquecer_pontos_criticos_com_tipo_erro(resumo.pontos_criticos, dados.lances_criticos)
             return resumo
     except Exception as error:
         logger.warning("Falha no retry de correção: %s", error)

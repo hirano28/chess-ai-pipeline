@@ -69,6 +69,7 @@ class DiagnosticoLance(BaseModel):
     refinamento_pos_revisao: str
     acao_corretiva_sugerida: str
     confianca_diagnostico: Literal["ALTA", "MEDIA", "BAIXA"]
+    tipo_erro: Literal["PROCESSO", "CONTEUDO", "INDETERMINADO"] = "INDETERMINADO"
 
 
 @dataclass(frozen=True)
@@ -171,8 +172,10 @@ def fetch_critical_moves(
         offset += PAGE_SIZE
 
     tempos_index = fetch_tempos_lance_index(supabase_client, logger)
+    anotacoes_index = fetch_anotacoes_index(supabase_client, logger)
     for lance in moves:
         attach_tempo_lance(lance, tempos_index)
+        attach_anotacao_pensamento(lance, anotacoes_index)
     return moves
 
 
@@ -204,15 +207,41 @@ def fetch_tempos_lance_index(
         offset += PAGE_SIZE
 
 
+def fetch_anotacoes_index(
+    supabase_client: Client, logger: logging.Logger
+) -> dict[tuple[Any, int], str]:
+    """Indexa anotacoes_pensamento por (partida_id, numero_lance), em páginas."""
+
+    index: dict[tuple[Any, int], str] = {}
+    offset = 0
+    while True:
+        response = (
+            supabase_client.table("anotacoes_pensamento")
+            .select("partida_id, numero_lance, texto_pensamento")
+            .range(offset, offset + PAGE_SIZE - 1)
+            .execute()
+        )
+        page = response.data or []
+        for row in page:
+            chave = (row.get("partida_id"), row.get("numero_lance"))
+            texto = row.get("texto_pensamento")
+            if chave[0] is not None and chave[1] is not None and texto:
+                index[chave] = str(texto)
+        logger.info(
+            "Página de anotacoes_pensamento carregada: %d registros (offset %d)",
+            len(page),
+            offset,
+        )
+        if len(page) < PAGE_SIZE:
+            return index
+        offset += PAGE_SIZE
+
+
 def attach_tempo_lance(
     lance: dict[str, Any],
     tempos_index: dict[tuple[Any, int, str], dict[str, Any]],
 ) -> None:
-    """Preenche tempo_restante_seg/tempo_gasto_seg no lance, quando existirem.
-
-    Partidas do Chess.com ou lances sem esse dado simplesmente não recebem os
-    campos, e o restante do fluxo continua funcionando normalmente.
-    """
+    """Preenche tempo_restante_seg/tempo_gasto_seg no lance, quando existirem."""
 
     try:
         partida = get_partida(lance)
@@ -227,6 +256,25 @@ def attach_tempo_lance(
     if tempo_row is not None:
         lance["tempo_restante_seg"] = tempo_row.get("tempo_restante_seg")
         lance["tempo_gasto_seg"] = tempo_row.get("tempo_gasto_seg")
+
+
+def attach_anotacao_pensamento(
+    lance: dict[str, Any],
+    anotacoes_index: dict[tuple[Any, int], str],
+) -> None:
+    """Preenche texto_pensamento no lance quando houver anotação no Lichess Study."""
+
+    try:
+        partida = get_partida(lance)
+    except ValueError:
+        return
+    numero_lance = lance.get("numero_lance")
+    if numero_lance is None:
+        return
+    chave = (partida.get("id"), int(numero_lance))
+    texto = anotacoes_index.get(chave)
+    if texto:
+        lance["texto_pensamento"] = texto
 
 
 def fetch_diagnosed_move_ids(
@@ -377,7 +425,10 @@ def call_gemini(
 
 
 def build_prompt(
-    lance: dict[str, Any], context: str, time_pressure_note: str = ""
+    lance: dict[str, Any],
+    context: str,
+    time_pressure_note: str = "",
+    thought_note: str = "",
 ) -> str:
     """Monta o prompt estruturado para o diagnóstico estratégico."""
 
@@ -406,6 +457,7 @@ Schema:
 {{
   "fase_do_jogo": "ABERTURA|MEIO_JOGO|FINAL",
   "tags_falha": ["escolher 1 a 3 tags da lista fechada acima"],
+  "tipo_erro": "PROCESSO|CONTEUDO|INDETERMINADO",
   "diagnostico_mecanico": "string",
   "raiz_conceitual_violada": "string",
   "refinamento_pos_revisao": "string",
@@ -419,7 +471,7 @@ Dados do lance:
 - avaliacao_depois_cp: {lance.get('avaliacao_depois_cp')}
 - numero_lance: {lance.get('numero_lance')}
 - trecho_pgn_das_duas_jogadas_anteriores: {context}
-{time_pressure_note}"""
+{time_pressure_note}{thought_note}"""
 
 
 def em_apuro_de_tempo(
@@ -510,6 +562,7 @@ Schema:
 {{
   "fase_do_jogo": "ABERTURA|MEIO_JOGO|FINAL",
   "tags_falha": ["escolher 1 a 3 tags da lista fechada acima"],
+  "tipo_erro": "PROCESSO|CONTEUDO|INDETERMINADO",
   "diagnostico_mecanico": "string",
   "raiz_conceitual_violada": "string",
   "refinamento_pos_revisao": "string",
@@ -527,6 +580,46 @@ Dados do evento de erosão:
 - queda_win_percent: {lance.get('queda_win_percent')}
 - lances_do_jogador_na_janela: {window_moves}
 """
+
+
+def montar_thought_note(lance: dict[str, Any]) -> str:
+    """Monta a instrução de classificação de tipo_erro com base na anotação de pensamento."""
+    texto = lance.get("texto_pensamento")
+    if not texto:
+        return (
+            "- anotacao_de_pensamento: Nenhuma anotação registrada pelo jogador no estudo. "
+            "Defina tipo_erro como INDETERMINADO.\n"
+        )
+    return (
+        f'- anotacao_de_pensamento_do_jogador: "{texto}"\n'
+        "Classifique o campo tipo_erro comparando a anotação do jogador com a realidade técnica do motor:\n"
+        '- "PROCESSO": O jogador falhou na rotina/checklist de pensamento (nem cogitou a ameaça do oponente, '
+        'não checou lances forçados ou ignorou a tática básica).\n'
+        '- "CONTEUDO": O jogador identificou a ideia ou o lance candidato correto, mas calculou '
+        'profundidade insuficiente ou avaliou a posição resultante de forma errada.\n'
+        '- "INDETERMINADO": A anotação é ambígua ou não permite distinguir entre erro de processo e de conteúdo.\n'
+    )
+
+
+def assegurar_tag_apuro_de_tempo(
+    diagnosis: DiagnosticoLance,
+    lance: dict[str, Any],
+    limiar_seg: float,
+) -> DiagnosticoLance:
+    """Garante que a tag gestao_de_tempo_ruim esteja presente se o lance ocorreu sob apuro de tempo (Fase 15)."""
+    tempo_restante_seg = lance.get("tempo_restante_seg")
+    if tempo_restante_seg is None:
+        return diagnosis
+    tempo_gasto_seg = lance.get("tempo_gasto_seg")
+    if em_apuro_de_tempo(tempo_restante_seg, tempo_gasto_seg, limiar_seg):
+        if "gestao_de_tempo_ruim" not in diagnosis.tags_falha:
+            novas_tags = list(diagnosis.tags_falha)
+            if len(novas_tags) >= 3:
+                novas_tags[2] = "gestao_de_tempo_ruim"
+            else:
+                novas_tags.append("gestao_de_tempo_ruim")
+            return diagnosis.model_copy(update={"tags_falha": novas_tags})
+    return diagnosis
 
 
 def montar_prompt(
@@ -548,7 +641,8 @@ def montar_prompt(
 
     context = reconstruct_context(pgn, int(lance["numero_lance"]))
     time_pressure_note = montar_time_pressure_note(lance, limiar_apuro_tempo_seg)
-    return build_prompt(lance, context, time_pressure_note)
+    thought_note = montar_thought_note(lance)
+    return build_prompt(lance, context, time_pressure_note, thought_note)
 
 
 
@@ -593,6 +687,10 @@ def processar_lance(
             logger,
         )
         diagnosis = parse_diagnosis(response_text)
+
+    diagnosis = assegurar_tag_apuro_de_tempo(
+        diagnosis, lance, settings.limiar_apuro_tempo_seg
+    )
     return ProcessResult(lance_id=lance["id"], diagnostico=diagnosis)
 
 

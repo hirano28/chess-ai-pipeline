@@ -1881,6 +1881,48 @@ o sistema nunca baixaria partidas nem geraria o hexágono.
 
 ---
 
+### D-43 — Relógio / Gestão de Tempo no Chess.com e Captura de Pensamento / Processo vs Conteúdo (Fases 15 & 16)
+
+**Data:** 2026-09-15  
+**Contexto:**
+1. **Fase 15 (Relógio & Gestão de Tempo):** O pipeline já extraía tempos de relógio das partidas do Lichess (`%clk`), persistindo em `tempos_lance`. Partidas do Chess.com, no entanto, continham marcações de `%clk` e `TimeControl` em seus PGNs que não estavam sendo extraídas para a tabela `tempos_lance`. Além disso, quando um erro ocorria com tempo restante crítico ($\le 30$s por padrão), a tag canônica `gestao_de_tempo_ruim` (Regra R1) precisava ser assegurada no diagnóstico do lance.
+2. **Fase 16 (Captura de Pensamento & Processo vs Conteúdo):** O Lichess Study permite ao jogador registrar comentários com seu raciocínio durante a partida. Essas anotações eram importadas para `anotacoes_pensamento`, mas o Stockfish (`analisar_partidas.py`) só selecionava lances por queda de probabilidade de vitória (`win_percent_drop`). Lances em que o jogador anotou seu pensamento precisavam ser promovidos automaticamente a lances críticos (`origem = 'ANOTACAO'`), e o `agente1_linter.py` precisava contrastar o pensamento do jogador com a avaliação do motor para classificar `tipo_erro` entre `PROCESSO` (falha no checklist / cálculo mental), `CONTEUDO` (lacuna teórica / conceitual) ou `INDETERMINADO`.
+
+**O que mudou:**
+
+1. **Ingestão e Backfill de Relógio do Chess.com (Fase 15):**
+   - Criado `backend/ingestao/backfill_tempos_chesscom.py` com regex resiliente (`CLK_PATTERN` cobrindo `H:MM:SS.S` e `M:SS.S`).
+   - Executado o backfill contra a base real: 153/153 partidas do Chess.com processadas (100%), gerando 10.845 novas linhas em `tempos_lance` (totalizando 13.708 linhas).
+   - Atualizados `coletar_partidas_chesscom.py` e `common_ingestao.py` para persistir tempos de relógio automaticamente a cada nova ingestão.
+   - Criada a suíte `test_backfill_tempos_chesscom.py` (7 testes), registrada em `docs/OPERACAO.md` e `.github/workflows/deploy-backend.yml` (Regra R8).
+   - Implementada em `agente1_linter.py` a função `assegurar_tag_apuro_de_tempo`, garantindo a tag canônica `gestao_de_tempo_ruim` quando `tempo_restante_seg <= limiar` (respeitando o vocabulário fechado da Regra R1).
+
+2. **Captura de Pensamento e Processo vs Conteúdo (Fase 16):**
+   - Criado script de migração `backend/db/lances_criticos_origem.sql` adicionando `origem text not null default 'GRAVIDADE'` com check constraint (`'GRAVIDADE'`, `'ANOTACAO'`).
+   - Atualizado `analisar_partidas.py`:
+     - Dataclass `CriticalMove` ganhou `origem: str = "GRAVIDADE"`.
+     - Implementada a função `promover_lances_anotados` que incorpora lances com anotações de estudo como `CriticalMove(..., origem="ANOTACAO")`.
+     - `insert_critical_moves` atualizado com envio de `origem` e fallback gracioso sem a coluna caso o DDL ainda não tenha sido rodado no banco.
+     - `fetch_lances_anotados_partida` conecta as anotações do estudo ao loop de análise tanto no batch de `analisar_partidas.py` quanto em `analisar_pgn_avulso.py`.
+   - Atualizado `agente1_linter.py`:
+     - Schema `DiagnosticoLance` agora inclui `tipo_erro: Literal["PROCESSO", "CONTEUDO", "INDETERMINADO"] = "INDETERMINADO"`.
+     - `fetch_anotacoes_index` e `attach_anotacao_pensamento` anexam as anotações de estudo ao lance antes do envio ao Gemini.
+     - Prompt estruturado orienta o LLM a comparar o pensamento do jogador com a técnica do motor para discernir entre falha de rotina mental (`PROCESSO`) e desconhecimento teórico (`CONTEUDO`).
+   - Atualizado `gerar_resumo_partida.py`:
+     - `PontoCritico` recebeu `tipo_erro: str | None = None`.
+     - `_enriquecer_pontos_criticos_com_tipo_erro` propaga deterministicamente a classificação de cada ponto crítico a partir dos diagnósticos.
+
+3. **Frontend (`revisao-avulsa.service.ts` e `analisador-partida.component.html`):**
+   - Interface `PontoCriticoPartida` atualizada com `tipo_erro?: 'PROCESSO' | 'CONTEUDO' | 'INDETERMINADO' | string | null`.
+   - Template do Analisador de Partidas exibe badges visualmente diferenciadas (`⚙️ Processo` em âmbar e `📚 Conteúdo` em azul celeste) nos cards de pontos críticos.
+
+4. **Verificação Global:**
+   - 504 testes no backend passando em 28 módulos (`python -m unittest`).
+   - 125 testes no frontend passando em 18 arquivos (`npx ng test --no-watch`).
+   - Build de produção (`ng build`) bem-sucedido sem erros.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a
