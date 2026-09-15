@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from supabase import Client, create_client
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+from backend.common.progress import configurar_encoding_utf8  # noqa: E402
+
+configurar_encoding_utf8()
 
 try:
     from .coletar_partidas import (
@@ -19,26 +28,28 @@ try:
 except ImportError:
     from coletar_partidas import Settings, configure_logging, fetch_games, load_settings
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(PROJECT_ROOT))
-from backend.common.progress import configurar_encoding_utf8  # noqa: E402
-
-configurar_encoding_utf8()
-
 PAGE_SIZE = 1000
+
+
+def eco_from_pgn(pgn: str | None) -> str | None:
+    """Extrai o código ECO do cabeçalho [ECO "..."] do PGN."""
+    if not pgn:
+        return None
+    match = re.search(r'\[ECO\s+"([A-Ea-e][0-9]{2})"', pgn)
+    return match.group(1).upper() if match else None
 
 
 def fetch_missing_records(
     client: Client, logger: logging.Logger
 ) -> list[dict[str, Any]]:
-    """Busca todas as partidas sem ECO, percorrendo a tabela em páginas."""
+    """Busca todas as partidas sem ECO, selecionando id, external_id, plataforma e pgn."""
 
     records: list[dict[str, Any]] = []
     offset = 0
     while True:
         response = (
             client.table("partidas")
-            .select("external_id")
+            .select("id, external_id, plataforma, pgn")
             .is_("eco_abertura", "null")
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
@@ -69,42 +80,60 @@ def game_index(games: list[dict[str, Any]]) -> dict[str, str]:
     return indexed
 
 
-def update_eco(client: Client, external_id: str, eco: str) -> None:
+def update_eco(client: Client, partida_id: str, eco: str) -> None:
     """Atualiza somente o ECO da partida ainda sem esse valor."""
 
     (
         client.table("partidas")
         .update({"eco_abertura": eco})
-        .eq("external_id", external_id)
+        .eq("id", partida_id)
         .is_("eco_abertura", "null")
         .execute()
     )
 
 
 def run_backfill(
-    client: Client, settings: Settings, logger: logging.Logger
+    client: Client, settings: Settings | None, logger: logging.Logger
 ) -> tuple[int, int, int]:
     """Executa o backfill e retorna atualizadas, sem correspondência e falhas."""
 
     missing_records = fetch_missing_records(client, logger)
-    games = list(fetch_games(settings, logger))
-    games_by_id = game_index(games)
+    if not missing_records:
+        logger.info("Nenhuma partida sem eco_abertura encontrada.")
+        return 0, 0, 0
 
+    games_by_id: dict[str, str] | None = None
     updated = unmatched = failed = 0
+
     for record in missing_records:
-        external_id = record.get("external_id")
-        eco = games_by_id.get(str(external_id)) if external_id else None
+        partida_id = record.get("id")
+        pgn = record.get("pgn")
+        eco = eco_from_pgn(pgn)
+
+        # Se não encontrou no PGN e a partida for Lichess, consulta API externa caso settings exista
+        if not eco and record.get("plataforma") == "LICHESS" and settings is not None:
+            if games_by_id is None:
+                try:
+                    games = list(fetch_games(settings, logger))
+                    games_by_id = game_index(games)
+                except Exception as error:
+                    logger.warning("Não foi possível buscar partidas na API do Lichess: %s", error)
+                    games_by_id = {}
+            external_id = record.get("external_id")
+            eco = games_by_id.get(str(external_id)) if external_id else None
+
         if not eco:
             unmatched += 1
             continue
+
         try:
-            update_eco(client, str(external_id), eco)
+            update_eco(client, str(partida_id), eco)
             updated += 1
         except Exception as error:
             failed += 1
             logger.exception(
                 "Falha ao atualizar eco_abertura da partida %s: %s",
-                external_id,
+                partida_id,
                 error,
             )
 
@@ -121,10 +150,16 @@ def main() -> None:
     """Executa o backfill uma única vez e imprime o resumo."""
 
     logger = configure_logging()
+    load_dotenv(PROJECT_ROOT / ".env")
+    settings: Settings | None = None
     try:
         settings = load_settings()
+    except Exception as error:
+        logger.warning("Settings do Lichess não carregadas (seguindo com fallback PGN): %s", error)
+
+    try:
         client = create_client(
-            settings.supabase_url, settings.supabase_service_role_key
+            os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
         )
         updated, unmatched, failed = run_backfill(client, settings, logger)
     except Exception as error:
@@ -133,7 +168,7 @@ def main() -> None:
         return
 
     print(f"Partidas atualizadas: {updated}")
-    print(f"Partidas sem correspondência na API: {unmatched}")
+    print(f"Partidas sem correspondência: {unmatched}")
     print(f"Partidas com falha: {failed}")
 
 

@@ -3,7 +3,12 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from backend.ingestao.coletar_partidas_chesscom import Settings, coletar_para_perfil
+from backend.ingestao.coletar_partidas_chesscom import (
+    Settings,
+    coletar_para_perfil,
+    eco_from_pgn,
+    to_record,
+)
 
 
 class ColetarParaPerfilTest(unittest.TestCase):
@@ -69,6 +74,42 @@ class ColetarParaPerfilTest(unittest.TestCase):
         )
 
         self.assertEqual((inserted, existing, failed), (1, 0, 1))
+
+
+class EcoExtractionTest(unittest.TestCase):
+    def test_eco_from_pgn_com_header_valido(self) -> None:
+        pgn = '[Event "Live Chess"]\n[ECO "C00"]\n\n1. e4 e6'
+        self.assertEqual(eco_from_pgn(pgn), "C00")
+
+    def test_eco_from_pgn_sem_header(self) -> None:
+        pgn = '[Event "Live Chess"]\n\n1. e4 e6'
+        self.assertIsNone(eco_from_pgn(pgn))
+
+    def test_eco_from_pgn_none_ou_vazio(self) -> None:
+        self.assertIsNone(eco_from_pgn(None))
+        self.assertIsNone(eco_from_pgn(""))
+
+    def test_to_record_prioriza_eco_do_pgn(self) -> None:
+        game = {
+            "url": "https://www.chess.com/game/live/1",
+            "white": {"username": "hirano28", "result": "win"},
+            "black": {"username": "oponente", "result": "resigned"},
+            "pgn": '[Event "Live Chess"]\n[ECO "B13"]\n\n1. e4 c6',
+            "ECOUrl": "https://www.chess.com/openings/Caro-Kann-Defense",
+        }
+        record = to_record(game, "hirano28")
+        self.assertEqual(record["eco_abertura"], "B13")
+
+    def test_to_record_fallback_eco_da_url(self) -> None:
+        game = {
+            "url": "https://www.chess.com/game/live/2",
+            "white": {"username": "hirano28", "result": "win"},
+            "black": {"username": "oponente", "result": "resigned"},
+            "pgn": '[Event "Live Chess"]\n\n1. e4 c6',
+            "ECOUrl": "https://www.chess.com/openings/Caro-Kann-Defense-B13",
+        }
+        record = to_record(game, "hirano28")
+        self.assertEqual(record["eco_abertura"], "B13")
 
 
 if __name__ == "__main__":

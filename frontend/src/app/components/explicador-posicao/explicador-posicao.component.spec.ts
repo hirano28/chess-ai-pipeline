@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { vi } from 'vitest';
 import {
+  contarPecasFen,
   ExplicadorPosicaoComponent,
   STORAGE_KEY_EXPLICADOR_ATIVO
 } from './explicador-posicao.component';
@@ -11,11 +12,13 @@ import {
   ResultadoExplicadorPosicao,
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
+import { TeoriaFinaisService } from '../../services/teoria-finais.service';
 
 describe('ExplicadorPosicaoComponent', () => {
   let component: ExplicadorPosicaoComponent;
   let fixture: ComponentFixture<ExplicadorPosicaoComponent>;
   let revisaoService: RevisaoAvulsaService;
+  let teoriaFinaisService: TeoriaFinaisService;
 
   const resultadoMock: ResultadoExplicadorPosicao = {
     fen: 'r1bq1rk1/ppp2ppp/2np4/2b1p1N1/2B1P3/3P4/PPP2PPP/R1BQK2R w KQ - 0 8',
@@ -75,6 +78,7 @@ describe('ExplicadorPosicaoComponent', () => {
     fixture = TestBed.createComponent(ExplicadorPosicaoComponent);
     component = fixture.componentInstance;
     revisaoService = TestBed.inject(RevisaoAvulsaService);
+    teoriaFinaisService = TestBed.inject(TeoriaFinaisService);
     fixture.detectChanges();
   });
 
@@ -231,6 +235,70 @@ describe('ExplicadorPosicaoComponent', () => {
       localStorage.setItem(STORAGE_KEY_EXPLICADOR_ATIVO, 'exp-1');
       component.novaAnalise();
       expect(localStorage.getItem(STORAGE_KEY_EXPLICADOR_ATIVO)).toBeNull();
+    });
+  });
+
+  describe('Syzygy Endgame Tablebase', () => {
+    const fenFinal3Pecas = '8/8/8/8/4k3/8/4K3/4Q3 w - - 0 1'; // 3 peças (K+Q vs K)
+
+    it('contarPecasFen deve calcular a quantidade correta de peças', () => {
+      expect(contarPecasFen(fenFinal3Pecas)).toBe(3);
+      expect(contarPecasFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe(32);
+    });
+
+    it('não deve consultar Syzygy quando a posição tiver mais de 7 peças', async () => {
+      const spySyzygy = vi.spyOn(teoriaFinaisService, 'getAnaliseSyzygy');
+      vi.spyOn(revisaoService, 'explicarPosicao').mockResolvedValue({
+        success: true,
+        resultado: resultadoMock // 30 peças
+      });
+
+      component.posicao.set(resultadoMock.fen);
+      await component.analisar();
+
+      expect(spySyzygy).not.toHaveBeenCalled();
+      expect(component.syzygy()).toBeNull();
+    });
+
+    it('deve consultar Syzygy quando a posição tiver <= 7 peças e renderizar o banner', async () => {
+      const mockResultadoFinal: ResultadoExplicadorPosicao = {
+        ...resultadoMock,
+        fen: fenFinal3Pecas
+      };
+
+      vi.spyOn(revisaoService, 'explicarPosicao').mockResolvedValue({
+        success: true,
+        resultado: mockResultadoFinal
+      });
+
+      vi.spyOn(teoriaFinaisService, 'getAnaliseSyzygy').mockResolvedValue({
+        success: true,
+        dados: {
+          elegivel_syzygy: true,
+          num_pecas: 3,
+          categoria_antes: 'win',
+          veredito_pt: 'Vitória matemática (brancas)',
+          dtm: 10,
+          dtz: 10,
+          eh_blunder_teorico: false,
+          melhores_lances: [
+            { uci: 'e1d2', san: 'Qd2', categoria: 'win', dtz: 9 }
+          ]
+        }
+      });
+
+      component.posicao.set(fenFinal3Pecas);
+      await component.analisar();
+      fixture.detectChanges();
+
+      expect(component.syzygy()?.elegivel_syzygy).toBe(true);
+      expect(component.syzygy()?.num_pecas).toBe(3);
+      expect(component.syzygy()?.veredito_pt).toBe('Vitória matemática (brancas)');
+
+      const element = fixture.nativeElement as HTMLElement;
+      expect(element.textContent).toContain('Syzygy Endgame Tablebase');
+      expect(element.textContent).toContain('Vitória matemática (brancas)');
+      expect(element.textContent).toContain('Final com 3 peças');
     });
   });
 });

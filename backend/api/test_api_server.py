@@ -1238,6 +1238,253 @@ class InsightsRepertorioEndpointTest(unittest.TestCase):
         self.assertEqual(resposta.status_code, 500)
 
 
+class InsightsPuzzlesEndpointTest(unittest.TestCase):
+    """Testes do endpoint GET /insights/puzzles."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/insights/puzzles")
+            self.assertEqual(resposta.status_code, 401)
+
+    def test_banco_indisponivel_retorna_503(self) -> None:
+        resposta = self.client.get(
+            "/insights/puzzles",
+            headers=HEADERS_SESSAO,
+        )
+        self.assertEqual(resposta.status_code, 503)
+
+    @patch("backend.api.api_server.calcular_insights_puzzles")
+    def test_retorna_o_payload_calculado(self, mock_calcular: MagicMock) -> None:
+        payload_esperado = {
+            "resumo": {
+                "total": 50,
+                "acertos": 35,
+                "erros": 15,
+                "taxa_acerto_pct": 70.0,
+                "rating_medio": 1850.0,
+                "rating_min": 1500,
+                "rating_max": 2100,
+            },
+            "temas_vulneraveis": [
+                {
+                    "slug": "defensiveMove",
+                    "nome": "Lance Defensivo",
+                    "descricao": "Defesa",
+                    "categoria": "defesa",
+                    "total": 10,
+                    "acertos": 4,
+                    "taxa_acerto_pct": 40.0,
+                    "url_treino": "https://lichess.org/training/defensiveMove",
+                }
+            ],
+            "temas_dominados": [
+                {
+                    "slug": "mateIn1",
+                    "nome": "Mate em 1 lance",
+                    "descricao": "Mate",
+                    "categoria": "mate",
+                    "total": 10,
+                    "acertos": 10,
+                    "taxa_acerto_pct": 100.0,
+                    "url_treino": "https://lichess.org/training/mateIn1",
+                }
+            ],
+            "todos_os_temas": [],
+            "diagnostico_gap": {
+                "titulo": "Gap Tático",
+                "resumo_executivo": "Resumo",
+                "analise_comparativa": "Comparativo",
+                "sugestao_foco": "Foco",
+            },
+        }
+        mock_calcular.return_value = payload_esperado
+        api_server._state["supabase_client"] = MagicMock()
+
+        resposta = self.client.get(
+            "/insights/puzzles",
+            headers=HEADERS_SESSAO,
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json(), payload_esperado)
+        mock_calcular.assert_called_once_with(
+            api_server._state["supabase_client"], USER_ID_TESTE
+        )
+
+    @patch("backend.api.api_server.calcular_insights_puzzles")
+    def test_filtra_pelo_dono_real_da_sessao(self, mock_calcular: MagicMock) -> None:
+        mock_calcular.return_value = {
+            "resumo": {},
+            "temas_vulneraveis": [],
+            "temas_dominados": [],
+            "todos_os_temas": [],
+            "diagnostico_gap": {},
+        }
+        user_id_sessao = "99999999-8888-7777-6666-555555555555"
+        mock_client = MagicMock()
+        mock_user_response = MagicMock()
+        mock_user_response.user.id = user_id_sessao
+        mock_client.auth.get_user.return_value = mock_user_response
+        api_server._state["supabase_client"] = mock_client
+
+        with gate_de_sessao_real():
+            resposta = self.client.get(
+                "/insights/puzzles",
+                headers=HEADERS_SESSAO,
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        mock_calcular.assert_called_once_with(mock_client, user_id_sessao)
+
+    @patch("backend.api.api_server.calcular_insights_puzzles")
+    def test_falha_no_calculo_retorna_500(self, mock_calcular: MagicMock) -> None:
+        mock_calcular.side_effect = RuntimeError("consulta falhou")
+        api_server._state["supabase_client"] = MagicMock()
+
+        resposta = self.client.get(
+            "/insights/puzzles",
+            headers=HEADERS_SESSAO,
+        )
+
+        self.assertEqual(resposta.status_code, 500)
+
+
+class TeoriaAberturaEndpointTest(unittest.TestCase):
+    """Testes do endpoint GET /partidas/{partida_id}/teoria-abertura."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/partidas/partida-123/teoria-abertura")
+            self.assertEqual(resposta.status_code, 401)
+
+    def test_banco_indisponivel_retorna_503(self) -> None:
+        resposta = self.client.get(
+            "/partidas/partida-123/teoria-abertura",
+            headers=HEADERS_SESSAO,
+        )
+        self.assertEqual(resposta.status_code, 503)
+
+    def test_partida_nao_encontrada_retorna_404(self) -> None:
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.data = []
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = mock_resp
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get(
+            "/partidas/inexistente/teoria-abertura",
+            headers=HEADERS_SESSAO,
+        )
+        self.assertEqual(resposta.status_code, 404)
+
+    @patch("backend.api.api_server.obter_access_token_lichess")
+    @patch("backend.api.api_server.detectar_saida_teoria")
+    def test_detecta_teoria_com_sucesso(
+        self, mock_detectar: MagicMock, mock_token: MagicMock
+    ) -> None:
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.data = [
+            {"id": "partida-123", "pgn": "1. e4 e5 2. Nf3 *", "cor_jogada": "BRANCAS"}
+        ]
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = mock_resp
+        api_server._state["supabase_client"] = mock_client
+
+        mock_token.return_value = "token-teste"
+        mock_detectar.return_value = {
+            "sucesso": True,
+            "disponivel": True,
+            "ply_saida": 4,
+            "nome_abertura": "King's Pawn Opening",
+        }
+
+        resposta = self.client.get(
+            "/partidas/partida-123/teoria-abertura",
+            headers=HEADERS_SESSAO,
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["nome_abertura"], "King's Pawn Opening")
+        mock_detectar.assert_called_once_with(
+            "1. e4 e5 2. Nf3 *", token="token-teste", cor_jogada="BRANCAS"
+        )
+
+
+class SyzygyEndpointTest(unittest.TestCase):
+    """Testes do endpoint GET /analise/syzygy."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get(
+                "/analise/syzygy",
+                params={"fen": "8/8/8/4k3/8/8/4Q3/4K3 b - - 0 1"},
+            )
+            self.assertEqual(resposta.status_code, 401)
+
+    @patch("backend.api.api_server.consultar_syzygy")
+    def test_consulta_apenas_fen(self, mock_consultar: MagicMock) -> None:
+        mock_consultar.return_value = {"category": "win", "dtz": 5}
+        resposta = self.client.get(
+            "/analise/syzygy",
+            params={"fen": "8/8/8/4k3/8/8/4Q3/4K3 b - - 0 1"},
+            headers=HEADERS_SESSAO,
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertTrue(resposta.json()["elegivel_syzygy"])
+        self.assertEqual(resposta.json()["dados"]["category"], "win")
+
+    @patch("backend.api.api_server.avaliar_lance_final_syzygy")
+    def test_consulta_com_lance(self, mock_avaliar: MagicMock) -> None:
+        mock_avaliar.return_value = {
+            "elegivel_syzygy": True,
+            "eh_blunder_teorico": True,
+            "tipo_erro_final": "erro_conversao",
+        }
+        resposta = self.client.get(
+            "/analise/syzygy",
+            params={"fen": "8/8/8/4k3/8/8/4Q3/4K3 w - - 0 1", "lance": "Kd2"},
+            headers=HEADERS_SESSAO,
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertTrue(resposta.json()["eh_blunder_teorico"])
+        self.assertEqual(resposta.json()["tipo_erro_final"], "erro_conversao")
+
+    @patch("backend.api.api_server.consultar_syzygy")
+    def test_fen_inelegivel_retorna_elegivel_false(self, mock_consultar: MagicMock) -> None:
+        mock_consultar.return_value = None
+        resposta = self.client.get(
+            "/analise/syzygy",
+            params={"fen": "posicao_invalida"},
+            headers=HEADERS_SESSAO,
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertFalse(resposta.json()["elegivel_syzygy"])
+
+
+
 class AnalisarPgnEndpointTest(unittest.TestCase):
     """Testes do endpoint assíncrono POST /analisar-pgn."""
 

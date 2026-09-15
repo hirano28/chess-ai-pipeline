@@ -182,6 +182,15 @@ def eco_from_url(eco_url: str | None) -> str | None:
     return match.group(1).upper() if match else None
 
 
+def eco_from_pgn(pgn: str | None) -> str | None:
+    """Extrai o código ECO do cabeçalho [ECO "..."] do PGN."""
+
+    if not pgn:
+        return None
+    match = re.search(r'\[ECO\s+"([A-Ea-e][0-9]{2})"', pgn)
+    return match.group(1).upper() if match else None
+
+
 def game_timestamp(game: dict[str, Any]) -> str | None:
     """Converte end_time Unix do Chess.com em ISO 8601."""
 
@@ -204,16 +213,19 @@ def to_record(game: dict[str, Any], username: str) -> dict[str, Any]:
     if not external_id:
         raise ValueError("Partida Chess.com sem url ou uuid")
 
+    pgn_content = game.get("pgn", "")
+    eco = eco_from_pgn(pgn_content) or eco_from_url(game.get("ECOUrl"))
+
     return {
         "plataforma": "CHESSCOM",
         "external_id": str(external_id),
-        "pgn": game.get("pgn", ""),
+        "pgn": pgn_content,
         "data_partida": game_timestamp(game),
         "resultado": result_from_chesscom(own.get("result")),
         "cor_jogada": color,
         "rating_proprio": own.get("rating"),
         "rating_oponente": opponent.get("rating"),
-        "eco_abertura": eco_from_url(game.get("ECOUrl")),
+        "eco_abertura": eco,
         "status_processamento": "pendente",
     }
 

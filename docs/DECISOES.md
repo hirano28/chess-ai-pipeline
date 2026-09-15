@@ -1754,6 +1754,133 @@ o sistema nunca baixaria partidas nem geraria o hexágono.
 
 ---
 
+### D-39 — Resiliência na análise Stockfish e reprocessamento de falhas (P-5)
+
+**Data:** 2026-09-14  
+**Contexto:** 31 partidas do histórico estavam retidas sem conclusão (28 com status `falhou` e 3 com `processando`). A causa raiz identificada foi `STOCKFISH_SEARCHTIME_MS = 3_000` em `analisar_partidas.py`: em partidas de 50 lances (100 avaliações de posições), o motor aguardava 3 segundos obrigatoriamente a cada lance, somando mais de 5 minutos por partida e estourando o timeout configurado ou levando SIGKILL no Cloud Run. Não havia mecanismo de auto-recuperação de containers interrompidos nem CLI para reprocessar falhas respeitando a Regra R7.
+
+**O que mudou:**
+
+1. **Otimização de tempo de busca no Stockfish (`analisar_partidas.py`):**
+   - `STOCKFISH_SEARCHTIME_MS` passou a ter valor default `0` (configurável via variável de ambiente).
+   - Em `evaluate_position`, se `searchtime_ms <= 0`, o Stockfish avalia na profundidade configurada (`depth=16`), reduzindo o tempo de análise de 3.00s para ~0.12s por lance (~25x mais rápido, ~12s no total da partida) e eliminando timeouts e estouros de CPU.
+
+2. **Auto-recuperação e conformidade com Regra R7:**
+   - Criada a função `limpar_registros_derivados_partida(client, partida_id)` que remove dados em cascata segura respeitando integridade referencial: `resumo_partida`, filhos de `lances_criticos` (`perguntas_pendentes` e `diagnosticos`) e `lances_criticos`.
+   - Criada `resetar_partida_para_pendente(client, partida_id)` que executa a limpeza prévia antes de marcar `status_processamento = 'pendente'`.
+   - `recuperar_partidas_orfas(client, logger)` é executada automaticamente na inicialização da análise, detectando partidas abandonadas em `processando` por desligamento abrupto de processos.
+   - Adicionadas opções CLI:
+     - `--reprocessar-falhas`: reseta e limpa partidas em `falhou` para reanálise em massa.
+     - `--partida-id <id>`: permite reanalisar uma partida individual sob demanda (buscando por `id` ou `external_id`).
+
+3. **Recuperação das 31 partidas órfãs/falhas em produção:**
+   - As 31 partidas retidas (mais 2 pendentes, total 33) foram reprocessadas com 100% de sucesso (0 falhas) em ~11 minutos.
+   - Total de partidas concluídas subiu de 197 para 230 (0 falhas, 0 em processamento, 0 pendentes).
+   - 125 novos lances críticos gerados e persistidos, elevando o total de lances críticos de 560 para 685.
+   - Aberturas normalizadas via `normalizar_aberturas.py` para todas as partidas pendentes.
+
+4. **Testes Unitários:**
+   - Adicionados testes para `evaluate_position`, `limpar_registros_derivados_partida`, `recuperar_partidas_orfas`, `recuperar_partidas_com_falha` e `parse_args`. Total de testes em `test_analisar_partidas` subiu de 7 para 17, e a suíte completa de testes do backend mantém 100% de aprovação (430 testes).
+
+---
+
+### D-40 — Inteligência e Visualização de Repertório (P-7 / Fase 14)
+
+**Data:** 2026-09-14  
+**Contexto:** A pendência P-7 apontava que 100% das partidas do Chess.com estavam sem `eco_abertura` cru, tornando qualquer análise baseada em código ECO cega para 77% do corpus. Além disso, embora o endpoint `/insights/repertorio` já calculasse estatísticas ricas de repertório no backend (D-13 e D-30), o frontend não possuía nenhum componente visual para exibir essas métricas ao jogador no dashboard (Fase 14 do roadmap).
+
+**O que mudou:**
+
+1. **Extração de ECO de PGN para Chess.com (`coletar_partidas_chesscom.py`):**
+   - Criada a função `eco_from_pgn(pgn)` que extrai o código ECO da tag `[ECO "..."]` do cabeçalho PGN com regex de formato padrão internacional (`[A-E][0-9]{2}`).
+   - `to_record()` passou a priorizar `eco_from_pgn(pgn)` em relação a `eco_from_url(url)`, garantindo que todas as partidas do Chess.com tenham `eco_abertura` preenchido na coleta inicial.
+
+2. **Backfill Universal de ECO (`backfill_eco_abertura.py`):**
+   - Atualizado para ler o PGN salvo no banco de dados e extrair o código ECO localmente sem depender de chamadas à API do Lichess.
+   - Executado contra o banco de produção: **153 de 153 partidas do Chess.com (100%)** foram atualizadas com sucesso para seus respectivos códigos ECO (ex: C00, B13, A40).
+
+3. **Serviço e Componente de Repertório no Frontend:**
+   - Criado `RepertorioService` (`frontend/src/app/services/repertorio.service.ts`) consumindo `GET /insights/repertorio` via JWT com tratamento de expiração de sessão (401/403).
+   - Criado `RepertorioInsightsComponent` (`frontend/src/app/components/repertorio-insights/`):
+     - Resumo de taxa de vitória de Brancas vs Pretas com contagem de partidas.
+     - Filtro interativo por cor ("Todas", "Brancas", "Pretas").
+     - Cards de cada abertura com nome normalizado, barra de progresso visual colorida, estatísticas de vitórias/total, momento médio do erro crítico (lance de pico) e badges das principais categorias vulneráveis do hexágono associadas àquela abertura.
+   - Integrado ao `HexagonoRadarComponent` (`hexagono-radar.component.html`), posicionando a visão de repertório entre o radar de categorias e as sessões de treino.
+
+4. **Testes Unitários:**
+   - Adicionada a suíte `EcoExtractionTest` em `test_coletar_partidas_chesscom.py` (total de testes do backend subiu para **435**, todos passando).
+   - Criadas as suítes `repertorio.service.spec.ts` (3 testes) e `repertorio-insights.component.spec.ts` (7 testes). O total de testes do frontend subiu para **110 testes passando** em 15 arquivos. Build de produção (`ng build`) verificado sem erros.
+
+---
+
+### D-41 — Inteligência de Puzzles vs Partidas: Diagnóstico do Gap Tático (P-8 / Fase 17)
+
+**Data:** 2026-09-14  
+**Contexto:** A pendência P-8 apontava que a tabela `puzzle_atividade` acumulava 660 registros em 41 dias distintos via ingestão diária do Lichess, mas esse dado vivia isolado sem nenhum consumo analítico pelo pipeline ou exibição no frontend (Fase 17 do roadmap). Além disso, havia um gap nítido entre a capacidade de cálculo estático (rating de puzzles de ~1.854) e o desempenho em partidas rápidas (rating de blitz de ~1.424).
+
+**O que mudou:**
+
+1. **Backend & Módulo Analítico (`backend/agentes/insights_puzzles.py`):**
+   - Criada a função `fetch_puzzle_atividade(client, user_id)` (filtrando estritamente por `user_id`, D-30).
+   - Criada a função `calcular_estatisticas_gerais` (total, acertos, erros, taxa global de acerto e rating médio/mín/máx).
+   - Criada a função `calcular_estatisticas_temas` mapeando temas de puzzles do Lichess para nomes pedagógicos amigáveis em português e categorizações (`tatica`, `defesa`, `ataque`, `calculo`, `final`, `mate`), aplicando filtro de amostra mínima (>= 5) e separando vulnerabilidades (<55% de acerto) e pontos fortes (>70% de acerto).
+   - Criada a função `gerar_diagnostico_gap` formulando síntese comparativa entre cálculo calmo e erros críticos sob pressão nas partidas reais (`seguranca_do_rei`, `visao_em_tunel`, `negligencia_profilatica`).
+   - Cada tema inclui URL direta de treino no Lichess: `https://lichess.org/training/{slug}`.
+
+2. **API (`backend/api/api_server.py`):**
+   - Criado o endpoint autenticado `GET /insights/puzzles` protegido por `Depends(verificar_sessao)`, delegando para `calcular_insights_puzzles(client, user_id)`.
+
+3. **Frontend: Serviço e Componente Dashboard:**
+   - Criado `PuzzlesService` (`frontend/src/app/services/puzzles.service.ts`) consumindo `GET /insights/puzzles` com autenticação JWT e tratamento de expiração de sessão.
+   - Criado `PuzzlesInsightsComponent` (`frontend/src/app/components/puzzles-insights/`):
+     - Cards de métricas globais (Total de puzzles resolvidos, Taxa de acerto global, Rating médio com pico).
+     - Card de destaque com o diagnóstico do Gap Tático e diretrizes de treino.
+     - Grade de temas vulneráveis com barra de progresso colorida, contadores de acerto e botão direto "Treinar no Lichess ↗".
+     - Badges com temas onde o jogador brilha (pontos fortes dominados).
+   - Integrado ao `HexagonoRadarComponent` (`hexagono-radar.component.html`), posicionado abaixo de Repertório de Aberturas.
+
+4. **Testes Unitários:**
+   - Criada a suíte `test_insights_puzzles.py` (8 testes cobrindo agregação, amostragem, tradução, diagnóstico e isolamento por `user_id`).
+   - Registrado o módulo em `docs/OPERACAO.md` e `.github/workflows/deploy-backend.yml` (regra R8).
+   - Adicionada a suíte `InsightsPuzzlesEndpointTest` em `backend/api/test_api_server.py` (5 testes).
+   - Criadas as suítes frontend `puzzles.service.spec.ts` (3 testes) e `puzzles-insights.component.spec.ts` (6 testes).
+   - Total de testes do backend subiu para **454 testes passando** (25 módulos). Total do frontend subiu para **119 testes passando** (17 arquivos). Build de produção (`ng build`) verificado sem erros.
+
+---
+
+### D-42 — APIs Especializadas: Lichess Opening Explorer & Syzygy Tablebase (Fase 18)
+
+**Data:** 2026-09-14  
+**Contexto:** A Fase 18 do roadmap previa o enriquecimento do pipeline com APIs públicas enxadrísticas de referência máxima:
+1. *Lichess Opening Explorer* (`explorer.lichess.org`): base de mestres históricos para identificar com precisão o momento exato em que a partida se desviou do livro de aberturas, de quem partiu o desvio inicial ("Você" vs "Oponente"), e as estatísticas dos mestres na posição.
+2. *Syzygy Tablebase* (`tablebase.lichess.org`): bases de finais com $\le 7$ peças que calculam o resultado exato (vitória, empate, derrota) e a distância para o mate (DTM) ou conversão por peão/captura (DTZ), permitindo provar matematicamente quando houve um erro decisivo no final.
+
+**O que mudou:**
+
+1. **Lichess Opening Explorer (`backend/common/lichess_explorer.py`):**
+   - Criada a função `consultar_opening_explorer(fen, token, speeds, ratings)` com cabeçalho `Authorization: Bearer <token>` (necessário na base de masters do Lichess para prevenir HTTP 401).
+   - Criado o algoritmo de busca binária em `detectar_saida_teoria(movimentos_san, cor_jogador, token)` até o ply 40 para encontrar em $O(\log N)$ chamadas o ply de saída, número do lance, cor, quem se desviou (`JOGADOR` vs `OPONENTE`), nome da abertura, código ECO e estatísticas de vitórias/empates/derrotas na última posição de livro.
+
+2. **Syzygy Tablebase (`backend/common/syzygy_tablebase.py`):**
+   - Criada a função `contar_pecas_fen(fen)` com guard de elegibilidade ($\le 7$ peças).
+   - Criada a função `consultar_syzygy(fen)` consultando `https://tablebase.lichess.org/standard?fen=...` (pública, sem necessidade de autenticação), com validação preventiva de integridade e checagem de xeque ilegal (`opposite check`).
+   - Criada a função `avaliar_lance_final_syzygy(fen_antes, lance_uci, fen_depois)` que compara o estado antes e depois do lance para detectar blunders de conversão (`win` $\to$ `draw`/`loss`) ou defensivos (`draw` $\to$ `loss`).
+
+3. **Endpoints da API (`backend/api/api_server.py`):**
+   - `GET /partidas/{partida_id}/teoria-abertura` protegido por sessão (`verificar_sessao`), buscando o PGN da partida no banco e consultando o Opening Explorer com fallback de token (OAuth do usuário ou token do sistema).
+   - `GET /analise/syzygy` protegido por sessão (`verificar_sessao`), recebendo `fen` e lances opcionais para avaliar posições de final com $\le 7$ peças.
+
+4. **Frontend Service & Integração UI:**
+   - Criado `TeoriaFinaisService` (`frontend/src/app/services/teoria-finais.service.ts`) consumindo ambos os endpoints com autenticação JWT.
+   - Integrado no `AnalisadorPartidaComponent`: card de "Saída da Teoria de Abertura (Mestres)" exibindo se a partida seguiu o livro ou quando se desviou, quem saiu primeiro (com destaque visual para erros do jogador), lance exato de saída e estatísticas da base de mestres.
+   - Integrado no `ExplicadorPosicaoComponent`: banner dedicado da Syzygy Tablebase quando a posição possui $\le 7$ peças, exibindo o veredito matemático exato, DTM/DTZ e os melhores lances recomendados pela base teórica.
+
+5. **Testes e Regra R8:**
+   - 10 testes em `test_lichess_explorer.py`, 11 testes em `test_syzygy_tablebase.py`, 8 testes em `test_api_server.py`. Módulos devidamente registrados em `docs/OPERACAO.md` e `.github/workflows/deploy-backend.yml` (regra R8). Total de testes no backend subiu para **483 testes passando** em 27 módulos.
+   - Criados testes unitários frontend em `teoria-finais.service.spec.ts` e `explicador-posicao.component.spec.ts`. Total no frontend subiu para **125 testes passando** em 18 arquivos. Build de produção (`ng build`) verificado sem erros.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

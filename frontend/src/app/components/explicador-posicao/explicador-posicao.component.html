@@ -109,6 +109,73 @@
               </p>
             </div>
 
+            <!-- BANNER SYZYGY TABLEBASE (quando posição tem <= 7 peças) -->
+            @if (carregandoSyzygy()) {
+              <div class="rounded-lg border border-[#304247] bg-[#10191d] p-4 text-xs text-[#8fa5a7] animate-pulse">
+                Consultando Syzygy Tablebase (endgame de &le; 7 peças)...
+              </div>
+            } @else if (syzygy()?.elegivel_syzygy) {
+              <div class="rounded-lg border border-indigo-900/60 bg-gradient-to-br from-[#121626] to-[#10191d] p-5 shadow-md">
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-950 pb-3">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xl">♟️</span>
+                    <div>
+                      <h3 class="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-400">
+                        Syzygy Endgame Tablebase (Solução Matemática Exata)
+                      </h3>
+                      <p class="text-xs text-[#b9c7c8]">
+                        Final com {{ syzygy()!.num_pecas }} peças no tabuleiro
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    class="rounded border px-3 py-1 text-xs font-bold uppercase tracking-wider"
+                    [class]="
+                      syzygy()!.categoria_antes === 'win'
+                        ? 'border-emerald-700 bg-emerald-950/60 text-emerald-300'
+                        : syzygy()!.categoria_antes === 'loss'
+                        ? 'border-rose-700 bg-rose-950/60 text-rose-300'
+                        : 'border-amber-700 bg-amber-950/60 text-amber-300'
+                    "
+                  >
+                    {{ syzygy()!.veredito_pt || syzygy()!.categoria_antes }}
+                  </span>
+                </div>
+
+                <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+                  <div>
+                    <p class="text-[#8fa5a7]">Distância matemática:</p>
+                    <p class="mt-1 font-semibold text-[#f4f0e6]">
+                      @if (syzygy()!.dtm !== undefined && syzygy()!.dtm !== null) {
+                        <span>DTM (Mate): <strong class="text-[#dea34c]">{{ syzygy()!.dtm }}</strong> lances</span>
+                      } @else if (syzygy()!.dtz !== undefined && syzygy()!.dtz !== null) {
+                        <span>DTZ (Conversão de Peão/Captura): <strong class="text-[#dea34c]">{{ syzygy()!.dtz }}</strong> lances</span>
+                      } @else {
+                        <span>Posição teórica calculada pela base Syzygy</span>
+                      }
+                    </p>
+                  </div>
+
+                  @if (syzygy()!.melhores_lances && syzygy()!.melhores_lances!.length > 0) {
+                    <div>
+                      <p class="text-[#8fa5a7]">Melhores lances matemáticos:</p>
+                      <div class="mt-1 flex flex-wrap gap-1.5">
+                        @for (lance of syzygy()!.melhores_lances; track lance.uci) {
+                          <span
+                            class="rounded border border-indigo-900 bg-[#161d2e] px-2 py-0.5 font-mono text-xs text-indigo-200"
+                            [title]="'Categoria: ' + lance.categoria + (lance.dtz !== undefined ? ', DTZ: ' + lance.dtz : '')"
+                          >
+                            {{ lance.san || lance.uci }}
+                            <span class="text-[10px] text-zinc-400">({{ lance.categoria }})</span>
+                          </span>
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
             <!-- AS 4 SEÇÕES DIDÁTICAS CONCEITUAIS + RESUMO -->
             <div class="grid gap-5 sm:grid-cols-2">
               <!-- Veredito Claro -->

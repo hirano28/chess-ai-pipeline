@@ -54,6 +54,7 @@ jobs:
             backend.agentes.test_gerar_perguntas_pendentes \
             backend.agentes.test_gerar_resumo_partida \
             backend.agentes.test_insights_repertorio \
+            backend.agentes.test_insights_puzzles \
             backend.agentes.test_medir_eficacia \
             backend.agentes.test_normalizar_aberturas \
             backend.agentes.test_revisar_exercicio_avulso \
@@ -62,8 +63,10 @@ jobs:
             backend.analise_engine.test_backfill_fen_lances_criticos \
             backend.api.test_api_server \
             backend.common.test_chess_math \
+            backend.common.test_lichess_explorer \
             backend.common.test_lichess_oauth \
             backend.common.test_notacao_pt \
+            backend.common.test_syzygy_tablebase \
             backend.common.test_tenant \
             backend.ingestao.test_coletar_partidas \
             backend.ingestao.test_coletar_partidas_chesscom \

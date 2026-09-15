@@ -57,6 +57,9 @@ from backend.agentes.explicador_posicao import (  # noqa: E402
     explicar_posicao,
     salvar_explicacao_posicao,
 )
+from backend.agentes.insights_puzzles import (  # noqa: E402
+    calcular_insights_puzzles,
+)
 from backend.agentes.insights_repertorio import (  # noqa: E402
     calcular_insights_repertorio,
 )
@@ -76,10 +79,17 @@ from backend.analise_engine.analisar_partidas import (  # noqa: E402
     load_settings as load_analysis_settings,
     update_status,
 )
+from backend.common.lichess_explorer import (  # noqa: E402
+    detectar_saida_teoria,
+)
 from backend.common.lichess_oauth import (  # noqa: E402
     obter_access_token_lichess,
 )
 from backend.common.progress import log_and_print  # noqa: E402
+from backend.common.syzygy_tablebase import (  # noqa: E402
+    avaliar_lance_final_syzygy,
+    consultar_syzygy,
+)
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
 
 DEFAULT_ALLOWED_ORIGINS = (
@@ -1223,6 +1233,77 @@ def insights_repertorio_endpoint(
         raise HTTPException(
             status_code=500, detail=f"Falha ao calcular insights de repertório: {error}"
         ) from error
+
+
+@app.get("/insights/puzzles")
+def insights_puzzles_endpoint(
+    user_id: str = Depends(verificar_sessao),
+) -> dict[str, Any]:
+    """Agregações de puzzles e diagnóstico do Gap Tático (D-41).
+
+    Compara a precisão por tema tático nos puzzles com as vulnerabilidades das
+    partidas reais sob pressão de tempo (D-30: filtrado pelo dono da sessão).
+    """
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        return calcular_insights_puzzles(client, user_id)
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao calcular insights de puzzles: {error}"
+        ) from error
+
+
+@app.get("/partidas/{partida_id}/teoria-abertura")
+def teoria_abertura_endpoint(
+    partida_id: str,
+    user_id: str = Depends(verificar_sessao),
+) -> dict[str, Any]:
+    """Identifica o ponto exato de saída da teoria de abertura de mestres para uma partida (D-42)."""
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    resp = (
+        client.table("partidas")
+        .select("id, pgn, cor_jogada")
+        .eq("id", partida_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    linhas = resp.data or []
+    if not linhas:
+        raise HTTPException(status_code=404, detail="Partida não encontrada.")
+
+    partida = linhas[0]
+    pgn = partida.get("pgn")
+    if not pgn:
+        return {"sucesso": False, "disponivel": False, "motivo": "sem_pgn"}
+
+    token = obter_access_token_lichess(client, user_id)
+    return detectar_saida_teoria(
+        pgn, token=token, cor_jogada=partida.get("cor_jogada")
+    )
+
+
+@app.get("/analise/syzygy")
+def syzygy_endpoint(
+    fen: str,
+    lance: str | None = None,
+    _user_id: str = Depends(verificar_sessao),
+) -> dict[str, Any]:
+    """Consulta a Syzygy Tablebase para posições de final com até 7 peças (D-42)."""
+    if lance:
+        return avaliar_lance_final_syzygy(fen, lance)
+    resultado = consultar_syzygy(fen)
+    if resultado is None:
+        return {
+            "elegivel_syzygy": False,
+            "motivo": "Posição possui mais de 7 peças, é inválida ou motor indisponível.",
+        }
+    return {"elegivel_syzygy": True, "dados": resultado}
 
 
 @app.post("/lichess/oauth/iniciar", response_model=IniciarOauthLichessResponse)

@@ -9,6 +9,10 @@ import {
   HistoricoAnaliseComponent,
   HistoricoAnaliseItem
 } from '../historico-analise/historico-analise.component';
+import {
+  TeoriaAbertura,
+  TeoriaFinaisService
+} from '../../services/teoria-finais.service';
 
 export const STORAGE_KEY_PARTIDA_ATIVA = 'chess_analisador_partida_ativa';
 
@@ -26,6 +30,9 @@ export type EstadoAnalise =
   templateUrl: './analisador-partida.component.html'
 })
 export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
+  private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
+  private readonly teoriaFinaisService = inject(TeoriaFinaisService);
+
   readonly pgn = signal('');
   readonly cor = signal<'AUTO' | 'BRANCAS' | 'PRETAS'>('AUTO');
 
@@ -35,6 +42,7 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
   readonly resumo = signal<ResumoPartidaData | null>(null);
   readonly erro = signal<string | null>(null);
   readonly segundosProcessamento = signal(0);
+  readonly teoriaAbertura = signal<TeoriaAbertura | null>(null);
 
   // Histórico de análises
   readonly historico = signal<PartidaRecenteItem[]>([]);
@@ -62,9 +70,6 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
       };
     })
   );
-
-  private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
-
 
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private timerSegundos: ReturnType<typeof setInterval> | null = null;
@@ -176,6 +181,7 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
         this.pararTimers();
         this.resumo.set(resumo);
         this.estado.set('CONCLUIDO');
+        void this.carregarTeoriaAbertura(partidaId);
       } else if (status === 'falhou') {
         this.pararTimers();
         this.erro.set('A análise anterior desta partida falhou no motor ou diagnóstico.');
@@ -288,6 +294,7 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
           this.resumo.set(resumo);
           this.estado.set('CONCLUIDO');
           void this.carregarHistorico();
+          void this.carregarTeoriaAbertura(partidaId);
         } else if (status === 'falhou') {
           this.pararTimers();
           this.erro.set('Ocorreu uma falha no processamento do motor ou diagnóstico.');
@@ -311,6 +318,19 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
     }
   }
 
+  async carregarTeoriaAbertura(partidaId: string): Promise<void> {
+    try {
+      const res = await this.teoriaFinaisService.getTeoriaAbertura(partidaId);
+      if (res.success && res.dados) {
+        this.teoriaAbertura.set(res.dados);
+      } else {
+        this.teoriaAbertura.set(null);
+      }
+    } catch {
+      this.teoriaAbertura.set(null);
+    }
+  }
+
   novaAnalise(): void {
     this.pararTimers();
     this.salvarPartidaAtiva(null);
@@ -319,6 +339,7 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
     this.partidaId.set(null);
     this.externalId.set(null);
     this.resumo.set(null);
+    this.teoriaAbertura.set(null);
     this.erro.set(null);
     this.estado.set('INICIAL');
     void this.carregarHistorico();

@@ -16,12 +16,14 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **426**, todos passando, em 24 módulos |
-| Testes de frontend (Vitest) | **100**, todos passando, em 13 arquivos |
-| `ng build` de produção | passa; avisa excesso de bundle (~794 kB), conhecido e aceito |
+| Testes de backend | **483**, todos passando, em 27 módulos |
+| Testes de frontend (Vitest) | **125**, todos passando, em 18 arquivos |
+| `ng build` de produção | passa; avisa excesso de bundle (~844 kB), conhecido e aceito |
 
-`.github/workflows/deploy-backend.yml` lista os 24 módulos de teste do backend
-à mão (incluindo `backend.agentes.test_medir_eficacia`, `backend.common.test_lichess_oauth`,
+`.github/workflows/deploy-backend.yml` lista os 27 módulos de teste do backend
+à mão (incluindo `backend.common.test_lichess_explorer`, `backend.common.test_syzygy_tablebase`,
+`backend.agentes.test_insights_repertorio`, `backend.agentes.test_insights_puzzles`,
+`backend.agentes.test_medir_eficacia`, `backend.common.test_lichess_oauth`,
 `backend.ingestao.test_importar_puzzle_activity`, `backend.agentes.test_agente2_analista`,
 `backend.common.test_notacao_pt`, `backend.analise_engine.test_backfill_fen_lances_criticos`,
 `backend.ingestao.test_coletar_partidas`, `backend.ingestao.test_coletar_partidas_chesscom`
@@ -39,8 +41,8 @@ pendência P-11 abaixo).
 
 | Tabela | Linhas |
 |---|---|
-| `partidas` | 215 (02/07/2026 a 11/09/2026); as 215 já têm `abertura_normalizada` preenchida (ver D-12 em `DECISOES.md`). Uma 216ª foi ingerida em 13/09/2026 pela validação real de D-28, ainda sem `abertura_normalizada`/ECO processados — as distribuições abaixo não a incluem |
-| `lances_criticos` | 510 — 492 `PICO`, 18 `EROSAO` |
+| `partidas` | 230 (02/07/2026 a 14/09/2026); todas as 230 com status `concluido` e `abertura_normalizada` preenchida (ver D-12 e D-39 em `DECISOES.md`) |
+| `lances_criticos` | 685 (560 anteriores + 125 novos gerados pelo reprocessamento de P-5/D-39) |
 | `diagnosticos` | 473 |
 | `puzzle_atividade` | 660, em 41 dias distintos |
 | `tempos_lance` | 2.863, cobrindo 40 partidas |
@@ -252,11 +254,9 @@ O ciclo completo foi fechado:
 1. **Backend:** `medir_eficacia.py` automatizado no `pipeline-semanal.yml` com isolamento multi-tenant (D-37), calculando a redução percentual de falhas na janela de 15 dias pós-treino.
 2. **Frontend:** `SessoesTreinoComponent` e `SupabaseService` atualizados (D-38) com métricas de resumo (prescritas, concluídas, eficácia média), ação de concluir sprint, opção de desmarcar/reabrir e exibição do impacto na frequência de falhas com observações (ou aviso de espera da janela pós-treino).
 
-### P-5 — 14% das partidas morrem em silêncio 🟡
+### P-5 — 14% das partidas morrem em silêncio ✅ RESOLVIDA em 14/09/2026 (D-39)
 
-28 partidas em `falhou` e 2 travadas em `processando`, concentradas entre
-28/08 e 09/09 — justamente as mais recentes. `analisar_partidas.py` só busca
-`pendente`, então nada é retomado e nenhum alerta é emitido.
+Todas as 31 partidas retidas (28 `falhou` e 3 `processando`) mais 2 pendentes (33 no total) foram reprocessadas e recuperadas com 100% de sucesso (0 falhas). A causa raiz (`STOCKFISH_SEARCHTIME_MS = 3_000` forçando >5 minutos por partida) foi sanada com o padrão `searchtime=0` (avaliando a `depth=16` em ~0.12s por lance). `analisar_partidas.py` agora recupera automaticamente partidas órfãs em `processando`, suporta `--reprocessar-falhas` e `--partida-id`, com deleção limpa de tabelas dependentes (Regra R7). O status atual do corpus é 230 partidas concluídas, 0 em falhou, 0 em processando, 0 pendentes, e o total de lances críticos subiu para 685.
 
 ### P-6 — 6 scripts existem mas não estão automatizados ✅ 5 automatizados em 14/09/2026 (D-37)
 
@@ -266,24 +266,18 @@ O ciclo completo foi fechado:
 
 Apenas `importar_anotacoes_lichess.py` permanece manual por depender do escopo OAuth `study:write` (fora do escopo atual).
 
-### P-7 — Repertório é ponto cego total (parcialmente mitigado em 11/09/2026) 🟡
+### P-7 — Repertório é ponto cego total ✅ RESOLVIDA em 14/09/2026 (D-40)
 
-**146 de 146 partidas do Chess.com continuam sem `eco_abertura`** — 77% do
-corpus. `backfill_eco_abertura.py` nunca foi executado com sucesso para o
-Chess.com. Qualquer código que dependa especificamente do código ECO (não do
-nome) continua cego para essas 146 partidas.
+O ponto cego foi completamente sanado em duas frentes:
+1. `coletar_partidas_chesscom.py` passou a extrair o código ECO padrão internacional diretamente do cabeçalho PGN (`[ECO "..."]`). O script `backfill_eco_abertura.py` foi executado contra o banco e atualizou 153/153 partidas do Chess.com (100%) com seus respectivos códigos ECO.
+2. Criados o serviço (`RepertorioService`) e o componente de interface (`RepertorioInsightsComponent`) no frontend, exibindo taxa de vitória de Brancas vs Pretas, filtro por cor, momento médio de erro crítico (lance de pico) e categorias vulneráveis do hexágono por abertura.
 
-**Mitigação parcial:** `abertura_normalizada` (D-12 em `DECISOES.md`) preenche
-as 215/215 partidas independentemente do ECO — para o Chess.com ela vem da
-tag `[ECOUrl]` do próprio PGN, não do backfill que nunca rodou. O vértice
-ABERTURA do hexágono já pode usar `abertura_normalizada` como base real; só o
-código ECO cru continua faltando.
+### P-8 — Ferramentas interativas sem hábito de uso (Aproveitamento de Puzzles) ✅ RESOLVIDA em 14/09/2026 (D-41)
 
-### P-8 — Ferramentas interativas sem hábito de uso 🟡
-
-`revisoes_pensamento` tem 23 registros concentrados em 1 único dia;
-`revisao_exercicio_avulso`, 5 registros em 2 dias. O único hábito consistente são
-os puzzles (660 em 41 dias), e é exatamente o dado que o pipeline não usa.
+O hábito consistente de puzzles (660 puzzles em 41 dias distintos) foi plenamente incorporado ao pipeline analítico:
+1. Módulo analítico puro `backend/agentes/insights_puzzles.py` calcula estatísticas gerais (taxa global de 70.3%, rating médio de 1.854), mapeia e traduz temas do Lichess para português, separa vulnerabilidades (<55% de acerto: lances defensivos 45.2%, desvio 48.5%, lances silenciosos 53.8%) e pontos fortes (>70%: mates curtos, ataques na ala do rei), formulando um diagnóstico comparativo profundo do "Gap Tático" (cálculo calmo vs decisões sob pressão de tempo em blitz).
+2. Endpoint autenticado `GET /insights/puzzles` exposto no backend (`backend/api/api_server.py`) com isolamento multi-tenant (D-30).
+3. Criados `PuzzlesService` e o componente visual `PuzzlesInsightsComponent` integrado ao dashboard, fornecendo cards de métricas, diagnóstico narrativo do Gap Tático, temas vulneráveis com barra de progresso e links diretos de treino no Lichess (`https://lichess.org/training/{slug}`), além de badges para pontos fortes dominados.
 
 ### P-9 — Pendências menores 🟢
 

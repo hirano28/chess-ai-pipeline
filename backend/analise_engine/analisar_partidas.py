@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import io
 import logging
 import multiprocessing
@@ -41,9 +42,9 @@ WINDOW_SIZE_EROSAO = 8
 EROSAO_THRESHOLD_PERCENT = 15.0
 PARTIDA_TIMEOUT_SECONDS = 600
 STOCKFISH_INIT_TIMEOUT_SECONDS = 15
-# O timeout da partida cobre todas as avaliações; mantenha este valor baixo
-# o suficiente para que dezenas de posições caibam no orçamento total.
-STOCKFISH_SEARCHTIME_MS = 3_000
+# Tempo de busca em ms por lance. Padrão 0 avalia na profundidade configurada (depth=16),
+# rodando ~25x mais rápido (~0.12s por lance vs 3s) e evitando timeouts de partidas longas.
+STOCKFISH_SEARCHTIME_MS = int(os.getenv("STOCKFISH_SEARCHTIME_MS", "0"))
 
 
 @dataclass(frozen=True)
@@ -183,6 +184,97 @@ def update_status(client: Client, partida_id: Any, status: str) -> None:
     ).execute()
 
 
+def limpar_registros_derivados_partida(client: Client, partida_id: Any) -> None:
+    """Remove registros derivados de uma partida respeitando integridade referencial (Regra R7)."""
+
+    # 1. resumo_partida (referencia partida_id diretamente)
+    client.table("resumo_partida").delete().eq("partida_id", partida_id).execute()
+
+    # 2. lances_criticos e tabelas filhas (perguntas_pendentes, diagnosticos)
+    resp = (
+        client.table("lances_criticos")
+        .select("id")
+        .eq("partida_id", partida_id)
+        .execute()
+    )
+    lance_ids = [row["id"] for row in (resp.data or []) if "id" in row]
+
+    if lance_ids:
+        client.table("perguntas_pendentes").delete().in_("lance_id", lance_ids).execute()
+        client.table("diagnosticos").delete().in_("lance_id", lance_ids).execute()
+
+    client.table("lances_criticos").delete().eq("partida_id", partida_id).execute()
+
+
+def resetar_partida_para_pendente(client: Client, partida_id: Any) -> None:
+    """Limpa registros derivados e redefine status da partida para 'pendente'."""
+
+    limpar_registros_derivados_partida(client, partida_id)
+    update_status(client, partida_id, "pendente")
+
+
+def recuperar_partidas_orfas(client: Client, logger: logging.Logger) -> int:
+    """Recupera partidas que ficaram presas em 'processando' por falha/interrupção prévia."""
+
+    response = (
+        client.table("partidas")
+        .select("id, external_id")
+        .eq("status_processamento", "processando")
+        .execute()
+    )
+    orfas = response.data or []
+    if not orfas:
+        return 0
+
+    log_and_print(
+        logger,
+        f"Encontradas {len(orfas)} partidas órfãs em 'processando'. Recuperando...",
+    )
+    for partida in orfas:
+        pid = partida["id"]
+        ext = partida.get("external_id", pid)
+        logger.info("Recuperando partida órfã %s (ext=%s)", pid, ext)
+        resetar_partida_para_pendente(client, pid)
+
+    log_and_print(
+        logger,
+        f"{len(orfas)} partidas órfãs recuperadas com sucesso e resetadas para 'pendente'.",
+    )
+    return len(orfas)
+
+
+def recuperar_partidas_com_falha(client: Client, logger: logging.Logger) -> int:
+    """Reseta partidas com status 'falhou' para 'pendente' para reprocessamento."""
+
+    response = (
+        client.table("partidas")
+        .select("id, external_id")
+        .eq("status_processamento", "falhou")
+        .execute()
+    )
+    falhas = response.data or []
+    if not falhas:
+        log_and_print(logger, "Nenhuma partida com status 'falhou' encontrada.")
+        return 0
+
+    log_and_print(
+        logger,
+        f"Resetando {len(falhas)} partidas com status 'falhou' para 'pendente'...",
+    )
+    for partida in falhas:
+        pid = partida["id"]
+        ext = partida.get("external_id", pid)
+        logger.info("Resetando partida com falha %s (ext=%s)", pid, ext)
+        resetar_partida_para_pendente(client, pid)
+
+    log_and_print(
+        logger,
+        f"{len(falhas)} partidas com falha resetadas para 'pendente'.",
+    )
+    return len(falhas)
+
+
+
 def evaluation_to_cp(evaluation: dict[str, str | int]) -> int:
     """Converte avaliação de centipawns ou mate para uma escala numérica."""
 
@@ -216,7 +308,10 @@ def evaluate_position(
 
     engine.set_fen_position(board.fen())
     try:
-        evaluation = engine.get_evaluation(searchtime=searchtime_ms)
+        if searchtime_ms and searchtime_ms > 0:
+            evaluation = engine.get_evaluation(searchtime=searchtime_ms)
+        else:
+            evaluation = engine.get_evaluation()
     except TypeError:
         # Mantém compatibilidade com engines falsos usados nos testes unitários.
         evaluation = engine.get_evaluation()
@@ -527,10 +622,8 @@ def insert_critical_moves(
 ) -> int:
     """Substitui os lances críticos de uma partida e retorna a quantidade inserida."""
 
-    # Remove lances de execuções anteriores para que um reprocessamento nunca duplique.
-    client.table("lances_criticos").delete().eq(
-        "partida_id", result.partida_id
-    ).execute()
+    # Remove lances e derivados de execuções anteriores para que um reprocessamento nunca duplique (Regra R7).
+    limpar_registros_derivados_partida(client, result.partida_id)
 
     inserted = 0
     for move in result.critical_moves:
@@ -551,9 +644,30 @@ def insert_critical_moves(
     return inserted
 
 
+def parse_args() -> argparse.Namespace:
+    """Configura e processa os argumentos de linha de comando."""
+
+    parser = argparse.ArgumentParser(
+        description="Analisa partidas pendentes com Stockfish e registra lances críticos."
+    )
+    parser.add_argument(
+        "--reprocessar-falhas",
+        action="store_true",
+        help="Reseta partidas com status 'falhou' para 'pendente' antes de iniciar a análise.",
+    )
+    parser.add_argument(
+        "--partida-id",
+        type=str,
+        default=None,
+        help="Executa a análise de uma única partida específica (resetando-a para 'pendente' se necessário).",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     """Processa todas as partidas pendentes e imprime o resumo final."""
 
+    args = parse_args()
     logger = configure_logging()
     processed = failed = critical_moves_inserted = 0
     try:
@@ -567,7 +681,46 @@ def main() -> None:
         client = create_client(
             settings.supabase_url, settings.supabase_service_role_key
         )
-        pending_games = fetch_pending_games(client, logger)
+
+        if args.partida_id:
+            # Busca a partida específica por id ou external_id
+            resp = (
+                client.table("partidas")
+                .select("*")
+                .eq("id", args.partida_id)
+                .execute()
+            )
+            if not resp.data:
+                resp = (
+                    client.table("partidas")
+                    .select("*")
+                    .eq("external_id", args.partida_id)
+                    .execute()
+                )
+            if not resp.data:
+                log_and_print(
+                    logger,
+                    f"Partida {args.partida_id} não encontrada no banco.",
+                )
+                return
+            partida_alvo = resp.data[0]
+            log_and_print(
+                logger,
+                f"Resetando e processando partida específica {partida_alvo['id']} "
+                f"(external_id={partida_alvo.get('external_id')})...",
+            )
+            resetar_partida_para_pendente(client, partida_alvo["id"])
+            pending_games = [partida_alvo]
+        else:
+            # Sempre recupera partidas órfãs deixadas em 'processando'
+            recuperar_partidas_orfas(client, logger)
+
+            # Se solicitado, recupera partidas com status 'falhou'
+            if args.reprocessar_falhas:
+                recuperar_partidas_com_falha(client, logger)
+
+            pending_games = fetch_pending_games(client, logger)
+
         total = len(pending_games)
         start_time = time.time()
         for index, partida in enumerate(pending_games, start=1):

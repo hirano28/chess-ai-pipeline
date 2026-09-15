@@ -6,12 +6,22 @@ import {
   RevisaoAvulsaService
 } from '../../services/revisao-avulsa.service';
 import {
+  SyzygyAvaliacao,
+  TeoriaFinaisService
+} from '../../services/teoria-finais.service';
+import {
   HistoricoAnaliseComponent,
   HistoricoAnaliseItem
 } from '../historico-analise/historico-analise.component';
 
 /** Chave de localStorage que sobrevive a um F5, mesmo padrão do Analisador de Partida. */
 export const STORAGE_KEY_EXPLICADOR_ATIVO = 'chess_explicador_ativo';
+
+/** Conta o número total de peças em uma FEN para verificar elegibilidade Syzygy (<= 7). */
+export function contarPecasFen(fen: string): number {
+  const colocacao = fen.trim().split(/\s+/)[0] || '';
+  return (colocacao.match(/[prnbqkPRNBQK]/g) || []).length;
+}
 
 /** Tamanho máximo do veredito exibido como título de cada item do histórico. */
 const TITULO_HISTORICO_MAX_CHARS = 90;
@@ -29,6 +39,10 @@ export class ExplicadorPosicaoComponent implements OnInit {
   readonly carregando = signal(false);
   readonly erro = signal<string | null>(null);
   readonly resultado = signal<ResultadoExplicadorPosicao | null>(null);
+
+  // Avaliação do Syzygy Tablebase (finais com <= 7 peças)
+  readonly syzygy = signal<SyzygyAvaliacao | null>(null);
+  readonly carregandoSyzygy = signal(false);
 
   // Histórico de explicações já persistidas (explicacoes_posicao, ver P-10).
   readonly historico = signal<ExplicacaoPosicaoRecenteItem[]>([]);
@@ -60,8 +74,7 @@ export class ExplicadorPosicaoComponent implements OnInit {
   );
 
   private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
-
-
+  private readonly teoriaFinaisService = inject(TeoriaFinaisService);
 
   get formularioValido(): boolean {
     return this.posicao().trim().length > 0;
@@ -97,6 +110,29 @@ export class ExplicadorPosicaoComponent implements OnInit {
     this.resultado.set(item.resultado);
     this.erro.set(null);
     this.salvarAtivo(id);
+    if (item.resultado?.fen) {
+      void this.carregarSyzygy(item.resultado.fen);
+    } else {
+      this.syzygy.set(null);
+    }
+  }
+
+  async carregarSyzygy(fen: string): Promise<void> {
+    if (contarPecasFen(fen) <= 7) {
+      this.carregandoSyzygy.set(true);
+      try {
+        const res = await this.teoriaFinaisService.getAnaliseSyzygy(fen);
+        if (res.success && res.dados) {
+          this.syzygy.set(res.dados);
+          return;
+        }
+      } catch {
+        // Falha silenciosa para não bloquear a tela principal
+      } finally {
+        this.carregandoSyzygy.set(false);
+      }
+    }
+    this.syzygy.set(null);
   }
 
   private restaurarAtivoSalvo(): void {
@@ -138,6 +174,7 @@ export class ExplicadorPosicaoComponent implements OnInit {
     this.lado.set('BRANCAS');
     this.erro.set(null);
     this.resultado.set(null);
+    this.syzygy.set(null);
     this.salvarAtivo(null);
   }
 
@@ -149,6 +186,7 @@ export class ExplicadorPosicaoComponent implements OnInit {
     this.carregando.set(true);
     this.erro.set(null);
     this.resultado.set(null);
+    this.syzygy.set(null);
 
     try {
       const ladoParam = this.lado() === 'TODOS' ? null : this.lado();
@@ -164,6 +202,7 @@ export class ExplicadorPosicaoComponent implements OnInit {
         throw new Error(resposta.error ?? 'O servidor não retornou um resultado.');
       }
       this.resultado.set(resposta.resultado);
+      void this.carregarSyzygy(resposta.resultado.fen);
       // O backend já persistiu ao gerar (ver P-10); marcamos como "ativo" só
       // quando ele confirma um id - se a persistência falhou lá, não há o
       // que restaurar num F5, então não sobrescrevemos o que já era ativo.
@@ -183,6 +222,7 @@ export class ExplicadorPosicaoComponent implements OnInit {
     this.posicao.set('');
     this.lado.set('TODOS');
     this.resultado.set(null);
+    this.syzygy.set(null);
     this.erro.set(null);
     this.salvarAtivo(null);
   }

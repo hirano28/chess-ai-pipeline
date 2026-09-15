@@ -3,12 +3,19 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+import chess
 from backend.analise_engine.analisar_partidas import (
     AnalysisSettings,
     PlayerMoveEval,
     detectar_erosao,
+    evaluate_position,
+    limpar_registros_derivados_partida,
+    parse_args,
     processar_partida,
     processar_partida_com_timeout,
+    recuperar_partidas_com_falha,
+    recuperar_partidas_orfas,
+    resetar_partida_para_pendente,
     selecionar_picos,
 )
 
@@ -231,6 +238,117 @@ class ProcessarPartidaComTimeoutContextoTest(unittest.TestCase):
                 )
 
         self.assertIn("Falha ao inicializar Stockfish", str(ctx.exception))
+
+
+class EvaluatePositionTest(unittest.TestCase):
+    def test_searchtime_zero_chama_sem_argumentos(self) -> None:
+        engine = MagicMock()
+        engine.get_evaluation.return_value = {"type": "cp", "value": 50}
+        board = chess.Board()
+
+        score = evaluate_position(engine, board, "BRANCAS", searchtime_ms=0)
+
+        engine.get_evaluation.assert_called_once_with()
+        self.assertEqual(score, 50)
+
+    def test_searchtime_positivo_passa_searchtime(self) -> None:
+        engine = MagicMock()
+        engine.get_evaluation.return_value = {"type": "cp", "value": 50}
+        board = chess.Board()
+
+        score = evaluate_position(engine, board, "BRANCAS", searchtime_ms=1500)
+
+        engine.get_evaluation.assert_called_once_with(searchtime=1500)
+        self.assertEqual(score, 50)
+
+
+class LimpezaRegistrosDerivadosTest(unittest.TestCase):
+    def test_limpar_registros_deleta_em_ordem_respeitando_fk(self) -> None:
+        client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.data = [{"id": "lance-1"}, {"id": "lance-2"}]
+        client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_resp
+
+        limpar_registros_derivados_partida(client, "partida-1")
+
+        tables_called = [call.args[0] for call in client.table.call_args_list]
+        self.assertIn("resumo_partida", tables_called)
+        self.assertIn("lances_criticos", tables_called)
+        self.assertIn("perguntas_pendentes", tables_called)
+        self.assertIn("diagnosticos", tables_called)
+
+    def test_limpar_registros_sem_lances_criticos_nao_deleta_filhos(self) -> None:
+        client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.data = []
+        client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_resp
+
+        limpar_registros_derivados_partida(client, "partida-1")
+
+        tables_called = [call.args[0] for call in client.table.call_args_list]
+        self.assertIn("resumo_partida", tables_called)
+        self.assertIn("lances_criticos", tables_called)
+        self.assertNotIn("perguntas_pendentes", tables_called)
+        self.assertNotIn("diagnosticos", tables_called)
+
+    def test_resetar_partida_para_pendente_limpa_e_atualiza(self) -> None:
+        client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.data = []
+        client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_resp
+
+        resetar_partida_para_pendente(client, "partida-1")
+
+        client.table("partidas").update.assert_called_with({"status_processamento": "pendente"})
+
+
+class RecuperacaoPartidasTest(unittest.TestCase):
+    def test_recuperar_partidas_orfas(self) -> None:
+        client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.data = [
+            {"id": "p1", "external_id": "ext1"},
+            {"id": "p2", "external_id": "ext2"},
+        ]
+        client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_resp
+        logger = MagicMock()
+
+        count = recuperar_partidas_orfas(client, logger)
+
+        self.assertEqual(count, 2)
+        client.table("partidas").update.assert_called_with({"status_processamento": "pendente"})
+
+    def test_recuperar_partidas_com_falha(self) -> None:
+        client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.data = [
+            {"id": "p1", "external_id": "ext1"},
+        ]
+        client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_resp
+        logger = MagicMock()
+
+        count = recuperar_partidas_com_falha(client, logger)
+
+        self.assertEqual(count, 1)
+        client.table("partidas").update.assert_called_with({"status_processamento": "pendente"})
+
+
+class ParseArgsTest(unittest.TestCase):
+    def test_args_default(self) -> None:
+        with patch("sys.argv", ["analisar_partidas.py"]):
+            args = parse_args()
+            self.assertFalse(args.reprocessar_falhas)
+            self.assertIsNone(args.partida_id)
+
+    def test_args_reprocessar_falhas(self) -> None:
+        with patch("sys.argv", ["analisar_partidas.py", "--reprocessar-falhas"]):
+            args = parse_args()
+            self.assertTrue(args.reprocessar_falhas)
+
+    def test_args_partida_id(self) -> None:
+        with patch("sys.argv", ["analisar_partidas.py", "--partida-id", "uuid-123"]):
+            args = parse_args()
+            self.assertEqual(args.partida_id, "uuid-123")
 
 
 if __name__ == "__main__":
