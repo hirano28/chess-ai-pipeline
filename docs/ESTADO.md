@@ -16,12 +16,13 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **504**, todos passando, em 28 módulos |
+| Testes de backend | **516**, todos passando, em 29 módulos |
 | Testes de frontend (Vitest) | **125**, todos passando, em 18 arquivos |
-| `ng build` de produção | passa; avisa excesso de bundle (~845 kB), conhecido e aceito |
+| `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial reduzido para ~10.73 kB via lazy loading de rotas (D-44) |
 
-`.github/workflows/deploy-backend.yml` lista os 28 módulos de teste do backend
-à mão (incluindo `backend.ingestao.test_backfill_tempos_chesscom`,
+`.github/workflows/deploy-backend.yml` lista os 29 módulos de teste do backend
+à mão (incluindo `backend.rag.test_processar_livro`,
+`backend.ingestao.test_backfill_tempos_chesscom`,
 `backend.common.test_lichess_explorer`, `backend.common.test_syzygy_tablebase`,
 `backend.agentes.test_insights_repertorio`, `backend.agentes.test_insights_puzzles`,
 `backend.agentes.test_medir_eficacia`, `backend.common.test_lichess_oauth`,
@@ -282,8 +283,9 @@ O hábito consistente de puzzles (660 puzzles em 41 dias distintos) foi plenamen
 
 ### P-9 — Pendências menores 🟢
 
-- Livro "How to Calculate Chess Tactics" (inglês, precisa OCR com idioma inglês
-  no Tesseract) nunca foi processado.
+- Livro "How to Calculate Chess Tactics" (inglês): pipeline adaptado em D-44 com
+  parâmetro `--ocr-lang eng`, cache diferenciado por idioma e detecção de capítulos
+  em inglês (`CHAPTER`, `PART`, `SECTION`).
 - Projeto GCP `chess-ai-pipeline`, criado por engano, pode ainda existir.
   Verifique com `gcloud projects list` e delete se estiver lá. O projeto correto
   é `gen-lang-client-0828609060`.

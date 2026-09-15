@@ -53,23 +53,30 @@ MIN_CHUNK_WORDS = 200
 UPPERCASE_TITLE_MIN_CHARS = 15
 MIN_TITLE_ALPHA_RATIO = 0.7
 MAX_CHUNKS_PER_BOOK = 1000
-INDICE_MARKERS = ("índice de capítulos", "índice de jogadores")
+INDICE_MARKERS = (
+    "índice de capítulos",
+    "índice de jogadores",
+    "table of contents",
+    "index of players",
+    "index of games",
+    "contents",
+)
 
 CHAPTER_PATTERNS = (
     re.compile(
-        r"^\s*(CAP[IÍ]TULO|PARTE)\s+[\dIVXLC]+\s*(?:[-—]\s*.+)?$",
+        r"^\s*(CAP[IÍ]TULO|PARTE|CHAPTER|PART|SECTION)\s+[\dIVXLC]+\s*(?:[-—:]\s*.+)?$",
         re.IGNORECASE,
     ),
 )
 NUMBERED_CHAPTER_PATTERN = re.compile(
-    r"^\s*[1-9]\s*[-—]\s+[A-ZÁÉÍÓÚÂÊÔÃÕÀÇ].*$"
+    r"^\s*([1-9]\d?)\s*[-—.]\s+[A-ZÁÉÍÓÚÂÊÔÃÕÀÇ].*$"
 )
 
 
 def numbered_chapter_number(line: str) -> int | None:
     """Extrai o número de um candidato de capítulo numerado."""
 
-    match = re.match(r"^\s*([1-9])\s*[-—]\s+", line)
+    match = re.match(r"^\s*([1-9]\d?)\s*[-—.]\s+", line)
     return int(match.group(1)) if match else None
 
 
@@ -129,17 +136,19 @@ def load_settings() -> dict[str, str]:
     return settings  # type: ignore[return-value]
 
 
-def ocr_cache_path(pdf_path: Path) -> Path:
+def ocr_cache_path(pdf_path: Path, ocr_lang: str = OCR_LANG) -> Path:
     """Retorna o caminho estável do cache OCR de um PDF."""
 
-    digest = hashlib.sha256(str(pdf_path.resolve()).encode("utf-8")).hexdigest()[:16]
-    return OCR_CACHE_DIR / f"{pdf_path.stem}_{digest}.json"
+    digest = hashlib.sha256(f"{pdf_path.resolve()}_{ocr_lang}".encode("utf-8")).hexdigest()[:16]
+    return OCR_CACHE_DIR / f"{pdf_path.stem}_{ocr_lang}_{digest}.json"
 
 
-def load_ocr_cache(pdf_path: Path, logger: logging.Logger) -> list[PageText] | None:
+def load_ocr_cache(
+    pdf_path: Path, logger: logging.Logger, ocr_lang: str = OCR_LANG
+) -> list[PageText] | None:
     """Carrega cache somente quando ele é mais recente que o PDF."""
 
-    cache_path = ocr_cache_path(pdf_path)
+    cache_path = ocr_cache_path(pdf_path, ocr_lang)
     if not cache_path.exists() or cache_path.stat().st_mtime < pdf_path.stat().st_mtime:
         return None
     try:
@@ -152,10 +161,12 @@ def load_ocr_cache(pdf_path: Path, logger: logging.Logger) -> list[PageText] | N
         return None
 
 
-def save_ocr_cache(pdf_path: Path, pages: list[PageText], logger: logging.Logger) -> None:
+def save_ocr_cache(
+    pdf_path: Path, pages: list[PageText], logger: logging.Logger, ocr_lang: str = OCR_LANG
+) -> None:
     """Salva o OCR em JSON fora do fluxo de embeddings."""
 
-    cache_path = ocr_cache_path(pdf_path)
+    cache_path = ocr_cache_path(pdf_path, ocr_lang)
     OCR_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     payload = [{"numero": page.numero, "texto": page.texto} for page in pages]
     cache_path.write_text(
@@ -169,10 +180,11 @@ def extract_pages_ocr(
     poppler_path: str,
     tesseract_cmd: str,
     logger: logging.Logger,
+    ocr_lang: str = OCR_LANG,
 ) -> list[PageText]:
-    """Renderiza cada página e extrai texto por OCR em português."""
+    """Renderiza cada página e extrai texto por OCR."""
 
-    cached_pages = load_ocr_cache(pdf_path, logger)
+    cached_pages = load_ocr_cache(pdf_path, logger, ocr_lang)
     if cached_pages is not None:
         return cached_pages
     if tesseract_cmd:
@@ -187,7 +199,7 @@ def extract_pages_ocr(
     ocr_start = time.time()
     for index, image in enumerate(images, start=1):
         try:
-            text = pytesseract.image_to_string(image, lang=OCR_LANG)
+            text = pytesseract.image_to_string(image, lang=ocr_lang)
         except Exception:
             logger.error(
                 "OCR falhou na página %d:\n%s", index, traceback.format_exc()
@@ -198,10 +210,10 @@ def extract_pages_ocr(
             log_and_print(
                 logger,
                 format_progress(
-                    "OCR", "páginas", index, total, time.time() - ocr_start
+                    f"OCR ({ocr_lang})", "páginas", index, total, time.time() - ocr_start
                 ),
             )
-    save_ocr_cache(pdf_path, pages, logger)
+    save_ocr_cache(pdf_path, pages, logger, ocr_lang)
     return pages
 
 
@@ -210,27 +222,30 @@ def resolve_pages(
     settings: dict[str, str],
     forcar_ocr: bool,
     logger: logging.Logger,
+    ocr_lang: str = OCR_LANG,
 ) -> list[PageText]:
     """Escolhe entre extração nativa e OCR conforme o conteúdo do PDF."""
 
     if forcar_ocr:
-        logger.info("Flag --forcar-ocr ativa; extraindo diretamente via OCR...")
+        logger.info("Flag --forcar-ocr ativa; extraindo diretamente via OCR (%s)...", ocr_lang)
         return extract_pages_ocr(
             pdf_path,
             settings["POPPLER_PATH"],
             settings["TESSERACT_PATH"],
             logger,
+            ocr_lang=ocr_lang,
         )
 
     pages = extract_pages(pdf_path)
     total_chars = sum(len(page.texto) for page in pages)
     if total_chars < OCR_TEXT_THRESHOLD:
-        logger.warning("PDF sem texto nativo detectado, iniciando OCR...")
+        logger.warning("PDF sem texto nativo detectado, iniciando OCR (%s)...", ocr_lang)
         return extract_pages_ocr(
             pdf_path,
             settings["POPPLER_PATH"],
             settings["TESSERACT_PATH"],
             logger,
+            ocr_lang=ocr_lang,
         )
     return pages
 
@@ -261,8 +276,8 @@ def detect_chapter(line: str, allow_numbered: bool = True) -> str | None:
                 return None
             return stripped
     if allow_numbered and NUMBERED_CHAPTER_PATTERN.fullmatch(stripped):
-        if "," not in stripped and "." not in stripped:
-            if not re.search(r"[-—]\s*\d+\s*$", stripped):
+        if "," not in stripped and not stripped.endswith("."):
+            if not re.search(r"[-—.]\s*\d+\s*$", stripped):
                 return stripped
     if (
         len(stripped) >= UPPERCASE_TITLE_MIN_CHARS
@@ -286,7 +301,7 @@ def _is_index_page(lines: list[str]) -> bool:
     """Indica página referencial que não deve criar capítulos numerados."""
 
     text = " ".join(lines).casefold()
-    return "índice de" in text or "indice de" in text
+    return any(marker in text for marker in ("índice de", "indice de", "contents", "table of contents"))
 
 
 def remove_repeated_headers(
@@ -529,6 +544,11 @@ def parse_args() -> argparse.Namespace:
         help="Pula a extração nativa e usa OCR diretamente.",
     )
     parser.add_argument(
+        "--ocr-lang",
+        default=OCR_LANG,
+        help="Idioma para extração OCR via Tesseract (ex: 'por', 'eng'). Padrão: 'por'.",
+    )
+    parser.add_argument(
         "--preview",
         action="store_true",
         help="Extrai e faz chunking sem chamar embedding nem inserir no banco.",
@@ -602,7 +622,9 @@ def main() -> None:
         )
         gemini_client = genai.Client(api_key=settings["GEMINI_API_KEY"])
 
-        pages = resolve_pages(Path(args.pdf), settings, args.forcar_ocr, logger)
+        pages = resolve_pages(
+            Path(args.pdf), settings, args.forcar_ocr, logger, ocr_lang=args.ocr_lang
+        )
         chunks = filtrar_chunks_indexaveis(build_chunks(pages))
         logger.info("Livro '%s' gerou %d chunks", args.nome, len(chunks))
 

@@ -73,7 +73,8 @@ jobs:
             backend.ingestao.test_coletar_partidas_chesscom \
             backend.ingestao.test_common_ingestao \
             backend.ingestao.test_enriquecer_partidas_lichess \
-            backend.ingestao.test_importar_puzzle_activity
+            backend.ingestao.test_importar_puzzle_activity \
+            backend.rag.test_processar_livro
 
       - name: Autenticar no Google Cloud
         uses: google-github-actions/auth@v2

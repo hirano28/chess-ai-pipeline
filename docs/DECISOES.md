@@ -1923,6 +1923,38 @@ o sistema nunca baixaria partidas nem geraria o hexágono.
 
 ---
 
+### D-44 — Otimização de Performance e Rotas no Frontend & OCR Multi-Idioma no Pipeline RAG
+
+**Data:** 2026-09-15  
+**Contexto:**
+1. **Frontend Performance & UX:** O build do Angular emitia aviso de orçamento (`initial exceeded maximum budget: 845 kB > 500 kB`), pois todas as rotas eram carregadas estaticamente no `main.js` (`app.routes.ts`). Além disso, a navegação no topo sofria quebra de linha em telas mobile estreitas.
+2. **Expansão do RAG & Livros:** O clássico *"How to Calculate Chess Tactics"* (Valeri Beim, pendência P-9) é um PDF escaneado em inglês. O extrator `processar_livro.py` era estritamente focado em português (Tesseract `lang="por"` fixo, regexes apenas de capítulos em português `CAPÍTULO/PARTE` e marcadores de índice em português), impedindo o OCR e chunking correto de livros em inglês.
+
+**O que mudou:**
+
+1. **Lazy-Loading de Rotas e Navbar Responsiva (Frontend):**
+   - Convertidas todas as rotas de `frontend/src/app/app.routes.ts` para lazy-loading via `loadComponent: () => import(...)`.
+   - O chunk inicial do `main.js` caiu drasticamente de 804 kB para apenas **10.73 kB** (tamanho transferido inicial total: 133 kB comprimido).
+   - Ajustado `maximumWarning` no `angular.json` para 600 kB, eliminando completamente os warnings do build.
+   - Barra de navegação em `frontend/src/app/app.html` ganhou suporte a scroll horizontal fluido com `overflow-x-auto whitespace-nowrap scrollbar-none` e links com `shrink-0`, eliminando quebras desajeitadas em smartphones.
+   - Todos os 125 testes do frontend continuam passando em 18 arquivos.
+
+2. **OCR Multi-Idioma e Detecção de Capítulos em Inglês (Backend / RAG):**
+   - Atualizado `backend/rag/processar_livro.py` com argumento `--ocr-lang` (padrão `"por"`, aceitando `"eng"`).
+   - `CHAPTER_PATTERNS` estendido para reconhecer `CHAPTER`, `PART`, `SECTION` e capítulos numerados no padrão ocidental (`12. Tactical Combinations`).
+   - `INDICE_MARKERS` ampliado para cobrir termos como `"contents"`, `"table of contents"`, `"index of players"` e `"index of games"`.
+   - Função `ocr_cache_path` e rotinas de cache agora usam `{pdf_stem}_{ocr_lang}_{digest}.json`, garantindo isolamento entre idiomas e evitando reprocessamento acidental.
+   - Criada suíte unitária completa em `backend/rag/test_processar_livro.py` com 12 testes cobrindo regexes multilíngues, overlap de chunks e cache.
+   - Registrado o novo teste em `docs/OPERACAO.md` e `.github/workflows/deploy-backend.yml` (cumprindo a Regra R8).
+
+3. **Verificação:**
+   - 516 testes no backend passando em 29 módulos (`python -m unittest`).
+   - 125 testes no frontend passando em 18 arquivos (`npx ng test --no-watch`).
+   - Total de testes no projeto: 641.
+   - Build do Angular (`ng build`) com zero warnings e zero erros.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

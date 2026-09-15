@@ -53,7 +53,8 @@ python -m unittest \
   backend.ingestao.test_coletar_partidas_chesscom \
   backend.ingestao.test_common_ingestao \
   backend.ingestao.test_enriquecer_partidas_lichess \
-  backend.ingestao.test_importar_puzzle_activity
+  backend.ingestao.test_importar_puzzle_activity \
+  backend.rag.test_processar_livro
 ```
 
 Para gerar a lista automaticamente e não esquecer nenhum módulo:
