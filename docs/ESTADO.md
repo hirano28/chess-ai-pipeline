@@ -16,12 +16,12 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **516**, todos passando, em 29 módulos |
+| Testes de backend | **520**, todos passando, em 30 módulos |
 | Testes de frontend (Vitest) | **130**, todos passando, em 19 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44) e UI/UX de tabuleiro e repertório polida (D-45) |
 
-`.github/workflows/deploy-backend.yml` lista os 29 módulos de teste do backend
-à mão (incluindo `backend.rag.test_processar_livro`,
+`.github/workflows/deploy-backend.yml` lista os 30 módulos de teste do backend
+à mão (incluindo `backend.rag.test_importar_indice_conceitual`, `backend.rag.test_processar_livro`,
 `backend.ingestao.test_backfill_tempos_chesscom`,
 `backend.common.test_lichess_explorer`, `backend.common.test_syzygy_tablebase`,
 `backend.agentes.test_insights_repertorio`, `backend.agentes.test_insights_puzzles`,
@@ -48,8 +48,8 @@ pendência P-11 abaixo).
 | `diagnosticos` | 473 |
 | `puzzle_atividade` | 660, em 41 dias distintos |
 | `tempos_lance` | 13.708, cobrindo 193 partidas (2.863 do Lichess + 10.845 do Chess.com via backfill D-43) |
-| `livros_chunks` | 370 |
-| `indice_conceitual` | 67 |
+| `livros_chunks` | 621 (370 anteriores + 251 de *How to Reassess Your Chess*, Silman 3ª ed.) |
+| `indice_conceitual` | 189 (67 anteriores + 122 de *How to Reassess Your Chess*, Silman 3ª ed.) |
 | `anotacoes_pensamento` | 23, cobrindo 3 partidas |
 | `revisoes_pensamento` | 23, todas em 1 único dia |
 | `revisao_exercicio_avulso` | 11 |
@@ -531,9 +531,9 @@ nesse formato — o que quebraria com `--update-env-vars` inline).
 ## 5. O que está validado e funcionando
 
 Ingestão Lichess + Chess.com; Stockfish com detecção de `PICO` e `EROSAO`;
-Agentes 1, 2 e 3; RAG com 2 livros processados ("Meu Sistema" de Nimzowitsch e
-"Xadrez Vitorioso: Táticas" de Seirawan/Silman); Laboratório de Raciocínio com
-notação PT/EN, reconhecimento de posição por foto, preview do tabuleiro e
+Agentes 1, 2 e 3; RAG com 3 livros processados ("Meu Sistema" de Nimzowitsch,
+"Xadrez Vitorioso: Táticas" de Seirawan/Silman e "How to Reassess Your Chess" de Jeremy Silman);
+Laboratório de Raciocínio com notação PT/EN, reconhecimento de posição por foto, preview do tabuleiro e
 histórico navegável dos exercícios salvos; Explicador de Posição com
 persistência automática e histórico navegável; Analisador de Partida com
 histórico e reprocessamento; as 3 telas interativas compartilham o mesmo

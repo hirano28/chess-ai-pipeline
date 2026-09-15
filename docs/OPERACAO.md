@@ -54,6 +54,7 @@ python -m unittest \
   backend.ingestao.test_common_ingestao \
   backend.ingestao.test_enriquecer_partidas_lichess \
   backend.ingestao.test_importar_puzzle_activity \
+  backend.rag.test_importar_indice_conceitual \
   backend.rag.test_processar_livro
 ```
 
@@ -113,8 +114,11 @@ Os scripts `importar_puzzle_activity.py`, `enriquecer_partidas_lichess.py`, `ger
 # 2. preview primeiro (não gasta API, mostra a estrutura de capítulos)
 python backend/rag/processar_livro.py --pdf "backend/rag/livros_pdf/NOME.pdf" --nome "Nome do Livro" --preview
 #    PDF escaneado (texto vazio no preview) → acrescente --forcar-ocr
-# 3. se o preview estiver bom, rode sem --preview
-# 4. popule indice_conceitual por SQL, usando os nomes de capítulo EXATOS do preview
+# 3. se o preview estiver bom, rode sem --preview (gera chunks e embeddings no Supabase)
+# 4. gere as sugestões de conceitos com o Gemini:
+python backend/rag/sugerir_indice_conceitual.py --livro "Nome do Livro"
+# 5. importe as sugestões para a tabela indice_conceitual no Supabase:
+python backend/rag/importar_indice_conceitual.py --json backend/rag/sugestoes/Nome_do_Livro.json [--substituir]
 ```
 
 Confira sempre antes de considerar pronto:

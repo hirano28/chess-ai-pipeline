@@ -1987,6 +1987,34 @@ o sistema nunca baixaria partidas nem geraria o hexágono.
 
 ---
 
+### D-46 — Ingestão de "How to Reassess Your Chess" (Jeremy Silman, 3ª ed.) e Automação do Índice Conceitual
+
+**Data:** 2026-09-15  
+**Contexto:**
+1. O RAG prescritivo (Agente 3 e consultas teóricas) contava com apenas 2 livros processados (*Meu Sistema* e *Xadrez Vitorioso: Táticas*), totalizando 370 chunks e 67 conceitos no `indice_conceitual`.
+2. Havia carência de literatura focada em desequilíbrios posicionais e método de pensamento estratégico do mestre internacional Jeremy Silman.
+3. A população do `indice_conceitual` dependia historicamente de inserções manuais em SQL, tornando morosa a adição de novos livros.
+
+**O que mudou:**
+
+1. **Ingestão Completa via OCR:**
+   - O livro *How to Reassess Your Chess (3rd Edition)* foi processado via Tesseract OCR em 212 páginas escaneadas.
+   - Gerados 251 chunks em `livros_chunks` com embeddings do Gemini no Supabase (volume total saltou para 621 chunks).
+   - O Gemini gerou 122 sugestões conceituais mapeadas aos 39 capítulos em `backend/rag/sugestoes/How_to_Reassess_Your_Chess.json`.
+
+2. **Automação do Importador do Índice Conceitual:**
+   - Criado o script `backend/rag/importar_indice_conceitual.py` para ler o JSON estruturado gerado pelo LLM e persistir os conceitos na tabela `indice_conceitual` em lotes de 50 (com suporte a flag `--substituir`).
+   - Criada suíte unitária completa em `backend/rag/test_importar_indice_conceitual.py` (4 testes cobrindo parsing, mocks de Supabase insert e delete).
+   - Teste registrado em `docs/OPERACAO.md` e `.github/workflows/deploy-backend.yml` (cumprindo R8).
+   - Tabela `indice_conceitual` passou de 67 para 189 conceitos (+182% de cobertura).
+
+3. **Verificação:**
+   - 520 testes no backend passando em 30 módulos (`python -m unittest`).
+   - 130 testes no frontend passando em 19 arquivos.
+   - Total de testes no projeto: 650 testes automatizados.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a
