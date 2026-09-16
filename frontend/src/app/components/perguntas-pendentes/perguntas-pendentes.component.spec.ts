@@ -91,6 +91,34 @@ describe('PerguntasPendentesComponent', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it('só a primeira pergunta abre o campo de resposta', async () => {
+    const segunda: PerguntaPendente = { ...pergunta, id: 'q-2' };
+    vi.spyOn(supabaseService, 'getPerguntasPendentes').mockResolvedValue([pergunta, segunda]);
+    await criarComponente();
+
+    expect(component.respondendo('q-1')).toBe(true);
+    expect(component.respondendo('q-2')).toBe(false);
+
+    // Uma textarea só: as outras perguntas continuam legíveis, sem o campo.
+    const campos = fixture.nativeElement.querySelectorAll('textarea');
+    expect(campos.length).toBe(1);
+    // O enunciado das duas segue visível, para dar pra escolher qual responder.
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(texto).toContain('Responder esta');
+  });
+
+  it('abrirResposta revela o campo da pergunta escolhida', async () => {
+    const segunda: PerguntaPendente = { ...pergunta, id: 'q-2' };
+    vi.spyOn(supabaseService, 'getPerguntasPendentes').mockResolvedValue([pergunta, segunda]);
+    await criarComponente();
+
+    component.abrirResposta('q-2');
+    fixture.detectChanges();
+
+    expect(component.respondendo('q-2')).toBe(true);
+    expect(fixture.nativeElement.querySelectorAll('textarea').length).toBe(2);
+  });
+
   it('formatarData trata valores nulos e inválidos sem lançar', async () => {
     vi.spyOn(supabaseService, 'getPerguntasPendentes').mockResolvedValue([]);
     await criarComponente();

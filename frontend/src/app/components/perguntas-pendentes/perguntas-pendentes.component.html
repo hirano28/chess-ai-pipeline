@@ -58,27 +58,45 @@
               </div>
             </div>
 
-            <textarea
-              #campo
-              rows="3"
-              class="campo mb-3 leading-6"
-              placeholder="Escreva o que você estava pensando…"
-              [disabled]="enviando().has(pergunta.id)"
-            ></textarea>
+            <!--
+              Só a primeira pergunta abre o campo. Seis textareas vazias
+              empilhadas no topo do dashboard empurravam o radar para baixo e
+              liam como "seis tarefas"; o enunciado de todas continua visível,
+              então dá para escolher qual responder sem abrir uma por uma.
+            -->
+            @if (respondendo(pergunta.id)) {
+              <div class="surgir">
+                <textarea
+                  #campo
+                  rows="3"
+                  class="campo mb-3 leading-6"
+                  placeholder="Escreva o que você estava pensando…"
+                  [disabled]="enviando().has(pergunta.id)"
+                ></textarea>
 
-            <button
-              type="button"
-              class="btn btn-primario"
-              [disabled]="enviando().has(pergunta.id)"
-              (click)="responder(pergunta, campo.value)"
-            >
-              @if (enviando().has(pergunta.id)) {
-                <span class="pulso" aria-hidden="true"></span>
-                <span>Enviando…</span>
-              } @else {
-                <span>Responder</span>
-              }
-            </button>
+                <button
+                  type="button"
+                  class="btn btn-primario"
+                  [disabled]="enviando().has(pergunta.id)"
+                  (click)="responder(pergunta, campo.value)"
+                >
+                  @if (enviando().has(pergunta.id)) {
+                    <span class="pulso" aria-hidden="true"></span>
+                    <span>Enviando…</span>
+                  } @else {
+                    <span>Responder</span>
+                  }
+                </button>
+              </div>
+            } @else {
+              <button
+                type="button"
+                class="btn btn-secundario btn-pequeno"
+                (click)="abrirResposta(pergunta.id)"
+              >
+                Responder esta
+              </button>
+            }
           </article>
         }
       </div>

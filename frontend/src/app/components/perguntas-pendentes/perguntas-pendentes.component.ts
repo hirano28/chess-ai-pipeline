@@ -17,6 +17,10 @@ export class PerguntasPendentesComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly perguntas = signal<PerguntaPendente[]>([]);
   readonly enviando = signal<ReadonlySet<string>>(new Set());
+  /** Quais perguntas estão com o campo de resposta aberto. Só a primeira abre
+   * sozinha: seis textareas empilhadas no topo do dashboard empurravam o radar
+   * para baixo e liam como uma lista de tarefas. */
+  readonly respondendoIds = signal<ReadonlySet<string>>(new Set());
 
   private readonly supabaseService = inject(SupabaseService);
   private readonly formatadorData = new Intl.DateTimeFormat('pt-BR', {
@@ -37,6 +41,14 @@ export class PerguntasPendentesComponent implements OnInit {
     return Number.isNaN(valor.getTime())
       ? 'data indisponível'
       : this.formatadorData.format(valor);
+  }
+
+  respondendo(perguntaId: string): boolean {
+    return this.respondendoIds().has(perguntaId);
+  }
+
+  abrirResposta(perguntaId: string): void {
+    this.respondendoIds.update((ids) => new Set(ids).add(perguntaId));
   }
 
   async responder(pergunta: PerguntaPendente, texto: string): Promise<void> {
@@ -72,7 +84,11 @@ export class PerguntasPendentesComponent implements OnInit {
     this.error.set(null);
 
     try {
-      this.perguntas.set(await this.supabaseService.getPerguntasPendentes());
+      const perguntas = await this.supabaseService.getPerguntasPendentes();
+      this.perguntas.set(perguntas);
+      if (perguntas.length > 0) {
+        this.respondendoIds.set(new Set([perguntas[0].id]));
+      }
     } catch (cause: unknown) {
       const message = cause instanceof Error ? cause.message : 'Erro desconhecido';
       this.error.set(`Não foi possível carregar as perguntas pendentes. ${message}`);

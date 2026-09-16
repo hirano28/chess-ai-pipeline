@@ -2731,12 +2731,23 @@ repositório:
   mais recente (a prescrição vigente, que é o que o usuário veio ver) abre
   sozinha; as demais mostram "3 módulos · 50 min" e um "Ver plano". A seção caiu
   para 3238px.
+- **Perguntas Pendentes abria as 6 respostas de uma vez**, no topo do
+  dashboard: 4054px de textareas vazias antes do radar, lendo como uma lista de
+  tarefas. Agora só a primeira abre o campo; as outras mostram enunciado,
+  miniatura e um "Responder esta". O enunciado de todas continua visível de
+  propósito — a intenção é dar para escolher qual responder, não esconder o que
+  está pendente. 4054px → 2814px, e um único botão primário em vez de seis.
 - **Cartões de tema desalinhados** em Puzzles Insights: um nome de duas linhas
   ("Cálculo Profundo (4+ lances)") empurrava a barra de progresso para baixo e
   desalinhava a linha inteira. O título agora reserva as duas linhas.
 
-**Testes:** 5 novos no backend (606 → **611**), 5 novos no frontend
-(199 → **204**). `ng build` limpo. Conferido no navegador que o Hexágono
+O padrão dos três últimos é o mesmo e vale registrar: **o dashboard acumulava
+tudo expandido**. Sessões, perguntas e histórico crescem com o uso, e nenhum
+deles tinha teto. Expandir só o item vigente e resumir o resto manteve toda a
+informação acessível sem transformar a home em metros de rolagem.
+
+**Testes:** 5 novos no backend (606 → **611**), 7 novos no frontend
+(199 → **206**). `ng build` limpo. Conferido no navegador que o Hexágono
 mostra 4 botões + a nota de ausência, que as métricas empilham direito, que o
 link de pular aterrissa abaixo do cabeçalho e que as sessões antigas abrem e
 fecham.
