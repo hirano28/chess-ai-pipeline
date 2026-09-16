@@ -105,10 +105,11 @@ outro é conteúdo estático sem dado de usuário. A terceira e última exceçã
 tabela — ela não pode exigir header porque é um redirect de navegador, e usa
 um `state` de uso único no lugar.
 
-`X-API-Key` **foi aposentada como porta de entrada** e não abre mais nada —
-nem com a chave correta. `API_SECRET_KEYS` ainda é lida no startup e
-`verificar_api_key` continua no arquivo, sem nenhuma rota usando: a limpeza
-dessas duas está registrada como pendência em `ESTADO.md`, não foi feita.
+`X-API-Key` **foi aposentada como porta de entrada** em D-25 e **removida de
+vez** numa auditoria de segurança/operação pós-D-49 — `API_SECRET_KEYS`,
+`verificar_api_key`, `_resolver_api_keys()` e `_parse_api_keys` não existem
+mais no código (não sobrava nenhuma rota usando, e a exigência da variável
+ainda derrubava o boot do servidor sem ela configurada).
 
 As rotas marcadas com 👤 recebem o `user_id` real por injeção
 (`user_id: str = Depends(verificar_sessao)`) e o usam como dono da escrita ou
@@ -137,8 +138,8 @@ já foi atingido — mesmo princípio de "falhar rápido" de 🎫, mas para cust
 | `GET /resolver-fen` 🎫 | resolve FEN ou PGN para o FEN final; parsing puro, sem Gemini nem Stockfish |
 | `POST /reconhecer-posicao` 🎫⏱️ | recebe foto de diagrama (multipart) e devolve o FEN, via Gemini multimodal |
 | `POST /analisar-pgn` 🎫👤⏱️ | dispara o pipeline completo de uma partida; responde `202` na hora e processa em `BackgroundTasks` |
-| `GET /partidas/{id}/resumo` 🎫👤 | status do processamento + `resumo_partida` quando concluído; partida de outro dono responde 404 (D-29) |
-| `GET /partidas/recentes` 🎫👤 | histórico para a tela do Analisador, filtrado pelo dono |
+| `GET /partidas/{id}/resumo` 🎫👤 | status do processamento + `resumo_partida` quando concluído; partida de outro dono responde 404 (D-29). Cada ponto crítico recebe `fen` na leitura, por junção com `lances_criticos.fen_antes_lance` (D-51) — enriquecer aqui, e não na geração do resumo, faz valer retroativamente sem reprocessar |
+| `GET /partidas/recentes` 🎫👤 | histórico para a tela do Analisador, filtrado pelo dono; `fen_final` é reconstruído localmente do PGN que a query já busca, para a miniatura da lista (D-51) |
 | `POST /partidas/{id}/reprocessar` 🎫👤 | reseta para `pendente` e reexecuta; partida de outro dono responde 404 (D-29) |
 | `POST /lichess/oauth/iniciar` 🎫👤 | começa o OAuth do Lichess (D-33): gera o par PKCE + `state`, amarra os dois ao dono da sessão em `lichess_oauth_pkce` e devolve a URL de autorização; o `code_verifier` nunca sai do servidor |
 | `GET /lichess/oauth/callback` | destino do redirect do lichess.org — **única rota de negócio sem 🎫, de propósito**: chega como navegação de topo do navegador, sem header `Authorization`. Quem autentica é o `state` de uso único gravado pela rota acima. Troca o código pelo token, grava em `lichess_oauth_tokens` e redireciona para `/perfil?conectado=lichess` (ou `?erro=…`), sem nunca pôr token, `code` ou `state` na URL |
@@ -170,16 +171,21 @@ Angular 21, standalone components, signals, Tailwind CSS 4, testes em Vitest.
 `/login`) desde D-23 — ver a nota mais abaixo sobre a Fase B.
 
 Componentes de apoio: `tabuleiro-preview` (tabuleiro 8x8 em CSS Grid com SVGs do
-conjunto cburnett), `narrativa-analise`, `perguntas-pendentes`, `sessoes-treino`,
-`historico-analise` (lista de histórico genérica e reutilizável — ver D-11 em
-`DECISOES.md`; as 3 telas interativas mapeiam seus próprios itens para o shape
-`HistoricoAnaliseItem` e tratam `(itemClicado)` para restaurar o que só cada uma
-sabe restaurar).
+conjunto cburnett; `[miniatura]="true"` dá a versão compacta sem coordenadas nem
+barra de ferramentas), `narrativa-analise`, `perguntas-pendentes`,
+`sessoes-treino`, `historico-analise` (lista de histórico genérica e reutilizável
+— ver D-11 em `DECISOES.md`; as 3 telas interativas mapeiam seus próprios itens
+para o shape `HistoricoAnaliseItem` e tratam `(itemClicado)` para restaurar o que
+só cada uma sabe restaurar). Desde o D-51, um item de histórico pode trazer `fen`
++ `orientacao` e a linha desenha a miniatura correspondente — a lista repassa a
+FEN crua para o `tabuleiro-preview` sem interpretá-la.
 
 Cada uma das 3 telas interativas persiste o item ativo em `localStorage` para
 sobreviver a um F5 (`chess_analisador_partida_ativa`, `chess_explicador_ativo`,
-`chess_laboratorio_ativo`). `frontend/src/app/shared/data.ts` guarda o
-formatador de data compartilhado por todas elas.
+`chess_laboratorio_ativo`). `frontend/src/app/shared/` guarda os helpers puros
+compartilhados por elas: `data.ts` (formatação de data), `lichess.ts` (URL de
+análise) e `fen.ts` (`orientacaoDoFen`, que escolhe a perspectiva da miniatura
+pelo lado que está na vez de jogar).
 
 **Sistema de design — `frontend/src/styles.css` é a única fonte de verdade de
 cor, sombra, raio e tipografia (D-47).** Um bloco `@theme` do Tailwind 4 define

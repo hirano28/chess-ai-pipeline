@@ -1,5 +1,6 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { formatarDataCurta } from '../../shared/data';
+import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-preview.component';
 
 /**
  * Estado de processamento de um item de histórico, quando aplicável.
@@ -19,6 +20,15 @@ export interface HistoricoAnaliseItem {
   /** Data ISO (created_at); formatada aqui, não pela tela que consome. */
   dataIso?: string | null;
   status?: StatusHistoricoAnalise;
+  /**
+   * Posição que identifica visualmente o item. Quando presente, a linha ganha
+   * uma miniatura do tabuleiro à esquerda — é o que permite reconhecer de qual
+   * partida/análise/exercício a linha está falando sem ter que abrir. Ausente
+   * (ou FEN inválido) simplesmente não desenha miniatura nenhuma.
+   */
+  fen?: string | null;
+  /** Perspectiva da miniatura; default BRANCAS. */
+  orientacao?: 'BRANCAS' | 'PRETAS';
 }
 
 /**
@@ -28,11 +38,14 @@ export interface HistoricoAnaliseItem {
  * Extraído do Analisador de Partida (ver D-11 em docs/DECISOES.md): cada tela
  * mapeia seus próprios itens para HistoricoAnaliseItem e trata o clique via
  * (itemClicado) para restaurar o estado que só ELA sabe restaurar - este
- * componente não conhece FEN, PGN nem nenhuma regra de xadrez.
+ * componente continua sem conhecer PGN nem regra de xadrez: o campo `fen` é
+ * repassado cru para o TabuleiroPreview, que já é quem sabe fazer o parse (e
+ * já trata FEN inválido desenhando tabuleiro vazio).
  */
 @Component({
   selector: 'app-historico-analise',
   standalone: true,
+  imports: [TabuleiroPreviewComponent],
   templateUrl: './historico-analise.component.html'
 })
 export class HistoricoAnaliseComponent {
@@ -40,6 +53,9 @@ export class HistoricoAnaliseComponent {
   @Input() itens: HistoricoAnaliseItem[] = [];
   @Input() carregando = false;
   @Input() mensagemVazio = 'Nenhuma análise recente registrada.';
+  /** Auditoria de UX pós-D-49: sem isto, uma falha ao buscar o histórico
+   * ficava indistinguível de "não há nada ainda" (mensagemVazio). */
+  @Input() erro: string | null = null;
 
   /** Emite o id do item clicado; quem usa o componente decide como restaurar. */
   @Output() itemClicado = new EventEmitter<string>();

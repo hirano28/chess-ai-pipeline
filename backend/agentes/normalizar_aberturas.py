@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import io
 import logging
-import os
 import re
 import sys
 import time
@@ -32,7 +31,6 @@ from typing import Any
 
 import chess.pgn
 import requests
-from dotenv import load_dotenv
 from supabase import Client
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -42,6 +40,7 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 from backend.ingestao.common_ingestao import (  # noqa: E402
     configure_logging,
     create_supabase_client,
@@ -243,14 +242,10 @@ def processar(
 def load_settings() -> tuple[str, str]:
     """Carrega as credenciais do Supabase a partir do `.env`."""
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    if not url or not key:
-        raise ValueError(
-            "Variáveis de ambiente ausentes: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY"
-        )
-    return url, key
+    required = carregar_variaveis_obrigatorias(
+        PROJECT_ROOT, "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"
+    )
+    return required["SUPABASE_URL"], required["SUPABASE_SERVICE_ROLE_KEY"]
 
 
 def main() -> None:

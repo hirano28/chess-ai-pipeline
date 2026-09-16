@@ -328,6 +328,7 @@
       titulo="Histórico de exercícios salvos"
       [itens]="itensHistoricoComponent()"
       [carregando]="carregandoHistorico()"
+      [erro]="erroHistorico()"
       mensagemVazio="Nenhum exercício salvo ainda. Analise um lance acima e clique em 'Salvar este exercício'."
       (itemClicado)="selecionarHistorico($event)"
       (atualizarClicado)="carregarHistorico()"

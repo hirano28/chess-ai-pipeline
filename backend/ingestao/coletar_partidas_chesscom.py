@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import requests
-from dotenv import load_dotenv
 from supabase import Client
 
 
@@ -25,6 +24,7 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 from backend.ingestao.backfill_tempos_chesscom import (  # noqa: E402
     extrair_tempos_pgn_chesscom,
 )
@@ -61,16 +61,9 @@ def load_settings() -> Settings:
     `perfis_usuario` gera sua própria rodada de coleta (ver `main`).
     """
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    required = {
-        "SUPABASE_URL": os.getenv("SUPABASE_URL"),
-        "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-    }
-    missing = [name for name, value in required.items() if not value]
-    if missing:
-        raise ValueError(
-            "Variáveis de ambiente ausentes: " + ", ".join(sorted(missing))
-        )
+    required = carregar_variaveis_obrigatorias(
+        PROJECT_ROOT, "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"
+    )
 
     raw_limit = os.getenv("CHESSCOM_MONTHS_LIMIT", "1")
     try:

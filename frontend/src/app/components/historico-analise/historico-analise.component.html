@@ -16,6 +16,11 @@
       <div class="esqueleto h-12 w-full opacity-60"></div>
       <div class="esqueleto h-12 w-full opacity-30"></div>
     </div>
+  } @else if (erro) {
+    <div class="aviso aviso-erro mt-4" role="alert">
+      <span aria-hidden="true">!</span>
+      <span>{{ erro }}</span>
+    </div>
   } @else if (itens.length === 0) {
     <p class="mt-4 py-6 text-center text-sm text-bruma-500">{{ mensagemVazio }}</p>
   } @else {
@@ -24,9 +29,22 @@
         <li>
           <div
             class="group -mx-2 flex cursor-pointer flex-col gap-3 rounded-lg px-3 py-3.5 transition-colors hover:bg-ardosia-750 sm:flex-row sm:items-center sm:justify-between"
+            role="button"
+            tabindex="0"
             (click)="itemClicado.emit(item.id)"
+            (keydown.enter)="itemClicado.emit(item.id)"
+            (keydown.space)="$event.preventDefault(); itemClicado.emit(item.id)"
           >
             <div class="flex items-start gap-3 sm:items-center">
+              @if (item.fen) {
+                <app-tabuleiro-preview
+                  class="block w-14 shrink-0 self-start sm:w-16 sm:self-center"
+                  [fen]="item.fen"
+                  [orientacao]="item.orientacao ?? 'BRANCAS'"
+                  [miniatura]="true"
+                />
+              }
+
               @if (item.status) {
                 <span class="selo mt-0.5 shrink-0 sm:mt-0" [class]="corBadgeStatus(item.status)">
                   {{ rotuloBadgeStatus(item.status) }}

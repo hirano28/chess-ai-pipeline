@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 from supabase import Client, create_client
 
 
@@ -21,6 +19,7 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 
 configurar_encoding_utf8()
 
@@ -54,24 +53,12 @@ def configure_logging() -> logging.Logger:
 def load_settings() -> Settings:
     """Carrega e valida as credenciais do Supabase."""
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    supabase_url = os.getenv("SUPABASE_URL")
-    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    missing = [
-        name
-        for name, value in {
-            "SUPABASE_URL": supabase_url,
-            "SUPABASE_SERVICE_ROLE_KEY": service_role_key,
-        }.items()
-        if not value
-    ]
-    if missing:
-        raise ValueError(
-            "Variáveis de ambiente ausentes: " + ", ".join(sorted(missing))
-        )
+    required = carregar_variaveis_obrigatorias(
+        PROJECT_ROOT, "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"
+    )
     return Settings(
-        supabase_url=supabase_url,  # type: ignore[arg-type]
-        supabase_service_role_key=service_role_key,  # type: ignore[arg-type]
+        supabase_url=required["SUPABASE_URL"],
+        supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],
     )
 
 

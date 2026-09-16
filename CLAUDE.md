@@ -35,7 +35,12 @@ de verdade em vez de só rodar teste unitário:
 
 - Backend: `uvicorn backend.api.api_server:app --port 8000` e chame o endpoint.
 - Frontend: `cd frontend && npm start` e exercite a tela no navegador.
-- A chave de API local está no `.env`, em `API_SECRET_KEY`.
+- A API não usa mais chave estática (o esquema `X-API-Key` foi removido numa
+  auditoria pós-D-49, código morto desde o D-25): toda rota exige uma sessão
+  real do Supabase Auth (`Authorization: Bearer <token>`). Para testar
+  manualmente, gere um token de sessão via magic link (Admin API,
+  `SUPABASE_SERVICE_ROLE_KEY` do `.env`) — ver os scripts de validação
+  usados nas sessões de D-48/D-49 como referência.
 
 ## Acesso ao banco
 

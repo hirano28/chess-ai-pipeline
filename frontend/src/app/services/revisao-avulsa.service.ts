@@ -193,6 +193,12 @@ export interface PontoCriticoPartida {
   tipo_evento: string;
   tags_falha: string[];
   tipo_erro?: 'PROCESSO' | 'CONTEUDO' | 'INDETERMINADO' | string | null;
+  /**
+   * Posição imediatamente antes do lance crítico (lances_criticos.fen_antes_lance),
+   * anexada pelo backend na leitura do resumo. Ausente em lances anteriores ao
+   * D-27, que nunca tiveram FEN gravado — o cartão só perde a miniatura.
+   */
+  fen?: string | null;
 }
 
 export interface ResumoPartidaData {
@@ -233,6 +239,8 @@ export interface PartidaRecenteItem {
   data_partida?: string | null;
   created_at?: string | null;
   jogadores?: string | null;
+  /** Posição final reconstruída do PGN; alimenta a miniatura do histórico. */
+  fen_final?: string | null;
 }
 
 export interface ListarPartidasRecentesResult {

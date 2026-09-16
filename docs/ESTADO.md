@@ -16,11 +16,11 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **586**, todos passando, em 33 módulos |
-| Testes de frontend (Vitest) | **151**, todos passando, em 21 arquivos |
+| Testes de backend | **604**, todos passando, em 35 módulos |
+| Testes de frontend (Vitest) | **179**, todos passando, em 25 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
-`.github/workflows/deploy-backend.yml` lista os 33 módulos de teste do backend
+`.github/workflows/deploy-backend.yml` lista os 35 módulos de teste do backend
 à mão (incluindo `backend.rag.test_importar_indice_conceitual`, `backend.rag.test_processar_livro`,
 `backend.ingestao.test_backfill_tempos_chesscom`,
 `backend.common.test_lichess_explorer`, `backend.common.test_syzygy_tablebase`,
@@ -30,8 +30,10 @@ atualize também a data no cabeçalho.
 `backend.common.test_notacao_pt`, `backend.analise_engine.test_backfill_fen_lances_criticos`,
 `backend.ingestao.test_coletar_partidas`, `backend.ingestao.test_coletar_partidas_chesscom`,
 `backend.ingestao.test_common_ingestao`, `backend.common.test_spaced_repetition` e
-`backend.agentes.test_popular_fila_treino_espacado` (D-48), e
-`backend.rag.test_importar_exercicios_taticos` (D-49) —
+`backend.agentes.test_popular_fila_treino_espacado` (D-48),
+`backend.rag.test_importar_exercicios_taticos` (D-49), e
+`backend.common.test_progress`/`backend.common.test_settings` (auditoria de
+qualidade pós-D-49) —
 regra R8 cumprida). Continua sendo uma lista mantida manualmente: todo módulo
 de teste novo precisa ser adicionado lá também.
 
@@ -136,9 +138,19 @@ específica).
 
 ### P-1 — Chaves de API expostas, rotação nunca feita 🔴
 
-`GEMINI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` e as `API_SECRET_KEYS` antigas
-foram compartilhadas em texto puro durante o desenvolvimento. **Prioridade nº 1
-em qualquer trabalho de segurança.**
+`GEMINI_API_KEY` e `SUPABASE_SERVICE_ROLE_KEY` foram compartilhadas em texto
+puro durante o desenvolvimento (as antigas `API_SECRET_KEYS` também foram,
+mas essa variável foi removida numa auditoria pós-D-49 — não há mais nada
+pra rotacionar ali, só apagar do `.env`/GitHub Secrets se ainda estiver
+configurada em algum lugar). **Prioridade nº 1 em qualquer trabalho de
+segurança.** Runbook de rotação (confirmado por auditoria): `GEMINI_API_KEY`
+é lida em 9 arquivos + 3 workflows; `SUPABASE_SERVICE_ROLE_KEY` em ~20
+arquivos + 3 workflows (praticamente todo script do pipeline). Rotação
+concreta: gerar a nova chave no console do provedor (Google AI Studio /
+Supabase Dashboard), atualizar `.env` local + os GitHub Secrets usados por
+`deploy-backend.yml`, rodar o workflow (o `--env-vars-file` substitui o
+Cloud Run por completo, D-20, nada fica órfão). Vercel não entra: o
+frontend só guarda a chave `anon` pública do Supabase, não essas duas.
 
 ### P-2 — 6 tabelas sem RLS, expostas pela chave anon ✅ RESOLVIDA em 13/09/2026
 
@@ -293,6 +305,14 @@ O hábito consistente de puzzles (660 puzzles em 41 dias distintos) foi plenamen
 - Projeto GCP `chess-ai-pipeline`, criado por engano, pode ainda existir.
   Verifique com `gcloud projects list` e delete se estiver lá. O projeto correto
   é `gen-lang-client-0828609060`.
+- **Proteção contra senha vazada (Supabase Auth) desligada.** O advisor de
+  segurança do Supabase aponta `auth_leaked_password_protection` como
+  desabilitado (checagem contra HaveIBeenPwned no cadastro/login). Risco
+  baixo dado o modelo de ameaça do projeto (conta única + alguns amigos via
+  chave nomeada, ver AGENTS.md), mas é um toggle de ~1 minuto no Dashboard
+  (Authentication → Policies → Password) que nenhuma ferramenta MCP
+  disponível nesta sessão conseguia acionar — fica registrado para quem
+  tiver acesso ao Dashboard ligar quando quiser.
 
 ### P-10 — Explicador de Posição não persiste nada ✅ RESOLVIDA em 11/09/2026
 
@@ -413,14 +433,16 @@ não arquitetura de isolamento:
   `X-API-Key` não dá mais acesso a nada. Ver D-25.
 - **Adicionar FK para `auth.users(id)`** nas 6 tabelas raiz (comentada no fim
   de `backend/db/user_id_tabelas_raiz.sql`).
-- **Limpeza candidata, NÃO fazer sem avaliar (registrado em D-25):**
-  `API_SECRET_KEYS`/`API_SECRET_KEY` não são mais gate de acesso — o
-  `verificar_api_key`, o `_resolver_api_keys()` e a exigência dessas variáveis
-  no startup ficaram sem uso e podem sair. Já `DEFAULT_USER_ID` **não pode ser
-  removida**: continua sendo o dono gravado pelos scripts de CLI standalone,
-  que não passam pela API. Sair de vez com a chave também implica revisar o
-  `deploy-backend.yml` (D-20), que hoje propaga `API_SECRET_KEYS` como secret
-  obrigatório e abortaria o deploy sem ela.
+- ✅ **`API_SECRET_KEYS`/`API_SECRET_KEY` removidas de vez (auditoria de
+  segurança/operação pós-D-49).** Eram gate de acesso aposentado desde D-25;
+  o código morto (`verificar_api_key`, `_resolver_api_keys()`, `_parse_api_keys`
+  e a exigência da variável no startup) foi deletado — o achado da auditoria
+  foi que essa exigência ainda **derrubava o boot** do servidor sem a
+  variável configurada, um risco de disponibilidade real amarrado a uma
+  feature morta. `deploy-backend.yml` (D-20) não propaga mais
+  `API_SECRET_KEYS` como secret obrigatório. `DEFAULT_USER_ID` não foi
+  tocada: continua sendo o dono gravado pelos scripts de CLI standalone, que
+  não passam pela API.
 
 O INSERT anônimo residual em `revisao_exercicio_avulso` (achado em D-23) foi
 fechado em 13/09/2026 por D-24 — confirmado que nenhum fluxo real dependia
@@ -447,9 +469,10 @@ convidada** — falta só ela se cadastrar em `/login` e preencher `/perfil`.
 Consequência menor: `LICHESS_USERNAME`/`CHESSCOM_USERNAME` deixaram de ter
 leitor em `pipeline-diario.yml` (a coleta em lote lê `perfis_usuario` agora) —
 os secrets correspondentes no GitHub ficaram órfãos, candidatos a remoção
-futura, mesma categoria de pendência não bloqueante de `API_SECRET_KEYS` em
-D-25. As duas variáveis continuam vivas no `.env` só para quem roda
-`analisar_pgn_avulso.py` direto no terminal.
+futura, mesma categoria de pendência não bloqueante que `API_SECRET_KEYS`
+foi até ser resolvida numa auditoria pós-D-49 (ver acima). As duas variáveis
+continuam vivas no `.env` só para quem roda `analisar_pgn_avulso.py` direto
+no terminal.
 
 **Fase 1 do roadmap comercial — os 5 scripts restantes (14/09/2026, D-31).**
 Investigação individual dos scripts que ainda não tinham passado pelo
@@ -547,6 +570,42 @@ real, classificou `BOM` e reagendou corretamente. **Não verificado:** o
 clique manual em "Focar" no navegador — sem ferramenta de automação de
 navegador disponível nesta sessão e sem servidor de dev acessível na porta
 local; pendente de confirmação humana.
+
+**Auditoria de qualidade — backend, segurança/operação, frontend
+(16/09/2026, D-50).** A pedido explícito do usuário, consolidar em vez de
+trazer recurso novo: 3 auditorias paralelas (backend/confiabilidade,
+segurança/operação, frontend/UX) seguidas da implementação de tudo que era
+corrigível diretamente. Fechou um buraco real de custo (`/reprocessar` sem
+limite diário), um risco de disponibilidade (boot dependia de uma variável
+de uma feature morta desde D-25), 22 policies de RLS reescritas e 4 índices
+de FK criados no Supabase, uma função órfã removida do banco (achado que
+nem estava documentado em nenhum `.sql` do repo), 18 `load_settings()`
+duplicados consolidados num helper só, e 3 achados de UX no frontend
+(estado de erro ausente no histórico compartilhado, empty state do
+Hexágono renderizado como erro, cores do gráfico hardcoded). Testes: 583 →
+**600** no backend, 151 → **171** no frontend, zero regressão. **Não
+resolvido** (fora do alcance das ferramentas desta sessão): rotação de
+verdade de `GEMINI_API_KEY`/`SUPABASE_SERVICE_ROLE_KEY` (exige acesso a
+consoles externos, ver P-1) e o toggle de proteção contra senha vazada no
+Dashboard do Supabase Auth (ver P-9).
+
+**Miniaturas de posição nos resumos e históricos (16/09/2026, D-51).** Os
+históricos das 3 telas interativas e os cards de ponto crítico do Analisador
+passaram a mostrar uma miniatura do tabuleiro, para dar de bater o olho e
+reconhecer de qual partida/análise/exercício a linha está falando. O
+componente `tabuleiro-preview` já tinha o modo `[miniatura]` desde o D-45 e
+estava sendo usado em só duas telas. Duas fontes de FEN eram novas: a
+posição final da partida (reconstruída do PGN que a query do histórico já
+buscava) e a posição de cada ponto crítico (junção com
+`lances_criticos.fen_antes_lance` feita **na leitura** do resumo, não na
+geração — por isso vale retroativamente, sem reprocessar nada; conferido
+antes de implementar que 423/423 dos pontos críticos já existentes no banco
+têm FEN correspondente). Verificado de verdade contra o servidor local com
+sessão real: 12/12 partidas manuais devolveram `fen_final` válido e os 4
+pontos críticos de uma partida real vieram todos com FEN. Testes: 600 →
+**604** no backend, 171 → **179** no frontend. **Pendente de conferência
+humana:** o visual em si no navegador (tamanho/legibilidade da miniatura na
+linha, card de ponto crítico em tela estreita).
 
 ### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
 

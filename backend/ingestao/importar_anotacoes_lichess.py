@@ -14,13 +14,13 @@ from typing import Any
 
 import berserk
 import chess.pgn
-from dotenv import load_dotenv
 from supabase import Client
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from backend.common.progress import configurar_encoding_utf8  # noqa: E402
+from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 from backend.ingestao.common_ingestao import (  # noqa: E402
     configure_logging,
     create_supabase_client,
@@ -48,21 +48,16 @@ class Settings:
 def load_settings() -> Settings:
     """Carrega e valida as configurações do ambiente."""
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    required = {
-        "LICHESS_STUDY_TOKEN": os.getenv("LICHESS_STUDY_TOKEN"),
-        "SUPABASE_URL": os.getenv("SUPABASE_URL"),
-        "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-    }
-    missing = [name for name, value in required.items() if not value]
-    if missing:
-        raise ValueError(
-            "Variáveis de ambiente ausentes: " + ", ".join(sorted(missing))
-        )
+    required = carregar_variaveis_obrigatorias(
+        PROJECT_ROOT,
+        "LICHESS_STUDY_TOKEN",
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY",
+    )
     return Settings(
-        supabase_url=required["SUPABASE_URL"],  # type: ignore[arg-type]
-        supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],  # type: ignore[arg-type]
-        lichess_study_token=required["LICHESS_STUDY_TOKEN"],  # type: ignore[arg-type]
+        supabase_url=required["SUPABASE_URL"],
+        supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],
+        lichess_study_token=required["LICHESS_STUDY_TOKEN"],
     )
 
 

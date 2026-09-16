@@ -67,6 +67,8 @@ jobs:
             backend.common.test_lichess_explorer \
             backend.common.test_lichess_oauth \
             backend.common.test_notacao_pt \
+            backend.common.test_progress \
+            backend.common.test_settings \
             backend.common.test_spaced_repetition \
             backend.common.test_syzygy_tablebase \
             backend.common.test_tenant \
@@ -115,20 +117,21 @@ jobs:
         # env.yaml local que só o comando manual lia (ver D-20 em DECISOES.md).
         # Esta lista tem que continuar batendo com o que o servidor realmente
         # exige em runtime: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/GEMINI_API_KEY
-        # (load_settings() em revisar_pensamento.py), API_SECRET_KEYS
-        # (_resolver_api_keys() em api_server.py) e DEFAULT_USER_ID
+        # (load_settings() em revisar_pensamento.py) e DEFAULT_USER_ID
         # (obter_default_user_id() em backend/common/tenant.py). STOCKFISH_PATH
         # não entra aqui: vem gravado na imagem via ENV no Dockerfile.
+        # API_SECRET_KEYS removida numa auditoria pós-D-49: gate de acesso
+        # aposentado desde o D-25 (verificar_sessao/JWT do Supabase Auth), o
+        # servidor não lê mais essa variável.
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          API_SECRET_KEYS: ${{ secrets.API_SECRET_KEYS }}
           DEFAULT_USER_ID: ${{ secrets.DEFAULT_USER_ID }}
         run: |
           ARQUIVO_ENV="$RUNNER_TEMP/cloud-run-env.yaml"
           FALTANTES=""
-          for NOME in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY GEMINI_API_KEY API_SECRET_KEYS DEFAULT_USER_ID; do
+          for NOME in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY GEMINI_API_KEY DEFAULT_USER_ID; do
             if [ -z "${!NOME}" ]; then
               FALTANTES="$FALTANTES $NOME"
             fi
@@ -141,7 +144,6 @@ jobs:
             echo "SUPABASE_URL: \"${SUPABASE_URL}\""
             echo "SUPABASE_SERVICE_ROLE_KEY: \"${SUPABASE_SERVICE_ROLE_KEY}\""
             echo "GEMINI_API_KEY: \"${GEMINI_API_KEY}\""
-            echo "API_SECRET_KEYS: \"${API_SECRET_KEYS}\""
             echo "DEFAULT_USER_ID: \"${DEFAULT_USER_ID}\""
           } > "$ARQUIVO_ENV"
           echo "CLOUD_RUN_ENV_FILE=$ARQUIVO_ENV" >> "$GITHUB_ENV"

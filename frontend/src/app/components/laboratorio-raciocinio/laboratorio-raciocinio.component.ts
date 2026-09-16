@@ -14,6 +14,7 @@ import {
   HistoricoAnaliseItem
 } from '../historico-analise/historico-analise.component';
 import { urlAnaliseLichess } from '../../shared/lichess';
+import { orientacaoDoFen } from '../../shared/fen';
 
 const DEBOUNCE_PREVIEW_FEN_MS = 600;
 
@@ -70,6 +71,7 @@ export class LaboratorioRaciocinioComponent implements OnInit {
   // card rico de uma análise recém-gerada (resultado).
   readonly historico = signal<RevisaoAvulsaRecenteItem[]>([]);
   readonly carregandoHistorico = signal(false);
+  readonly erroHistorico = signal<string | null>(null);
   readonly visualizandoHistorico = signal<RevisaoAvulsaRecenteItem | null>(null);
 
   readonly itensHistoricoComponent = computed<HistoricoAnaliseItem[]>(() =>
@@ -80,7 +82,11 @@ export class LaboratorioRaciocinioComponent implements OnInit {
         `Qualidade: ${item.qualidade_lance ?? '—'}`,
         `Raciocínio: ${item.qualidade_raciocinio ?? '—'}`
       ],
-      dataIso: item.created_at
+      dataIso: item.created_at,
+      // Miniatura do exercício: "Lance Cxe5" se repete entre posições
+      // completamente diferentes; o tabuleiro é o que identifica de fato.
+      fen: item.fen,
+      orientacao: orientacaoDoFen(item.fen)
       // Sem 'status': é sempre um registro já salvo e completo.
     }))
   );
@@ -155,6 +161,7 @@ export class LaboratorioRaciocinioComponent implements OnInit {
 
   async carregarHistorico(): Promise<void> {
     this.carregandoHistorico.set(true);
+    this.erroHistorico.set(null);
     try {
       const res = await this.revisaoAvulsaService.listarRevisoesAvulsasRecentes(20);
       if (res.sessaoExpirada) {
@@ -163,6 +170,8 @@ export class LaboratorioRaciocinioComponent implements OnInit {
       }
       if (res.success && res.itens) {
         this.historico.set(res.itens);
+      } else {
+        this.erroHistorico.set(res.error ?? 'Não foi possível carregar o histórico.');
       }
     } finally {
       this.carregandoHistorico.set(false);

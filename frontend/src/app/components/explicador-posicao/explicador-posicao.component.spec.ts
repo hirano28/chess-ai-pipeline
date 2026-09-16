@@ -198,6 +198,9 @@ describe('ExplicadorPosicaoComponent', () => {
       expect(itens[0].titulo).toContain('Brancas têm ataque decisivo');
       expect(itens[0].detalhes).toContain('Analisado: Brancas ♔');
       expect(itens[0].detalhes).toContain('Win%: 92.5%');
+      // Miniatura da posição explicada, na perspectiva do lado analisado.
+      expect(itens[0].fen).toBe(itemHistorico.fen);
+      expect(itens[0].orientacao).toBe('BRANCAS');
     });
 
     it('deve restaurar o resultado completo ao selecionar um item do histórico', () => {

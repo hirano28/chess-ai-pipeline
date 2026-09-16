@@ -63,6 +63,7 @@ export class ExplicadorPosicaoComponent implements OnInit {
   // Histórico de explicações já persistidas (explicacoes_posicao, ver P-10).
   readonly historico = signal<ExplicacaoPosicaoRecenteItem[]>([]);
   readonly carregandoHistorico = signal(false);
+  readonly erroHistorico = signal<string | null>(null);
 
   /** Mapeia ExplicacaoPosicaoRecenteItem -> HistoricoAnaliseItem para o componente genérico. */
   readonly itensHistoricoComponent = computed<HistoricoAnaliseItem[]>(() =>
@@ -82,7 +83,12 @@ export class ExplicadorPosicaoComponent implements OnInit {
         id: item.id,
         titulo,
         detalhes,
-        dataIso: item.created_at
+        dataIso: item.created_at,
+        // Miniatura da própria posição explicada, na perspectiva do lado
+        // analisado: o veredito sozinho não distingue duas explicações
+        // parecidas de posições diferentes.
+        fen: item.fen,
+        orientacao: ladoAnalisado === 'PRETAS' ? ('PRETAS' as const) : ('BRANCAS' as const)
         // Sem 'status': cada item já é um resultado salvo e pronto, não há
         // pipeline assíncrono aqui (diferente do Analisador de Partida).
       };
@@ -103,6 +109,7 @@ export class ExplicadorPosicaoComponent implements OnInit {
 
   async carregarHistorico(): Promise<void> {
     this.carregandoHistorico.set(true);
+    this.erroHistorico.set(null);
     try {
       const res = await this.revisaoAvulsaService.listarExplicacoesRecentes(20);
       if (res.sessaoExpirada) {
@@ -111,6 +118,8 @@ export class ExplicadorPosicaoComponent implements OnInit {
       }
       if (res.success && res.itens) {
         this.historico.set(res.itens);
+      } else {
+        this.erroHistorico.set(res.error ?? 'Não foi possível carregar o histórico.');
       }
     } finally {
       this.carregandoHistorico.set(false);

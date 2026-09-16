@@ -27,7 +27,6 @@ from backend.agentes.popular_fila_treino_espacado import _CACHE_CITACAO
 from backend.agentes.revisar_pensamento import AvaliacaoLance, Settings
 from backend.api import api_server
 
-CHAVE_CORRETA = "chave-secreta-de-teste"
 # Dono dos dados nas tabelas raiz (Fase A do multi-tenant — ver D-14).
 USER_ID_TESTE = "11111111-2222-3333-4444-555555555555"
 TOKEN_TESTE = "token-de-sessao-de-teste"
@@ -39,12 +38,16 @@ HEADERS_SESSAO = {"Authorization": f"Bearer {TOKEN_TESTE}"}
 # via _state["supabase_client"]). Os testes de endpoint não estão testando o
 # limite em si (isso é o `LimiteDiarioTest`), então esses 4 também ganham um
 # override padrão que devolve o dono sem tocar no banco - mesmo princípio do
-# override de `verificar_sessao` logo abaixo.
+# override de `verificar_sessao` logo abaixo. /reprocessar e
+# /treino/{id}/responder ganharam o mesmo tratamento numa auditoria pós-D-49
+# (tinham ficado de fora por descuido).
 _LIMITES_DIARIOS_DEPENDENCIES = (
     api_server.verificar_limite_analisar_pgn,
     api_server.verificar_limite_explicar_posicao,
     api_server.verificar_limite_revisar_avulso,
     api_server.verificar_limite_reconhecer_posicao,
+    api_server.verificar_limite_reprocessar,
+    api_server.verificar_limite_treino_responder,
 )
 
 
@@ -137,9 +140,6 @@ class SessaoAuthTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        # Chave de API ainda configurada de propósito: provar que ela NÃO abre
-        # mais porta nenhuma, nem quando é a chave certa.
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -151,14 +151,14 @@ class SessaoAuthTest(unittest.TestCase):
 
         self.assertEqual(resposta.status_code, 401)
 
-    def test_x_api_key_valida_sozinha_nao_abre_mais_porta_nenhuma(self) -> None:
-        """O mecanismo antigo foi aposentado: chave correta sem sessão = 401."""
+    def test_x_api_key_nao_abre_porta_nenhuma(self) -> None:
+        """Mecanismo removido na auditoria pós-D-49: nenhum header substitui a sessão."""
 
         with gate_de_sessao_real():
             resposta = self.client.post(
                 "/revisar-avulso",
                 json=self.PAYLOAD_REVISAR,
-                headers={"X-API-Key": CHAVE_CORRETA},
+                headers={"X-API-Key": "qualquer-valor"},
             )
 
         self.assertEqual(resposta.status_code, 401)
@@ -314,79 +314,11 @@ class VerificarSessaoTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 401)
 
 
-
-class ResolverApiKeysTest(unittest.TestCase):
-    """Testa o parse de API_SECRET_KEYS e a compatibilidade com API_SECRET_KEY."""
-
-    def test_parse_multiplas_chaves(self) -> None:
-        resultado = api_server._parse_api_keys(
-            "ana:chave-da-ana,bruno:chave-do-bruno,carla:chave-da-carla"
-        )
-
-        self.assertEqual(
-            resultado,
-            {
-                "chave-da-ana": "ana",
-                "chave-do-bruno": "bruno",
-                "chave-da-carla": "carla",
-            },
-        )
-
-    def test_parse_ignora_espacos_e_entradas_vazias(self) -> None:
-        resultado = api_server._parse_api_keys(" ana : chave-da-ana , , bruno:chave-do-bruno ")
-
-        self.assertEqual(resultado, {"chave-da-ana": "ana", "chave-do-bruno": "bruno"})
-
-    def test_parse_entrada_sem_dois_pontos_levanta_erro(self) -> None:
-        with self.assertRaises(RuntimeError):
-            api_server._parse_api_keys("ana-sem-separador")
-
-    def test_resolver_usa_api_secret_keys_quando_definida(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"API_SECRET_KEYS": "ana:chave-da-ana,bruno:chave-do-bruno"},
-            clear=False,
-        ):
-            os.environ.pop("API_SECRET_KEY", None)
-            resultado = api_server._resolver_api_keys()
-
-        self.assertEqual(
-            resultado, {"chave-da-ana": "ana", "chave-do-bruno": "bruno"}
-        )
-
-    def test_resolver_cai_para_api_secret_key_legada(self) -> None:
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("API_SECRET_KEYS", None)
-            os.environ["API_SECRET_KEY"] = "chave-antiga"
-            resultado = api_server._resolver_api_keys()
-
-        self.assertEqual(resultado, {"chave-antiga": "eu"})
-
-    def test_resolver_prioriza_api_secret_keys_sobre_a_legada(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"API_SECRET_KEYS": "ana:chave-da-ana", "API_SECRET_KEY": "chave-antiga"},
-            clear=False,
-        ):
-            resultado = api_server._resolver_api_keys()
-
-        self.assertEqual(resultado, {"chave-da-ana": "ana"})
-
-    def test_resolver_sem_nenhuma_variavel_levanta_erro(self) -> None:
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("API_SECRET_KEYS", None)
-            os.environ.pop("API_SECRET_KEY", None)
-
-            with self.assertRaises(RuntimeError):
-                api_server._resolver_api_keys()
-
-
 class ResolverFenEndpointTest(unittest.TestCase):
     """Testes do endpoint GET /resolver-fen (só parsing, sem Gemini/Stockfish)."""
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -436,7 +368,6 @@ class RevisarAvulsoLanceInterpretadoTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         api_server._state["engine"] = MagicMock()
         api_server._state["gemini_client"] = MagicMock()
         api_server._state["settings"] = _fake_settings()
@@ -500,7 +431,6 @@ def chess_fen_inicial() -> str:
 class ExplicarPosicaoEndpointTest(unittest.TestCase):
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
 
         class _FakeEngine:
             def set_fen_position(self, fen: str) -> None:
@@ -724,7 +654,6 @@ class ExplicacoesPosicaoRecentesEndpointTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
         # Leitura agora filtra por dono (Fase B.3 — D-18); sem Authorization
         # Bearer nestes testes, cai no fallback DEFAULT_USER_ID de sempre.
@@ -840,7 +769,6 @@ class ReconhecerPosicaoEndpointTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -945,7 +873,6 @@ class RevisarAvulsoSalvarEndpointTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         # revisao_exercicio_avulso é tabela raiz: o insert exige user_id (D-14).
         self._env = patch.dict(os.environ, {"DEFAULT_USER_ID": USER_ID_TESTE})
         self._env.start()
@@ -1052,7 +979,6 @@ class RevisoesAvulsasRecentesEndpointTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
         # Leitura agora filtra por dono (Fase B.3 — D-18); sem Authorization
         # Bearer nestes testes, cai no fallback DEFAULT_USER_ID de sempre.
@@ -1147,7 +1073,6 @@ class InsightsRepertorioEndpointTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -1244,7 +1169,6 @@ class InsightsPuzzlesEndpointTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -1363,7 +1287,6 @@ class TeoriaAberturaEndpointTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -1505,7 +1428,6 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         api_server._state["supabase_client"] = MagicMock()
         api_server._state["gemini_client"] = MagicMock()
         api_server._state["engine_lock"] = threading.Lock()
@@ -1776,6 +1698,85 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         self.assertIn("Siciliana", dados["resumo"]["narrativa"])
         self.assertEqual(len(dados["resumo"]["pontos_criticos"]), 1)
 
+    def test_obter_resumo_partida_anexa_fen_aos_pontos_criticos(self) -> None:
+        """O FEN mora em lances_criticos, não no JSON do resumo: a junção é
+        feita na leitura para que partidas analisadas antes desta mudança
+        também ganhem miniatura, sem reprocessar nada."""
+        fen_lance_15 = "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
+        mock_client = MagicMock()
+
+        def table_side_effect(table_name: str):
+            mock_table = MagicMock()
+            if table_name == "partidas":
+                resp = MagicMock()
+                resp.data = [{"id": "p3", "external_id": None, "status_processamento": "concluido"}]
+                mock_table.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp
+            elif table_name == "resumo_partida":
+                resp = MagicMock()
+                resp.data = [{
+                    "narrativa": "…",
+                    "pontos_criticos": [
+                        {"numero_lance": 15, "tipo_evento": "PICO", "tags_falha": []},
+                        {"numero_lance": 22, "tipo_evento": "EROSAO", "tags_falha": []},
+                    ],
+                    "momento_chave_estrategico": "",
+                }]
+                mock_table.select.return_value.eq.return_value.execute.return_value = resp
+            elif table_name == "lances_criticos":
+                resp = MagicMock()
+                # O lance 22 não tem FEN gravado (linha anterior ao D-27).
+                resp.data = [
+                    {"numero_lance": 15, "fen_antes_lance": fen_lance_15},
+                    {"numero_lance": 22, "fen_antes_lance": None},
+                ]
+                mock_table.select.return_value.eq.return_value.execute.return_value = resp
+            return mock_table
+
+        mock_client.table.side_effect = table_side_effect
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get("/partidas/p3/resumo", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        pontos = resposta.json()["resumo"]["pontos_criticos"]
+        self.assertEqual(pontos[0]["fen"], fen_lance_15)
+        self.assertNotIn("fen", pontos[1])
+
+    def test_obter_resumo_partida_sobrevive_a_falha_ao_buscar_fen(self) -> None:
+        """A miniatura é enfeite: se a consulta de lances_criticos cair, o
+        resumo ainda precisa chegar inteiro na tela."""
+        mock_client = MagicMock()
+
+        def table_side_effect(table_name: str):
+            mock_table = MagicMock()
+            if table_name == "partidas":
+                resp = MagicMock()
+                resp.data = [{"id": "p4", "external_id": None, "status_processamento": "concluido"}]
+                mock_table.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp
+            elif table_name == "resumo_partida":
+                resp = MagicMock()
+                resp.data = [{
+                    "narrativa": "Narrativa preservada.",
+                    "pontos_criticos": [{"numero_lance": 15, "tipo_evento": "PICO", "tags_falha": []}],
+                    "momento_chave_estrategico": "",
+                }]
+                mock_table.select.return_value.eq.return_value.execute.return_value = resp
+            elif table_name == "lances_criticos":
+                mock_table.select.return_value.eq.return_value.execute.side_effect = RuntimeError(
+                    "banco fora do ar"
+                )
+            return mock_table
+
+        mock_client.table.side_effect = table_side_effect
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get("/partidas/p4/resumo", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        dados = resposta.json()
+        self.assertEqual(dados["resumo"]["narrativa"], "Narrativa preservada.")
+        self.assertNotIn("fen", dados["resumo"]["pontos_criticos"][0])
+
     def test_listar_partidas_recentes_sem_sessao_recebe_401(self) -> None:
         with gate_de_sessao_real():
             resposta = self.client.get("/partidas/recentes")
@@ -1815,6 +1816,48 @@ class AnalisarPgnEndpointTest(unittest.TestCase):
         mock_client.table.return_value.select.return_value.eq.return_value.eq.assert_called_once_with(
             "user_id", USER_ID_TESTE
         )
+
+    def test_listar_partidas_recentes_inclui_fen_final_para_miniatura(self) -> None:
+        """A miniatura do histórico depende deste campo — sem ele, a lista de
+        partidas volta a ser só texto e não dá pra bater o olho e reconhecer."""
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [
+            {
+                "id": "p-1",
+                "status_processamento": "concluido",
+                "pgn": '[White "a"]\n[Black "b"]\n\n1. e4 c5 2. Nf3',
+            }
+        ]
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get("/partidas/recentes", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(
+            resposta.json()[0]["fen_final"],
+            "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+        )
+
+    def test_listar_partidas_recentes_com_pgn_invalido_nao_quebra(self) -> None:
+        """PGN truncado/sem lances devolve fen_final nulo — a linha aparece sem
+        miniatura, em vez de derrubar o histórico inteiro."""
+        mock_client = MagicMock()
+        resp_mock = MagicMock()
+        resp_mock.data = [
+            {"id": "p-1", "status_processamento": "falhou", "pgn": "isso não é um PGN"},
+            {"id": "p-2", "status_processamento": "falhou", "pgn": None},
+        ]
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = resp_mock
+        api_server._state["supabase_client"] = mock_client
+
+        resposta = self.client.get("/partidas/recentes", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        itens = resposta.json()
+        self.assertIsNone(itens[0]["fen_final"])
+        self.assertIsNone(itens[1]["fen_final"])
 
     def test_listar_partidas_recentes_filtra_pelo_user_id_da_sessao(self) -> None:
         with gate_de_sessao_real():
@@ -2001,7 +2044,6 @@ class LimiteDiarioIntegracaoRevisarAvulsoTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         api_server._state["engine"] = MagicMock()
         api_server._state["gemini_client"] = MagicMock()
         api_server._state["settings"] = _fake_settings()
@@ -2061,6 +2103,141 @@ class LimiteDiarioIntegracaoRevisarAvulsoTest(unittest.TestCase):
         mock_processar.assert_called_once()
 
 
+class LimiteDiarioIntegracaoReprocessarTest(unittest.TestCase):
+    """Auditoria pós-D-49: /reprocessar ganhou o mesmo teto das rotas caras do D-32."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["limites_diarios"] = {"reprocessar": 2}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_estourando_o_limite_recebe_429_e_nao_agenda_o_reprocessamento(self) -> None:
+        mock_client = MagicMock()
+        resposta_rpc = MagicMock()
+        resposta_rpc.data = 3  # acima do limite de 2 configurado no setUp
+        mock_client.rpc.return_value.execute.return_value = resposta_rpc
+        api_server._state["supabase_client"] = mock_client
+
+        with gate_de_limite_diario_real(api_server.verificar_limite_reprocessar), patch.object(
+            api_server, "_executar_analise_pgn_background"
+        ) as mock_executar_background:
+            resposta = self.client.post(
+                "/partidas/p-existente/reprocessar", headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 429)
+        self.assertEqual(resposta.json()["detail"], api_server.MENSAGEM_LIMITE_DIARIO)
+        mock_executar_background.assert_not_called()
+        # 429 antes até de consultar se a partida existe/pertence ao dono.
+        mock_client.table.assert_not_called()
+
+    def test_dentro_do_limite_agenda_normalmente(self) -> None:
+        mock_client = MagicMock()
+        resposta_rpc = MagicMock()
+        resposta_rpc.data = 1  # dentro do limite de 2
+        mock_client.rpc.return_value.execute.return_value = resposta_rpc
+        resp_partida = MagicMock()
+        resp_partida.data = [{"id": "p-existente", "external_id": "ext-existente"}]
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp_partida
+        api_server._state["supabase_client"] = mock_client
+
+        with gate_de_limite_diario_real(api_server.verificar_limite_reprocessar), patch.object(
+            api_server, "update_status"
+        ) as mock_update_status, patch.object(
+            api_server, "_executar_analise_pgn_background"
+        ) as mock_executar_background:
+            resposta = self.client.post(
+                "/partidas/p-existente/reprocessar", headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 202)
+        mock_update_status.assert_called_once()
+        mock_executar_background.assert_called_once()
+
+
+class LimiteDiarioIntegracaoTreinoResponderTest(unittest.TestCase):
+    """Auditoria pós-D-49: /treino/{id}/responder ganhou um teto (bem mais alto,
+    já que o próprio D-48 quer permitir muitas repetições por dia)."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["engine"] = MagicMock()
+        api_server._state["engine_lock"] = threading.Lock()
+        api_server._state["settings"] = _fake_settings()
+        api_server._state["limites_diarios"] = {"treino-responder": 2}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def test_estourando_o_limite_recebe_429_e_nao_chama_o_stockfish(self) -> None:
+        mock_client = MagicMock()
+        resposta_rpc = MagicMock()
+        resposta_rpc.data = 3  # acima do limite de 2 configurado no setUp
+        mock_client.rpc.return_value.execute.return_value = resposta_rpc
+        api_server._state["supabase_client"] = mock_client
+
+        with gate_de_limite_diario_real(api_server.verificar_limite_treino_responder), patch.object(
+            api_server, "avaliar_lance_avulso"
+        ) as mock_avaliar:
+            resposta = self.client.post(
+                "/treino/7/responder", json={"lance": "e4"}, headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 429)
+        self.assertEqual(resposta.json()["detail"], api_server.MENSAGEM_LIMITE_DIARIO)
+        mock_avaliar.assert_not_called()
+        # 429 antes até de consultar a linha da fila.
+        mock_client.table.assert_not_called()
+
+    def test_dentro_do_limite_avalia_normalmente(self) -> None:
+        mock_client = MagicMock()
+        resposta_rpc = MagicMock()
+        resposta_rpc.data = 1  # dentro do limite de 2
+        mock_client.rpc.return_value.execute.return_value = resposta_rpc
+        resp_fila = MagicMock()
+        resp_fila.data = [
+            {
+                "id": 7,
+                "lance_id": "lance-uuid-1",
+                "origem": "lance_critico",
+                "intervalo_dias": 0,
+                "fator_facilidade": 2.5,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "livro_citado": None,
+                "capitulo_citado": None,
+                "pagina_citada": None,
+                "lances_criticos": {"fen_antes_lance": chess_fen_inicial()},
+            }
+        ]
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp_fila
+        # Consulta a diagnosticos (causa raiz/tags) do card lance_critico: sem
+        # linha encontrada, caminho válido (diagnostico vira {}), não um erro.
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
+        api_server._state["supabase_client"] = mock_client
+        avaliacao_fake = AvaliacaoLance(
+            lance_jogado="e4",
+            melhor_lance="e4",
+            queda_win_percent=0.5,
+            linha_principal=["e4", "e5"],
+            top_candidatos=[],
+        )
+
+        with gate_de_limite_diario_real(api_server.verificar_limite_treino_responder), patch.object(
+            api_server, "avaliar_lance_avulso", return_value=avaliacao_fake
+        ) as mock_avaliar:
+            resposta = self.client.post(
+                "/treino/7/responder", json={"lance": "e4"}, headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        mock_avaliar.assert_called_once()
+
+
 class PkceTest(unittest.TestCase):
     """O par PKCE precisa bater com a RFC 7636 — senão o Lichess recusa o S256."""
 
@@ -2094,7 +2271,6 @@ class IniciarOauthLichessTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         api_server._state["lichess_oauth"] = {
             "client_id": "chess-ai-pipeline",
             "redirect_uri": "http://localhost:8000/lichess/oauth/callback",
@@ -2164,7 +2340,6 @@ class CallbackOauthLichessTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         api_server._state["lichess_oauth"] = {
             "client_id": "chess-ai-pipeline",
             "redirect_uri": "http://localhost:8000/lichess/oauth/callback",
@@ -2365,7 +2540,6 @@ class StatusOauthLichessTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -2426,7 +2600,6 @@ class DesconectarOauthLichessTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -2457,7 +2630,6 @@ class ObterFilaTreinoTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         self.client = TestClient(api_server.app)
 
     def tearDown(self) -> None:
@@ -2605,7 +2777,6 @@ class ResponderTreinoTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         api_server._state["engine"] = MagicMock()
         api_server._state["engine_lock"] = threading.Lock()
         api_server._state["settings"] = _fake_settings()
@@ -2816,7 +2987,6 @@ class FocarCategoriaTreinoTest(unittest.TestCase):
 
     def setUp(self) -> None:
         api_server._state.clear()
-        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
         _CACHE_CITACAO.clear()
         self.client = TestClient(api_server.app)
 

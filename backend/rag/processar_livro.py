@@ -21,7 +21,6 @@ from google.genai import types
 import pdfplumber
 import pytesseract
 from pdf2image import convert_from_path
-from dotenv import load_dotenv
 from supabase import Client, create_client
 
 
@@ -33,6 +32,7 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 
 configurar_encoding_utf8()
 
@@ -119,21 +119,12 @@ def configure_logging() -> logging.Logger:
 def load_settings() -> dict[str, str]:
     """Carrega e valida as variáveis de ambiente necessárias."""
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    required = {
-        "SUPABASE_URL": os.getenv("SUPABASE_URL"),
-        "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-        "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY"),
-    }
-    missing = [name for name, value in required.items() if not value]
-    if missing:
-        raise ValueError(
-            "Variáveis de ambiente ausentes: " + ", ".join(sorted(missing))
-        )
-    settings = {name: value for name, value in required.items()}
+    settings = carregar_variaveis_obrigatorias(
+        PROJECT_ROOT, "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "GEMINI_API_KEY"
+    )
     settings["TESSERACT_PATH"] = os.getenv("TESSERACT_PATH", "")
     settings["POPPLER_PATH"] = os.getenv("POPPLER_PATH", "")
-    return settings  # type: ignore[return-value]
+    return settings
 
 
 def ocr_cache_path(pdf_path: Path, ocr_lang: str = OCR_LANG) -> Path:

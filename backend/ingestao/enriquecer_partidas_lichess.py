@@ -22,7 +22,6 @@ from typing import Any
 import chess
 import chess.pgn
 import requests
-from dotenv import load_dotenv
 from supabase import Client
 
 
@@ -33,6 +32,7 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 from backend.ingestao.common_ingestao import (  # noqa: E402
     carregar_perfis,
     configure_logging,
@@ -67,19 +67,12 @@ class Settings:
 def load_settings() -> Settings:
     """Carrega e valida as configurações do ambiente."""
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    required = {
-        "SUPABASE_URL": os.getenv("SUPABASE_URL"),
-        "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-    }
-    missing = [name for name, value in required.items() if not value]
-    if missing:
-        raise ValueError(
-            "Variáveis de ambiente ausentes: " + ", ".join(sorted(missing))
-        )
+    required = carregar_variaveis_obrigatorias(
+        PROJECT_ROOT, "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"
+    )
     return Settings(
-        supabase_url=required["SUPABASE_URL"],  # type: ignore[arg-type]
-        supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],  # type: ignore[arg-type]
+        supabase_url=required["SUPABASE_URL"],
+        supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],
     )
 
 

@@ -1,5 +1,6 @@
 import { Component, computed, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import {
   PartidaRecenteItem,
   ResumoPartidaData,
@@ -13,6 +14,8 @@ import {
   TeoriaAbertura,
   TeoriaFinaisService
 } from '../../services/teoria-finais.service';
+import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-preview.component';
+import { orientacaoDoFen } from '../../shared/fen';
 
 export const STORAGE_KEY_PARTIDA_ATIVA = 'chess_analisador_partida_ativa';
 
@@ -26,7 +29,7 @@ export type EstadoAnalise =
 @Component({
   selector: 'app-analisador-partida',
   standalone: true,
-  imports: [CommonModule, HistoricoAnaliseComponent],
+  imports: [CommonModule, RouterLink, HistoricoAnaliseComponent, TabuleiroPreviewComponent],
   templateUrl: './analisador-partida.component.html'
 })
 export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
@@ -47,6 +50,7 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
   // Histórico de análises
   readonly historico = signal<PartidaRecenteItem[]>([]);
   readonly carregandoHistorico = signal(false);
+  readonly erroHistorico = signal<string | null>(null);
 
   /** Mapeia PartidaRecenteItem -> HistoricoAnaliseItem para o componente genérico de histórico. */
   readonly itensHistoricoComponent = computed<HistoricoAnaliseItem[]>(() =>
@@ -66,7 +70,12 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
         titulo: item.jogadores || 'Partida Manual',
         detalhes,
         dataIso: item.created_at,
-        status: item.status
+        status: item.status,
+        // Posição final da partida (reconstruída do PGN no backend): é o
+        // "retrato" que distingue duas linhas com os mesmos jogadores e a
+        // mesma abertura. Ausente quando o PGN é inválido/truncado.
+        fen: item.fen_final,
+        orientacao: item.cor_jogada === 'PRETAS' ? ('PRETAS' as const) : ('BRANCAS' as const)
       };
     })
   );
@@ -120,6 +129,7 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
 
   async carregarHistorico(): Promise<void> {
     this.carregandoHistorico.set(true);
+    this.erroHistorico.set(null);
     try {
       const res = await this.revisaoAvulsaService.listarPartidasRecentes(20);
       if (res.sessaoExpirada) {
@@ -128,6 +138,8 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
       }
       if (res.success && res.partidas) {
         this.historico.set(res.partidas);
+      } else {
+        this.erroHistorico.set(res.error ?? 'Não foi possível carregar o histórico.');
       }
     } finally {
       this.carregandoHistorico.set(false);
@@ -353,6 +365,15 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
 
   formatarTag(tag: string): string {
     return tag.replace(/_/g, ' ').toUpperCase();
+  }
+
+  /**
+   * Wrapper fino sobre o helper compartilhado, só para o template poder chamá-lo.
+   * Na miniatura de um ponto crítico, quem está na vez de jogar é exatamente
+   * quem errou — então essa é sempre a perspectiva certa.
+   */
+  orientacaoDaPosicao(fen?: string | null): 'BRANCAS' | 'PRETAS' {
+    return orientacaoDoFen(fen);
   }
 }
 

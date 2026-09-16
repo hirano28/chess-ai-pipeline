@@ -35,13 +35,13 @@ from typing import Any
 import chess
 import requests
 import zstandard
-from dotenv import load_dotenv
 from supabase import Client, create_client
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from backend.agentes.agente2_analista import HEXAGON_CATEGORIES  # noqa: E402
 from backend.common.progress import configurar_encoding_utf8, log_and_print  # noqa: E402
+from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 
 configurar_encoding_utf8()
 
@@ -123,15 +123,9 @@ def configure_logging() -> logging.Logger:
 def load_settings() -> dict[str, str]:
     """Carrega e valida as configurações do ambiente."""
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    required = {
-        "SUPABASE_URL": os.getenv("SUPABASE_URL"),
-        "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-    }
-    missing = [name for name, value in required.items() if not value]
-    if missing:
-        raise ValueError("Variáveis de ambiente ausentes: " + ", ".join(sorted(missing)))
-    return {name: value for name, value in required.items()}  # type: ignore[misc]
+    return carregar_variaveis_obrigatorias(
+        PROJECT_ROOT, "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -46,6 +46,14 @@
               <span>Carregando sua análise…</span>
             </div>
           </div>
+        } @else if (semAnalise()) {
+          <div class="estado-vazio min-h-[25rem]">
+            <span class="text-2xl" aria-hidden="true">♟</span>
+            <p>Ainda não há uma análise de partidas disponível.</p>
+            <a routerLink="/analisador" class="btn btn-secundario btn-pequeno mt-2">
+              Analisar minha primeira partida
+            </a>
+          </div>
         } @else if (error()) {
           <div class="flex min-h-[25rem] items-center justify-center" role="alert">
             <p class="aviso aviso-erro max-w-md">{{ error() }}</p>
@@ -55,7 +63,6 @@
             <canvas
               #radarCanvas
               class="h-full w-full"
-              style="height: 400px"
               aria-label="Gráfico radar das categorias de erro"
               role="img"
             ></canvas>

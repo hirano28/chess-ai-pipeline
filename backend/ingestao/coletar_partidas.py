@@ -15,7 +15,6 @@ from typing import Any, Iterator
 import chess
 import chess.pgn
 import requests
-from dotenv import load_dotenv
 from supabase import Client
 
 
@@ -26,6 +25,7 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 from backend.ingestao.common_ingestao import (  # noqa: E402
     already_exists,
     carregar_perfis,
@@ -58,17 +58,9 @@ def load_settings() -> Settings:
     `perfis_usuario` gera sua própria rodada de coleta (ver `main`).
     """
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    required = {
-        "SUPABASE_URL": os.getenv("SUPABASE_URL"),
-        "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-        "LICHESS_TOKEN": os.getenv("LICHESS_TOKEN"),
-    }
-    missing = [name for name, value in required.items() if not value]
-    if missing:
-        raise ValueError(
-            "Variáveis de ambiente ausentes: " + ", ".join(sorted(missing))
-        )
+    required = carregar_variaveis_obrigatorias(
+        PROJECT_ROOT, "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "LICHESS_TOKEN"
+    )
 
     raw_limit = os.getenv("LICHESS_GAMES_LIMIT", "20")
     try:

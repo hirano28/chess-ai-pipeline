@@ -2336,6 +2336,213 @@ conteúdo de referência estático, não dado de usuário.
 
 ---
 
+### D-50 — Auditoria de qualidade: backend, segurança/operação e frontend
+
+**Data:** 2026-09-16
+**Gatilho:** pedido explícito do usuário — em vez de trazer recursos novos,
+mapear e resolver formas de melhorar o que já existe. Três auditorias
+paralelas e independentes (backend/confiabilidade, segurança/operação,
+frontend/UX), todas somente-leitura antes de qualquer mudança, seguidas de
+implementação de tudo que era corrigível diretamente. Nenhum achado foi
+inventado: cada um foi confirmado por leitura de código ou consulta real ao
+Supabase (`get_advisors`, `pg_policies`) antes de virar mudança.
+
+**Backend — segurança/custo:**
+- **`POST /partidas/{id}/reprocessar` não tinha limite diário.** Dispara o
+  mesmo pipeline Stockfish+Gemini de `/analisar-pgn`, mas tinha ficado fora
+  do D-32 por descuido — um usuário (ou um retry em loop) podia gerar gasto
+  ilimitado de Gemini. Agora usa `limite_diario("reprocessar")`, mesmo
+  padrão das outras 4 rotas caras (default 20/dia, `LIMITE_DIARIO_REPROCESSAR`).
+- **`POST /treino/{id}/responder` (D-48) também não tinha teto.** Só usa
+  Stockfish (sem custo de API paga), mas serializa no `engine_lock` global
+  (R3) — um spam ali derruba a fila de Stockfish de todo mundo. Ganhou
+  `limite_diario("treino-responder")`, com teto bem mais alto (default 200)
+  já que o propósito do D-48 é permitir muitas repetições por dia.
+- **Código morto que travava o boot removido.** `verificar_api_key`,
+  `_resolver_api_keys()` e `_parse_api_keys` (o antigo esquema de header
+  `X-API-Key`, aposentado como gate de acesso desde D-25) foram deletados de
+  vez — nenhuma rota dependia mais deles, mas a validação de
+  `API_SECRET_KEYS` no startup ainda **recusava subir o servidor** sem essa
+  variável, um risco de disponibilidade real amarrado a uma feature morta.
+  `deploy-backend.yml` não propaga mais esse secret; `env.yaml` local e
+  `.env.example` limpos também. Essa pendência estava registrada desde o
+  próprio D-25 como "não fazer sem avaliar" — avaliada e resolvida agora.
+
+**Banco de dados (Supabase, aplicado diretamente via migrations):**
+- **22 policies de RLS reescritas** para usar `(select auth.uid())` em vez
+  de `auth.uid()` solto (lint `auth_rls_initplan` do advisor de
+  performance) — mesma regra de isolamento, só evita reavaliar a função
+  linha a linha. Mecânico, via `ALTER POLICY` (sem DROP+CREATE, sem janela
+  sem proteção).
+- **4 índices criados** para FKs sem cobertura (`diagnosticos.lance_id`,
+  `fila_treino_espacado.exercicio_id`/`lance_id`,
+  `lichess_oauth_pkce.user_id`) — lint `unindexed_foreign_keys`.
+- **Função órfã `match_livro_chunks` (singular) removida.** Achado durante a
+  auditoria: existia só no banco, sem nenhum arquivo `.sql` correspondente
+  no repo (drift não documentado) e zero call site no código — versão
+  anterior de `match_livros_chunks` (plural), a que `agente3_prescritor.py`
+  realmente usa. `match_livros_chunks` ganhou `set search_path = public,
+  extensions, pg_temp` (lint `function_search_path_mutable`; `extensions` é
+  necessário porque é lá que o Supabase instala o pgvector). De quebra,
+  corrigido um drift real: o arquivo `backend/db/match_livros_chunks.sql`
+  declarava `id bigint`, mas a coluna real é `id uuid` — sincronizado.
+- **Não corrigido (fora do alcance das ferramentas desta sessão):** o
+  advisor de segurança aponta `auth_leaked_password_protection` desligado —
+  é um toggle do Dashboard do Supabase Auth, não uma migration SQL. Risco
+  baixo dado o modelo de ameaça do projeto (ver P-9 em `ESTADO.md`).
+
+**P-1 (chaves expostas) — não "resolvido", mas mapeado com precisão.**
+Rotacionar chaves de provedor externo (Gemini, Supabase) exige ação em
+consoles que este agente não controla. Runbook confirmado por auditoria:
+`GEMINI_API_KEY` toca 9 arquivos + 3 workflows, `SUPABASE_SERVICE_ROLE_KEY`
+toca ~20 arquivos + 3 workflows (praticamente todo script do pipeline);
+`API_SECRET_KEYS` não precisa mais rotação — foi removida (ver acima). A
+rotação em si (gerar a nova chave no console do provedor, atualizar
+`.env`/GitHub Secrets, rodar `deploy-backend.yml`) continua pendente de
+alguém com acesso a esses consoles — ver P-1 em `ESTADO.md`.
+
+**Backend — manutenibilidade:**
+- **Novo `backend/common/settings.py`** (`carregar_variaveis_obrigatorias`)
+  substitui **18 implementações quase-idênticas** de `load_settings()`
+  (`load_dotenv` + validar presença + `ValueError` com a lista de nomes
+  ausentes) espalhadas por `backend/agentes/`, `backend/ingestao/`,
+  `backend/rag/`, `backend/analise_engine/`. Risco que motivou a
+  consolidação: um typo de nome de variável ou uma regra de validação
+  corrigida num script não se propagava pros outros 17. Cada `load_settings()`
+  virou um wrapper fino que chama o helper compartilhado e monta seu
+  próprio objeto de configuração por cima (dataclass, dict, ou tupla,
+  preservado sem alteração de contrato público). 5 testes novos.
+- **`backend/common/progress.py` ganhou testes** (12 testes) — utilitário
+  compartilhado por todo o pipeline, sem cobertura própria até agora.
+- **`backend/agentes/teste_gemini.py` deletado.** Script de smoke-test
+  manual, autodescrito como "temporário" no próprio docstring, sem nenhuma
+  referência em outro lugar do repo, fazia uma chamada real e paga ao
+  Gemini se executado.
+
+**Frontend — UX/consistência:**
+- **`historico-analise` (componente compartilhado por Analisador de
+  Partida, Explicador de Posição e Laboratório de Raciocínio) não tinha
+  estado de erro.** Uma falha ao buscar o histórico ficava indistinguível
+  de "não há nada ainda" (a mesma `mensagemVazio` aparecia nos dois casos).
+  Ganhou `@Input() erro`, com um branch `.aviso-erro` antes do estado vazio;
+  as 3 telas que o usam agora rastreiam `erroHistorico` separado de
+  `carregandoHistorico`.
+- **Mesma linha clicável não era alcançável por teclado.** `<div (click)>`
+  sem `role`/`tabindex`/handler de teclado — ganhou `role="button"`,
+  `tabindex="0"`, `(keydown.enter)` e `(keydown.space)`.
+- **Hexágono: "ainda não há análise" estava renderizado como erro
+  (`.aviso-erro`), não como estado vazio.** Usuário novo, sem nenhum erro
+  crítico registrado ainda, via uma mensagem com estilo de alerta vermelho.
+  Separado em `semAnalise` (estado vazio genuíno) vs `error` (falha real de
+  rede/servidor), com `.estado-vazio` + link direto para `/analisador`
+  ("Analisar minha primeira partida").
+- **Cores do Chart.js do Hexágono eram hex duplicado à mão**, copiado dos
+  tokens de `src/styles.css` sem nenhuma ligação real — risco de drift
+  silencioso se a paleta for retocada. Agora lidas em tempo real via
+  `getComputedStyle(document.documentElement).getPropertyValue(...)`, com
+  fallback pro hex original se o token não existir (SSR/testes).
+  Removido também um `style="height: 400px"` redundante (duplicava a classe
+  Tailwind do container pai).
+- **Spinner do Analisador de Partida** era um `<span>` com
+  `animate-spin`/borda manual, único no app inteiro — trocado pelo `.pulso`
+  compartilhado (mesmo usado em Laboratório, Explicador, Perfil, Treino).
+- **3 componentes sem nenhum teste ganharam spec files**:
+  `hexagono-radar` (7 testes — inclui `focar()`, o estado vazio novo, e a
+  leitura de cor via token), `narrativa-analise` (5 testes) e
+  `perguntas-pendentes` (6 testes).
+- **Checado e descartado como não-problema:** `tabuleiro-preview` usa
+  `max-w-[340px]` (um teto, não uma largura fixa) sobre um grid `w-full` +
+  `aspect-square` por casa — já é fluido, encolhe corretamente em qualquer
+  viewport estreito. O achado original da auditoria foi cauteloso demais;
+  confirmado na leitura do código que não há bug real ali.
+
+**Testes:** 17 novos no backend (583 → **600**, 35 módulos: +
+`backend.common.test_progress`, `backend.common.test_settings`), 20 novos
+no frontend (151 → **171**, 24 arquivos). `ng build` limpo. Nenhuma
+regressão em nenhuma das duas suítes completas, conferido a cada lote de
+mudanças (não só no final).
+
+**R8 cumprido:** `backend.common.test_progress` e `backend.common.test_settings`
+registrados em `docs/OPERACAO.md` e `.github/workflows/deploy-backend.yml`.
+
+---
+
+### D-51 — Miniaturas de posição nos resumos e históricos
+
+**Problema.** Todo lugar do app que lista várias coisas de uma vez descrevia
+cada item só por texto. "Lance Cxe5" se repete entre posições completamente
+diferentes; "hirano28 vs oponente · B90 · DERROTA" descreve igualmente bem
+cinco partidas distintas contra o mesmo adversário na mesma abertura; um
+veredito de explicação truncado em 60 caracteres idem. Para saber de qual
+item a linha estava falando era preciso abrir um por um. Só duas telas já
+tinham miniatura (`perguntas-pendentes` e o card do Treino Diário) — o
+componente `tabuleiro-preview` já suportava `[miniatura]="true"` desde o
+D-45, estava subaproveitado.
+
+**Decisão.** `HistoricoAnaliseItem` (o contrato do histórico compartilhado
+entre Analisador de Partida, Explicador de Posição e Laboratório de
+Raciocínio) ganhou dois campos opcionais, `fen` e `orientacao`. Quando o
+item traz FEN, a linha desenha uma miniatura de 56–64px à esquerda; quando
+não traz, a linha continua exatamente como era. Os cards de ponto crítico do
+Analisador ganharam a mesma miniatura, clicável, levando ao Laboratório com
+a posição já carregada (mesmo padrão de `perguntas-pendentes`).
+
+Isso arranha o comentário original do D-11 ("este componente não conhece FEN,
+PGN nem nenhuma regra de xadrez"). A restrição continua valendo no que
+importa: o histórico **repassa** a FEN crua para o `tabuleiro-preview`, que
+já é quem sabe fazer parse e já trata FEN inválida desenhando tabuleiro
+vazio. Nenhuma regra de xadrez entrou no componente de lista.
+
+**De onde vem cada FEN:**
+
+- **Explicador** e **Laboratório** — a coluna `fen` já vinha nos dois
+  endpoints de histórico. Zero mudança de backend.
+- **Analisador (lista de partidas)** — campo novo `fen_final` em
+  `PartidaRecenteItem`, reconstruído do PGN que a query **já buscava** (para
+  extrair os jogadores), via `parse_pgn(...).end().board().fen()`. Parsing
+  local e puro: nada de Stockfish, nada de Gemini, nenhuma query a mais. PGN
+  inválido/truncado devolve `None` e a linha só fica sem miniatura, em vez de
+  derrubar o histórico inteiro.
+- **Analisador (pontos críticos)** — a posição mora em
+  `lances_criticos.fen_antes_lance` (D-27), não no JSON de `resumo_partida`.
+  A junção por `numero_lance` é feita **na leitura** do endpoint
+  `/partidas/{id}/resumo`, não na geração do resumo. Essa é a decisão que
+  importa aqui: enriquecer na geração só valeria para partidas analisadas
+  dali para frente e exigiria reprocessar tudo (caro: Stockfish + Gemini).
+  Na leitura, custa uma query barata e vale retroativamente. Conferido
+  contra o banco de produção antes de implementar: **423 de 423** pontos
+  críticos já existentes casam com um `fen_antes_lance` preenchido — 100% de
+  cobertura, nenhum reprocessamento necessário.
+
+**Orientação do tabuleiro.** Helper novo `frontend/src/app/shared/fen.ts`
+(`orientacaoDoFen`), que lê o 2º campo da FEN. Numa miniatura de exercício
+ou de ponto crítico, quem está na vez de jogar é exatamente quem errou —
+então essa é sempre a perspectiva certa. O Analisador usa a `cor_jogada` da
+partida e o Explicador usa o `lado_analisado`, que são mais explícitos onde
+existem.
+
+**Onde deliberadamente NÃO entrou miniatura:** Sessões de Treino (a
+prescrição do Agente 3 é texto — módulos, livro, capítulo, duração; não há
+posição nenhuma associada), Puzzles Insights e Repertório Insights
+(agregados estatísticos, sem posição por linha) e Perfil (cadastro de
+contas). Miniatura ali seria enfeite sem informação.
+
+**Verificação real (não só unitária):** `uvicorn` local + sessão real do
+Supabase Auth gerada por magic link (Admin API). `GET /partidas/recentes`
+devolveu `fen_final` correto para as 12 partidas manuais reais do banco
+(12/12, nenhuma falha de parse); `GET /partidas/{id}/resumo` de uma partida
+já analisada devolveu os 4 pontos críticos, cada um com sua FEN, todos com
+`b` na vez de jogar — coerente com a partida, que foi jogada de pretas.
+
+**Testes:** 4 novos no backend (600 → **604**), 8 novos no frontend
+(171 → **179**, 25 arquivos: + `app/shared/fen.spec.ts`). `ng build` limpo.
+
+**Pendente de conferência humana:** o visual em si (tamanho da miniatura na
+linha do histórico, legibilidade das peças a 56px, o card de ponto crítico
+em telas estreitas) — não dá para validar de fora do navegador.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

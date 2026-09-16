@@ -96,6 +96,10 @@ describe('LaboratorioRaciocinioComponent', () => {
     expect(itens[0].titulo).toBe('Lance Nf3');
     expect(itens[0].detalhes).toContain('Qualidade: BOM');
     expect(itens[0].detalhes).toContain('Raciocínio: SOLIDO');
+    // "Lance Nf3" se repete entre posições diferentes: a miniatura é o que
+    // identifica de fato o exercício salvo.
+    expect(itens[0].fen).toBe(itemHistoricoMock.fen);
+    expect(itens[0].orientacao).toBe('BRANCAS');
   });
 
   it('deve exibir o card somente-leitura ao selecionar um item do histórico', () => {

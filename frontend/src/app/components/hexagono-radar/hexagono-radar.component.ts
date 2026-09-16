@@ -8,7 +8,7 @@ import {
   signal,
   viewChild
 } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import {
   Chart,
   Filler,
@@ -58,6 +58,7 @@ type Categoria = (typeof CATEGORIAS)[number];
   selector: 'app-hexagono-radar',
   standalone: true,
   imports: [
+    RouterLink,
     SessoesTreinoComponent,
     NarrativaAnaliseComponent,
     PerguntasPendentesComponent,
@@ -72,6 +73,9 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+  /** Auditoria de UX pós-D-49: "ainda não há análise" é um estado vazio
+   * (usuário novo), não um erro — tinha ficado renderizado como .aviso-erro. */
+  readonly semAnalise = signal(false);
   readonly dados = signal<AnaliseHexagonoMetricas | null>(null);
   readonly modoVisualizacao = signal<'erros' | 'forcas'>('erros');
   readonly categorias = CATEGORIAS;
@@ -123,11 +127,12 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
   private async carregarAnalise(): Promise<void> {
     this.loading.set(true);
     this.error.set(null);
+    this.semAnalise.set(false);
 
     try {
       const analise = await this.supabaseService.getUltimaAnaliseHexagono();
       if (!analise?.frequencia_por_categoria) {
-        this.error.set('Ainda não há uma análise de partidas disponível.');
+        this.semAnalise.set(true);
         return;
       }
 
@@ -165,6 +170,16 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const corLatao500 = this.corToken('--color-latao-500', '#dea34c');
+    const corLatao300 = this.corToken('--color-latao-300', '#f4c878');
+    const corArdosia850 = this.corToken('--color-ardosia-850', '#101b20');
+    const corArdosia800 = this.corToken('--color-ardosia-800', '#142228');
+    const corLinhaForte = this.corToken('--color-linha-forte', '#2b3f47');
+    const corBruma200 = this.corToken('--color-bruma-200', '#d5e0e1');
+    const corBruma300 = this.corToken('--color-bruma-300', '#b9c7c8');
+    const corBruma500 = this.corToken('--color-bruma-500', '#74898c');
+    const corMarfim = this.corToken('--color-marfim', '#f4f0e6');
+
     this.chart = new Chart(canvas, {
       type: 'radar',
       data: {
@@ -174,11 +189,11 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
             label,
             data: dadosExibidos,
             backgroundColor: 'rgba(222, 163, 76, 0.18)',
-            borderColor: '#dea34c',
-            pointBackgroundColor: '#f4c878',
-            pointBorderColor: '#142228',
+            borderColor: corLatao500,
+            pointBackgroundColor: corLatao300,
+            pointBorderColor: corArdosia800,
             pointHoverBackgroundColor: '#fff8e8',
-            pointHoverBorderColor: '#dea34c',
+            pointHoverBorderColor: corLatao500,
             borderWidth: 2,
             pointRadius: 3.5,
             pointHoverRadius: 6,
@@ -189,7 +204,9 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        // As cores espelham os tokens de src/styles.css (latão, marfim, bruma).
+        // As cores são lidas dos tokens de src/styles.css em tempo real (via
+        // corToken()), não copiadas à mão - evita o gráfico ficar com uma
+        // paleta desatualizada se os tokens forem retocados.
         scales: {
           r: {
             beginAtZero: true,
@@ -198,13 +215,13 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
             ticks: {
               stepSize: 25,
               backdropColor: 'transparent',
-              color: '#74898c',
+              color: corBruma500,
               font: { size: 10, family: FAMILIA_UI }
             },
             grid: { color: 'rgba(147, 169, 171, 0.14)' },
             angleLines: { color: 'rgba(147, 169, 171, 0.14)' },
             pointLabels: {
-              color: '#d5e0e1',
+              color: corBruma200,
               font: { size: 11, weight: 600, family: FAMILIA_UI }
             }
           }
@@ -214,11 +231,11 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
           // gráfico; a legenda só repetiria isso ocupando espaço vertical.
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#101b20',
-            borderColor: '#2b3f47',
+            backgroundColor: corArdosia850,
+            borderColor: corLinhaForte,
             borderWidth: 1,
-            titleColor: '#f4f0e6',
-            bodyColor: '#b9c7c8',
+            titleColor: corMarfim,
+            bodyColor: corBruma300,
             titleFont: { family: FAMILIA_UI, weight: 600 },
             bodyFont: { family: FAMILIA_UI },
             padding: 10,
@@ -227,6 +244,16 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
         }
       }
     });
+  }
+
+  /** Lê um token de cor de src/styles.css em tempo real (fallback se o
+   * token não existir ou `document` não estiver disponível, ex. SSR/testes). */
+  private corToken(nomeVariavel: string, fallback: string): string {
+    if (typeof document === 'undefined') {
+      return fallback;
+    }
+    const valor = getComputedStyle(document.documentElement).getPropertyValue(nomeVariavel).trim();
+    return valor || fallback;
   }
 
   private numeroDaCategoria(

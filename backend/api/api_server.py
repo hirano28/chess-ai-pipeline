@@ -30,7 +30,6 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
-    Header,
     HTTPException,
     Request,
     UploadFile,
@@ -135,6 +134,14 @@ LIMITES_DIARIOS_ENV: dict[str, tuple[str, int]] = {
     "explicar-posicao": ("LIMITE_DIARIO_EXPLICAR_POSICAO", 50),
     "revisar-avulso": ("LIMITE_DIARIO_REVISAR_AVULSO", 50),
     "reconhecer-posicao": ("LIMITE_DIARIO_RECONHECER_POSICAO", 30),
+    # Auditoria pós-D-49: /reprocessar dispara o mesmo pipeline Stockfish+Gemini
+    # de /analisar-pgn, mas não tinha teto — mesmo limite, mesmo motivo.
+    "reprocessar": ("LIMITE_DIARIO_REPROCESSAR", 20),
+    # /treino/{id}/responder só usa Stockfish (sem custo de API paga), mas
+    # ainda serializa no engine_lock global (R3) — teto bem mais alto que as
+    # rotas caras acima, só pra conter abuso/loop, não pra frear o uso normal
+    # (o propósito do D-48 é permitir muitas repetições por dia).
+    "treino-responder": ("LIMITE_DIARIO_TREINO_RESPONDER", 200),
 }
 MENSAGEM_LIMITE_DIARIO = "Limite diário atingido, tente novamente amanhã."
 
@@ -455,6 +462,7 @@ class PartidaRecenteItem(BaseModel):
     data_partida: str | None = None
     created_at: str | None = None
     jogadores: str | None = None
+    fen_final: str | None = None
 
 
 def extrair_jogadores_pgn(pgn_text: str | None) -> str:
@@ -468,6 +476,23 @@ def extrair_jogadores_pgn(pgn_text: str | None) -> str:
     return f"{w_name} vs {b_name}"
 
 
+def extrair_fen_final_pgn(pgn_text: str | None) -> str | None:
+    """Reconstrói a posição final do PGN, para a miniatura do histórico.
+
+    Parsing puro e local (python-chess), sem Stockfish nem Gemini: é só o
+    "retrato" que permite bater o olho e reconhecer de qual partida a linha
+    do histórico está falando. PGN ausente, truncado ou inválido devolve
+    None e a lista simplesmente não mostra miniatura naquela linha — nunca
+    derruba o histórico inteiro por causa de uma partida malformada.
+    """
+    if not pgn_text:
+        return None
+    try:
+        return parse_pgn(pgn_text).end().board().fen()
+    except Exception:
+        return None
+
+
 def _limpar_fen_bruto(texto: str) -> str:
     """Remove fences markdown e rótulos residuais que o Gemini possa incluir
     apesar da instrução de responder só com o FEN."""
@@ -477,54 +502,6 @@ def _limpar_fen_bruto(texto: str) -> str:
     limpo = re.sub(r"\s*```$", "", limpo)
     limpo = re.sub(r"(?i)^fen\s*[:=]\s*", "", limpo.strip())
     return limpo.strip()
-
-
-def _parse_api_keys(raw: str) -> dict[str, str]:
-    """Converte "nome1:chave1,nome2:chave2" em {chave: nome}.
-
-    O "nome" é só um rótulo para identificar quem fez a requisição nos logs -
-    não precisa ser secreto.
-    """
-
-    api_keys: dict[str, str] = {}
-    for entrada in raw.split(","):
-        entrada = entrada.strip()
-        if not entrada:
-            continue
-        nome, separador, chave = entrada.partition(":")
-        nome = nome.strip()
-        chave = chave.strip()
-        if not separador or not nome or not chave:
-            raise RuntimeError(
-                f"Entrada inválida em API_SECRET_KEYS: {entrada!r} "
-                '(formato esperado "nome:chave").'
-            )
-        api_keys[chave] = nome
-    return api_keys
-
-
-def _resolver_api_keys() -> dict[str, str]:
-    """Lê API_SECRET_KEYS do ambiente, com fallback para API_SECRET_KEY (singular).
-
-    Se API_SECRET_KEYS não estiver definida mas a variável antiga API_SECRET_KEY
-    estiver, ela é tratada como uma única entrada "eu:valor" - mantendo
-    configurações existentes funcionando sem migração manual.
-    """
-
-    api_secret_keys_raw = os.getenv("API_SECRET_KEYS")
-    if api_secret_keys_raw:
-        api_keys = _parse_api_keys(api_secret_keys_raw)
-    else:
-        api_secret_key_legado = os.getenv("API_SECRET_KEY")
-        api_keys = {api_secret_key_legado: "eu"} if api_secret_key_legado else {}
-
-    if not api_keys:
-        raise RuntimeError(
-            "Variável de ambiente API_SECRET_KEYS (formato "
-            '"nome1:chave1,nome2:chave2") ou, para compatibilidade, API_SECRET_KEY, '
-            "é obrigatória para subir o servidor."
-        )
-    return api_keys
 
 
 @app.on_event("startup")
@@ -546,7 +523,6 @@ def iniciar_recursos() -> None:
     # Serializa o acesso ao engine compartilhado entre requisições concorrentes.
     _state["engine_lock"] = threading.Lock()
 
-    _state["api_keys"] = _resolver_api_keys()
     _state["limites_diarios"] = _resolver_limites_diarios()
     _state["lichess_oauth"] = _resolver_config_lichess_oauth()
 
@@ -561,36 +537,6 @@ def encerrar_recursos() -> None:
             engine.send_quit_command()
         except Exception:
             pass
-
-
-def verificar_api_key(
-    request: Request, x_api_key: str | None = Header(default=None, alias="X-API-Key")
-) -> str:
-    """APOSENTADA como gate de acesso em D-25 — nenhuma rota depende mais dela.
-
-    Mantida de propósito, junto de `_resolver_api_keys()` e da validação de
-    `API_SECRET_KEYS` no startup: a limpeza dessas variáveis está registrada
-    como pendência futura em `ESTADO.md`, não foi feita ainda. Quem controla o
-    acesso hoje é `verificar_sessao` (JWT do Supabase Auth).
-
-    Valida X-API-Key e devolve o nome associado à chave; 401 se ausente/inválida.
-    """
-
-    api_keys: dict[str, str] = _state.get("api_keys", {})
-    nome = api_keys.get(x_api_key) if x_api_key else None
-    if nome is None:
-        raise HTTPException(status_code=401, detail="Chave de API ausente ou inválida.")
-
-    request.state.api_key_nome = nome
-    timestamp = datetime.now(timezone.utc).isoformat()
-    mensagem = f"Requisição autorizada para '{nome}' em {timestamp}"
-    logger = _state.get("logger")
-    if logger is not None:
-        log_and_print(logger, mensagem)
-    else:
-        print(mensagem)
-
-    return nome
 
 
 def resolver_user_id_da_sessao(token: str) -> str | None:
@@ -647,10 +593,10 @@ def resolver_usernames_do_perfil(client: Any, user_id: str) -> list[str]:
 def verificar_sessao(request: Request) -> str:
     """Exige sessão real do Supabase Auth ANTES de qualquer rota executar.
 
-    Gate único de acesso da API desde D-25, no lugar de `verificar_api_key`.
-    Mesmo princípio de "falha rápido antes de trabalho caro" da dependency
-    antiga: rodando antes do corpo da rota, um token ausente ou inválido nunca
-    chega a consumir Stockfish, cota do Gemini ou banco.
+    Gate único de acesso da API desde D-25, no lugar do antigo esquema de
+    header `X-API-Key` (removido de vez na auditoria pós-D-49 — nenhuma rota
+    dependia mais dele). Rodando antes do corpo da rota, um token ausente ou
+    inválido nunca chega a consumir Stockfish, cota do Gemini ou banco.
 
     Devolve o `user.id` real — as rotas que precisam do dono (escrita nas
     tabelas raiz, leitura filtrada) recebem esse valor por injeção, sem
@@ -791,6 +737,8 @@ verificar_limite_analisar_pgn = limite_diario("analisar-pgn")
 verificar_limite_explicar_posicao = limite_diario("explicar-posicao")
 verificar_limite_revisar_avulso = limite_diario("revisar-avulso")
 verificar_limite_reconhecer_posicao = limite_diario("reconhecer-posicao")
+verificar_limite_reprocessar = limite_diario("reprocessar")
+verificar_limite_treino_responder = limite_diario("treino-responder")
 
 
 @app.post(
@@ -1032,14 +980,16 @@ def obter_fila_treino(user_id: str = Depends(verificar_sessao)) -> FilaTreinoRes
 def responder_treino(
     fila_id: int,
     payload: ResponderTreinoRequest,
-    user_id: str = Depends(verificar_sessao),
+    user_id: str = Depends(verificar_limite_treino_responder),
 ) -> ResponderTreinoResponse:
     """Avalia a resposta de um card via Stockfish e reagenda via SM-2 (D-48).
 
     Sem chamada ao Gemini: classificar_qualidade_lance (threshold sobre
     queda_win_percent) já basta pra derivar a nota do SM-2, e manter o Gemini
     fora do caminho quente é o que permite muitas repetições por dia sem
-    custo nem latência extra (decisão de escopo do D-48).
+    custo nem latência extra (decisão de escopo do D-48). Limite diário
+    (auditoria pós-D-49) bem mais alto que as rotas caras — só pra conter
+    abuso/loop contra o `engine_lock` global (R3), não pra frear o uso normal.
     """
     client = _state.get("supabase_client")
     if not client:
@@ -1456,6 +1406,46 @@ def analisar_pgn_endpoint(
     return AnalisarPgnResponse(partida_id=partida_id, external_id=external_id)
 
 
+def _anexar_fen_aos_pontos_criticos(
+    client: Any, partida_id: str, resumo: dict[str, Any]
+) -> None:
+    """Anexa `fen` a cada ponto crítico do resumo, casando por `numero_lance`.
+
+    A posição mora em `lances_criticos.fen_antes_lance` (D-27), não no JSON
+    de `resumo_partida` — fazer a junção aqui, na leitura, faz a miniatura
+    aparecer também nas partidas analisadas antes desta mudança, sem
+    reprocessar nada. Falha silenciosa de propósito: o resumo é o conteúdo,
+    a miniatura é enfeite; se a consulta cair, a tela renderiza sem ela.
+    """
+    pontos = resumo.get("pontos_criticos")
+    if not isinstance(pontos, list) or not pontos:
+        return
+
+    try:
+        resp = (
+            client.table("lances_criticos")
+            .select("numero_lance, fen_antes_lance")
+            .eq("partida_id", partida_id)
+            .execute()
+        )
+    except Exception:
+        return
+
+    fen_por_lance = {
+        row["numero_lance"]: row["fen_antes_lance"]
+        for row in resp.data or []
+        if row.get("numero_lance") is not None and row.get("fen_antes_lance")
+    }
+    if not fen_por_lance:
+        return
+
+    for ponto in pontos:
+        if isinstance(ponto, dict) and not ponto.get("fen"):
+            fen = fen_por_lance.get(ponto.get("numero_lance"))
+            if fen:
+                ponto["fen"] = fen
+
+
 @app.get(
     "/partidas/{partida_id}/resumo",
     response_model=ResumoPartidaResponse,
@@ -1506,6 +1496,7 @@ def obter_resumo_partida_endpoint(
             )
             if resp_resumo.data:
                 resumo_dados = resp_resumo.data[0]
+                _anexar_fen_aos_pontos_criticos(client, partida_id, resumo_dados)
         except Exception:
             pass
 
@@ -1560,6 +1551,7 @@ def listar_partidas_recentes(
                 data_partida=row.get("data_partida"),
                 created_at=row.get("created_at"),
                 jogadores=extrair_jogadores_pgn(row.get("pgn")),
+                fen_final=extrair_fen_final_pgn(row.get("pgn")),
             )
         )
     return itens
@@ -1573,7 +1565,7 @@ def listar_partidas_recentes(
 def reprocessar_partida_endpoint(
     partida_id: str,
     background_tasks: BackgroundTasks,
-    user_id: str = Depends(verificar_sessao),
+    user_id: str = Depends(verificar_limite_reprocessar),
 ) -> AnalisarPgnResponse:
     """Re-agenda a análise completa de uma partida já existente em segundo plano.
 
@@ -1581,7 +1573,8 @@ def reprocessar_partida_endpoint(
     qualquer sessão válida conseguia reagendar a partida de qualquer outro
     usuário só por adivinhar o UUID, consumindo Stockfish/Gemini em cima do
     dado alheio. Partida de outro dono responde 404, nunca 403 — não revela
-    que existe.
+    que existe. Limite diário (auditoria pós-D-49): dispara o mesmo pipeline
+    caro de /analisar-pgn e tinha ficado de fora do D-32 por descuido.
     """
     client = _state.get("supabase_client")
     if not client:

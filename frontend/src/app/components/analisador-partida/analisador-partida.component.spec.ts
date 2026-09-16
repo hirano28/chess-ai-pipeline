@@ -241,6 +241,33 @@ describe('AnalisadorPartidaComponent', () => {
     expect(itens[0].detalhes).toContain('ECO: B90');
     expect(itens[0].detalhes).toContain('DERROTA');
   });
+
+  it('repassa a posição final da partida para a miniatura, na cor jogada', async () => {
+    const fenFinal = 'rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2';
+    vi.spyOn(revisaoService, 'listarPartidasRecentes').mockResolvedValue({
+      success: true,
+      partidas: [
+        { partida_id: 'p-3', status: 'concluido', cor_jogada: 'PRETAS', fen_final: fenFinal },
+        // PGN inválido no backend -> sem fen_final -> linha sem miniatura.
+        { partida_id: 'p-4', status: 'falhou', cor_jogada: 'BRANCAS' }
+      ]
+    });
+
+    await component.carregarHistorico();
+    const itens = component.itensHistoricoComponent();
+
+    expect(itens[0].fen).toBe(fenFinal);
+    expect(itens[0].orientacao).toBe('PRETAS');
+    expect(itens[1].fen).toBeUndefined();
+    expect(itens[1].orientacao).toBe('BRANCAS');
+  });
+
+  it('orientacaoDaPosicao usa o lado que está na vez de jogar (quem errou)', () => {
+    expect(
+      component.orientacaoDaPosicao('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1')
+    ).toBe('PRETAS');
+    expect(component.orientacaoDaPosicao(null)).toBe('BRANCAS');
+  });
 });
 
 

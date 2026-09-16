@@ -65,6 +65,63 @@ describe('HistoricoAnaliseComponent', () => {
     expect(idEmitido).toBe('p-1');
   });
 
+  it('deve exibir o erro em vez da mensagem de vazio quando erro está definido', () => {
+    component.erro = 'Não foi possível carregar o histórico.';
+    component.itens = [];
+    fixture.detectChanges();
+
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(texto).toContain('Não foi possível carregar o histórico.');
+    expect(texto).not.toContain('Nenhuma análise recente registrada.');
+  });
+
+  it('deve emitir itemClicado ao pressionar Enter na linha (acessibilidade)', () => {
+    component.itens = [itemComStatus];
+    fixture.detectChanges();
+
+    let idEmitido: string | undefined;
+    component.itemClicado.subscribe((id) => (idEmitido = id));
+
+    const linha = fixture.nativeElement.querySelector('[role="button"]') as HTMLElement;
+    linha.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+    expect(idEmitido).toBe('p-1');
+  });
+
+  it('a linha clicável tem role="button" e é alcançável por teclado (tabindex)', () => {
+    component.itens = [itemComStatus];
+    fixture.detectChanges();
+
+    const linha = fixture.nativeElement.querySelector('[role="button"]') as HTMLElement;
+    expect(linha).toBeTruthy();
+    expect(linha.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('deve desenhar a miniatura do tabuleiro só nos itens que trazem fen', () => {
+    component.itens = [
+      { ...itemComStatus, fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' },
+      itemSemStatus
+    ];
+    fixture.detectChanges();
+
+    const miniaturas = fixture.nativeElement.querySelectorAll('app-tabuleiro-preview');
+    expect(miniaturas.length).toBe(1);
+    // 64 casas desenhadas = o FEN foi de fato repassado e parseado.
+    expect(miniaturas[0].querySelectorAll('.aspect-square').length).toBe(64);
+  });
+
+  it('a miniatura respeita a orientação pedida pelo item', () => {
+    const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    component.itens = [{ ...itemComStatus, fen, orientacao: 'PRETAS' }];
+    fixture.detectChanges();
+
+    const primeiraPeca = fixture.nativeElement.querySelector(
+      'app-tabuleiro-preview img'
+    ) as HTMLImageElement;
+    // De pretas, o canto superior esquerdo é h1 (torre branca); de brancas seria a8.
+    expect(primeiraPeca.getAttribute('alt')).toBe('wR');
+  });
+
   it('deve emitir atualizarClicado ao clicar em "Atualizar lista"', () => {
     fixture.detectChanges();
 

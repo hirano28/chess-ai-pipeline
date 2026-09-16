@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import google.genai as genai
-from dotenv import load_dotenv
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from supabase import Client, create_client
 
@@ -27,6 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from backend.agentes.agente2_analista import TAGS_VOCABULARY  # noqa: E402
 from backend.common.progress import configurar_encoding_utf8, log_and_print  # noqa: E402
+from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 
 configurar_encoding_utf8()
 
@@ -75,21 +75,13 @@ def configure_logging() -> logging.Logger:
 def load_settings() -> Settings:
     """Carrega e valida as configurações do ambiente."""
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    required = {
-        "SUPABASE_URL": os.getenv("SUPABASE_URL"),
-        "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-        "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY"),
-    }
-    missing = [name for name, value in required.items() if not value]
-    if missing:
-        raise ValueError(
-            "Variáveis de ambiente ausentes: " + ", ".join(sorted(missing))
-        )
+    required = carregar_variaveis_obrigatorias(
+        PROJECT_ROOT, "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "GEMINI_API_KEY"
+    )
     return Settings(
-        supabase_url=required["SUPABASE_URL"],  # type: ignore[arg-type]
-        supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],  # type: ignore[arg-type]
-        gemini_api_key=required["GEMINI_API_KEY"],  # type: ignore[arg-type]
+        supabase_url=required["SUPABASE_URL"],
+        supabase_service_role_key=required["SUPABASE_SERVICE_ROLE_KEY"],
+        gemini_api_key=required["GEMINI_API_KEY"],
     )
 
 

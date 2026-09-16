@@ -22,7 +22,6 @@ from typing import Any
 import chess
 import chess.pgn
 import google.genai as genai
-from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 from stockfish import Stockfish
 from supabase import Client, create_client
@@ -43,6 +42,7 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 
 configurar_encoding_utf8()
 
@@ -135,19 +135,13 @@ def configure_logging() -> logging.Logger:
 def load_settings() -> dict[str, str]:
     """Carrega e valida as configurações do ambiente."""
 
-    load_dotenv(PROJECT_ROOT / ".env")
-    required = {
-        "SUPABASE_URL": os.getenv("SUPABASE_URL"),
-        "SUPABASE_SERVICE_ROLE_KEY": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-        "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY"),
-        "STOCKFISH_PATH": os.getenv("STOCKFISH_PATH"),
-    }
-    missing = [name for name, value in required.items() if not value]
-    if missing:
-        raise ValueError(
-            "Variáveis de ambiente ausentes: " + ", ".join(sorted(missing))
-        )
-    settings = {name: value for name, value in required.items()}  # type: ignore[misc]
+    settings = carregar_variaveis_obrigatorias(
+        PROJECT_ROOT,
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "GEMINI_API_KEY",
+        "STOCKFISH_PATH",
+    )
     settings["STOCKFISH_DEPTH"] = os.getenv("STOCKFISH_DEPTH", "16")
     return settings
 

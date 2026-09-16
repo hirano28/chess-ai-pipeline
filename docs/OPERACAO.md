@@ -47,6 +47,8 @@ python -m unittest \
   backend.common.test_lichess_explorer \
   backend.common.test_lichess_oauth \
   backend.common.test_notacao_pt \
+  backend.common.test_progress \
+  backend.common.test_settings \
   backend.common.test_spaced_repetition \
   backend.common.test_syzygy_tablebase \
   backend.common.test_tenant \
@@ -155,10 +157,11 @@ commitados.
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`,
 `LICHESS_USERNAME`, `LICHESS_TOKEN`, `LICHESS_STUDY_TOKEN`,
 `LICHESS_GAMES_LIMIT`, `CHESSCOM_USERNAME`, `CHESSCOM_MONTHS_LIMIT`,
-`YOUTUBE_API_KEY`, `STOCKFISH_PATH`, `API_SECRET_KEY`, `API_SECRET_KEYS`,
+`YOUTUBE_API_KEY`, `STOCKFISH_PATH`,
 `ALLOWED_ORIGINS`, `EXERCICIO_AVULSO_SEARCHTIME_MS`, `DEFAULT_USER_ID`,
 `LIMITE_DIARIO_ANALISAR_PGN`, `LIMITE_DIARIO_EXPLICAR_POSICAO`,
 `LIMITE_DIARIO_REVISAR_AVULSO`, `LIMITE_DIARIO_RECONHECER_POSICAO`,
+`LIMITE_DIARIO_REPROCESSAR`, `LIMITE_DIARIO_TREINO_RESPONDER`,
 `LICHESS_OAUTH_CLIENT_ID`, `LICHESS_OAUTH_REDIRECT_URI`,
 `LICHESS_OAUTH_SCOPES`, `FRONTEND_URL`, `TREINO_NOVOS_POR_DIA`,
 `TREINO_FOCO_QTD_EXERCICIOS`, `EXERCICIO_RATING_MIN`, `EXERCICIO_RATING_MAX`,
@@ -177,16 +180,20 @@ pedidos na hora, então ampliar a lista exige reconectar as contas.
 `FRONTEND_URL` (default: a primeira entrada de `ALLOWED_ORIGINS`) é para onde o
 callback devolve o navegador.
 
-**Limite diário por usuário nas rotas caras (D-32).** As 4 variáveis
-`LIMITE_DIARIO_*` acima são opcionais — cada uma tem um default no código
-(`LIMITES_DIARIOS_ENV` em `api_server.py`: 20/50/50/30, na ordem listada) e só
-precisam ir no `.env`/secret quando o valor precisar mudar sem novo deploy de
-código. `/analisar-pgn`, `/explicar-posicao`, `/revisar-avulso` e
-`/reconhecer-posicao` passaram a depender de `limite_diario(rota)`, que
-incrementa `uso_diario_usuario` via RPC (`incrementar_uso_diario`, atômico,
-dia calculado em `America/Sao_Paulo`) ANTES do corpo da rota, e barra com 429
+**Limite diário por usuário nas rotas caras (D-32; auditoria pós-D-49).** As
+variáveis `LIMITE_DIARIO_*` acima são opcionais — cada uma tem um default no
+código (`LIMITES_DIARIOS_ENV` em `api_server.py`: 20/50/50/30/20 para as
+rotas caras de Stockfish+Gemini, e 200 só para `treino-responder`, que só usa
+Stockfish) e só precisam ir no `.env`/secret quando o valor precisar mudar
+sem novo deploy de código. `/analisar-pgn`, `/explicar-posicao`,
+`/revisar-avulso`, `/reconhecer-posicao`, `/partidas/{id}/reprocessar` e
+`/treino/{id}/responder` dependem de `limite_diario(rota)`, que incrementa
+`uso_diario_usuario` via RPC (`incrementar_uso_diario`, atômico, dia
+calculado em `America/Sao_Paulo`) ANTES do corpo da rota, e barra com 429
 quando a contagem do dia supera o limite — ver BANCO.md e D-32 em
-`DECISOES.md`.
+`DECISOES.md`. `/reprocessar` e `/treino/{id}/responder` tinham ficado de
+fora do D-32/D-48 originais por descuido — corrigido numa auditoria de
+segurança/operação (achado documentado, ver `DECISOES.md`).
 
 **Fila de treino diário (D-48).** `TREINO_NOVOS_POR_DIA` (default 10) limita
 quantos cards NOVOS `popular_fila_treino_espacado.py` introduz "hoje" por
@@ -205,12 +212,13 @@ obscuros/mal avaliados no Lichess, e `EXERCICIOS_POR_CATEGORIA` (default 300)
 é o teto de exercícios importados por categoria — o script para de ler o
 dump assim que todas as categorias com tema mapeado batem o teto.
 
-`API_SECRET_KEYS` usa o formato `nome:chave,nome:chave` e convive com a
-`API_SECRET_KEY` antiga (chave única) por compatibilidade. **Desde D-25 as
-duas não controlam mais acesso nenhum**: o gate da API é o
-`Authorization: Bearer` da sessão do Supabase Auth. Elas continuam sendo lidas
-no startup (o servidor ainda aborta sem elas) só porque a limpeza foi
-deliberadamente adiada — ver a pendência em `ESTADO.md`.
+`API_SECRET_KEYS`/`API_SECRET_KEY` (o antigo esquema de header `X-API-Key`,
+aposentado como gate de acesso desde D-25) foram **removidas de vez** numa
+auditoria pós-D-49: nenhuma rota dependia mais delas, mas o servidor ainda
+recusava subir sem a variável configurada — um risco de disponibilidade
+amarrado a uma feature morta. Se você tinha isso configurado localmente ou no
+GitHub Secrets, pode remover com segurança; o servidor não lê mais essa
+variável.
 
 `DEFAULT_USER_ID` é **obrigatória**: é o dono gravado em `user_id` nas 6
 tabelas raiz (ver D-14 em `DECISOES.md`). Sem ela, toda escrita nessas tabelas
@@ -240,7 +248,7 @@ OAuth `study:write` (ainda não migrado).
 **`deploy-backend.yml` é a fonte de verdade em produção, não `env.yaml`
 local (D-20).** A cada deploy automático, o workflow gera um arquivo de env
 vars a partir dos secrets do repositório (`SUPABASE_URL`,
-`SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `API_SECRET_KEYS`,
+`SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`,
 `DEFAULT_USER_ID`) e sobe o Cloud Run com `--env-vars-file`, que **substitui
 por completo** as env vars do serviço — nada fica órfão de um deploy manual
 antigo. `env.yaml` local ainda existe só como referência de quais nomes

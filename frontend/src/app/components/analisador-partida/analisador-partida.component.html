@@ -91,10 +91,7 @@
               class="btn btn-primario"
             >
               @if (estado() === 'ENVIANDO') {
-                <span
-                  class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-                  aria-hidden="true"
-                ></span>
+                <span class="pulso" aria-hidden="true"></span>
                 <span>Iniciando pipeline…</span>
               } @else {
                 <span>Analisar partida com IA</span>
@@ -333,14 +330,31 @@
                     <span class="shrink-0 font-mono text-xs text-bruma-500">Lance {{ pc.numero_lance }}</span>
                   </div>
 
-                  <div class="mt-3.5 flex flex-wrap gap-1.5">
-                    @for (tag of pc.tags_falha; track tag) {
-                      <span
-                        class="rounded-md border border-linha bg-ardosia-850 px-2 py-0.5 text-xs font-medium text-bruma-300"
+                  <div class="mt-3.5 flex items-start gap-3">
+                    @if (pc.fen) {
+                      <a
+                        [routerLink]="['/laboratorio']"
+                        [queryParams]="{ fen: pc.fen }"
+                        class="block w-20 shrink-0 overflow-hidden rounded-lg ring-1 ring-linha transition hover:ring-latao-500"
+                        title="Abrir esta posição no Laboratório de Raciocínio"
                       >
-                        {{ formatarTag(tag) }}
-                      </span>
+                        <app-tabuleiro-preview
+                          [fen]="pc.fen"
+                          [orientacao]="orientacaoDaPosicao(pc.fen)"
+                          [miniatura]="true"
+                        />
+                      </a>
                     }
+
+                    <div class="flex min-w-0 flex-wrap gap-1.5">
+                      @for (tag of pc.tags_falha; track tag) {
+                        <span
+                          class="rounded-md border border-linha bg-ardosia-850 px-2 py-0.5 text-xs font-medium text-bruma-300"
+                        >
+                          {{ formatarTag(tag) }}
+                        </span>
+                      }
+                    </div>
                   </div>
                 </div>
               }
@@ -360,6 +374,7 @@
       titulo="Histórico de análises"
       [itens]="itensHistoricoComponent()"
       [carregando]="carregandoHistorico()"
+      [erro]="erroHistorico()"
       mensagemVazio="Nenhuma análise recente registrada. Cole um PGN acima para iniciar a primeira."
       (itemClicado)="selecionarPartidaDoHistorico($event)"
       (atualizarClicado)="carregarHistorico()"
