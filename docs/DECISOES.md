@@ -2716,9 +2716,30 @@ repositório:
   digitar qualquer coisa. O Explicador já guardava isso com um `@if`; o
   Laboratório não. Agora guarda.
 
-**Testes:** 5 novos no backend (606 → **611**), 2 novos no frontend
-(199 → **201**). `ng build` limpo. Conferido no navegador que o Hexágono
-mostra 4 botões + a nota de ausência, e que as métricas empilham direito.
+**4. Mais três achados, já usando a ferramenta commitada:**
+
+- **O cabeçalho `sticky` encobria qualquer âncora.** Rolar até um elemento o
+  deixava embaixo do cabeçalho — inclusive o link "pular para o conteúdo"
+  criado no D-52, que portanto nascia quebrado. Corrigido com
+  `scroll-padding-top` no `html`, com as alturas **medidas** no navegador (60px
+  desktop, 100px no celular, onde a navegação quebra em duas linhas) em vez de
+  chutadas. Conferido depois: o conteúdo passa a começar exatamente onde o
+  cabeçalho termina, nas duas larguras.
+- **As Sessões de Treino cresciam sem limite.** As 5 sessões vinham todas
+  expandidas, com os 3 módulos e as descrições inteiras — 6188px só dessa
+  seção, e o Agente 3 acrescenta uma sessão por semana, para sempre. Agora só a
+  mais recente (a prescrição vigente, que é o que o usuário veio ver) abre
+  sozinha; as demais mostram "3 módulos · 50 min" e um "Ver plano". A seção caiu
+  para 3238px.
+- **Cartões de tema desalinhados** em Puzzles Insights: um nome de duas linhas
+  ("Cálculo Profundo (4+ lances)") empurrava a barra de progresso para baixo e
+  desalinhava a linha inteira. O título agora reserva as duas linhas.
+
+**Testes:** 5 novos no backend (606 → **611**), 5 novos no frontend
+(199 → **204**). `ng build` limpo. Conferido no navegador que o Hexágono
+mostra 4 botões + a nota de ausência, que as métricas empilham direito, que o
+link de pular aterrissa abaixo do cabeçalho e que as sessões antigas abrem e
+fecham.
 
 ---
 

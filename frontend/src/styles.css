@@ -84,6 +84,16 @@
   html {
     -webkit-text-size-adjust: 100%;
     scroll-behavior: smooth;
+    /* O cabeçalho é `sticky top-0`, então qualquer rolagem até uma âncora
+       (o link "pular para o conteúdo", um scrollIntoView) deixava o topo do
+       alvo escondido embaixo dele. Medido: 60px no desktop, 100px no celular
+       (onde a navegação quebra em duas linhas), mais uma folga. */
+    scroll-padding-top: 7rem;
+  }
+  @media (min-width: 640px) {
+    html {
+      scroll-padding-top: 4.75rem;
+    }
   }
 
   body {

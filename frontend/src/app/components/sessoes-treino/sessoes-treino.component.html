@@ -123,27 +123,54 @@
               </div>
             }
 
-            <div class="divide-y divide-linha">
-              @for (modulo of modulosDaSessao(sessao); track $index) {
-                <section class="py-5 last:pb-0">
-                  <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h4 class="font-semibold text-marfim">{{ modulo.nome }}</h4>
-                    <span class="selo selo-latao">{{ modulo.duracao_min }} min</span>
-                  </div>
-                  <p class="text-sm leading-6 text-bruma-300">{{ modulo.conteudo }}</p>
-                  @if (modulo.livro || modulo.capitulo || modulo.pagina_aprox != null) {
-                    <p class="legenda mt-3">
-                      Fonte:
-                      @if (modulo.livro) { <span>{{ modulo.livro }}</span> }
-                      @if (modulo.capitulo) { <span> · {{ modulo.capitulo }}</span> }
-                      @if (modulo.pagina_aprox != null) { <span> · pág. {{ modulo.pagina_aprox }}</span> }
-                    </p>
-                  }
-                </section>
-              } @empty {
-                <p class="py-5 text-sm text-bruma-500">Esta sessão ainda não possui módulos detalhados.</p>
-              }
-            </div>
+            <button
+              type="button"
+              class="mt-4 flex w-full items-center justify-between gap-3 rounded-[var(--radius-controle)] border border-linha bg-ardosia-850 px-3.5 py-2.5 text-left transition-colors hover:border-linha-forte"
+              [attr.aria-expanded]="expandida(sessao.id)"
+              [attr.aria-controls]="'modulos-' + sessao.id"
+              (click)="alternarExpansao(sessao.id)"
+            >
+              <span class="text-xs font-semibold text-bruma-300">
+                {{ resumoDosModulos(sessao) }}
+              </span>
+              <span class="flex items-center gap-1.5 text-xs font-semibold text-latao-500">
+                <span>{{ expandida(sessao.id) ? 'Ocultar' : 'Ver plano' }}</span>
+                <svg
+                  class="h-3.5 w-3.5 transition-transform"
+                  [class.rotate-180]="expandida(sessao.id)"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="m6 9 6 6 6-6" />
+                </svg>
+              </span>
+            </button>
+
+            @if (expandida(sessao.id)) {
+              <div [id]="'modulos-' + sessao.id" class="divide-y divide-linha surgir">
+                @for (modulo of modulosDaSessao(sessao); track $index) {
+                  <section class="py-5 last:pb-0">
+                    <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                      <h4 class="font-semibold text-marfim">{{ modulo.nome }}</h4>
+                      <span class="selo selo-latao">{{ modulo.duracao_min }} min</span>
+                    </div>
+                    <p class="text-sm leading-6 text-bruma-300">{{ modulo.conteudo }}</p>
+                    @if (modulo.livro || modulo.capitulo || modulo.pagina_aprox != null) {
+                      <p class="legenda mt-3">
+                        Fonte:
+                        @if (modulo.livro) { <span>{{ modulo.livro }}</span> }
+                        @if (modulo.capitulo) { <span> · {{ modulo.capitulo }}</span> }
+                        @if (modulo.pagina_aprox != null) { <span> · pág. {{ modulo.pagina_aprox }}</span> }
+                      </p>
+                    }
+                  </section>
+                } @empty {
+                  <p class="py-5 text-sm text-bruma-500">Esta sessão ainda não possui módulos detalhados.</p>
+                }
+              </div>
+            }
           </article>
         }
       </div>

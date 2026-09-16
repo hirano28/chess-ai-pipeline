@@ -15,6 +15,10 @@ export class SessoesTreinoComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly sessoes = signal<SessaoTreino[]>([]);
   readonly sessoesAtualizando = signal<ReadonlySet<string>>(new Set());
+  /** Quais sessões estão com os módulos abertos. Só a mais recente abre
+   * sozinha: a lista cresce uma sessão por semana, para sempre, e deixar
+   * todas expandidas fazia o dashboard render vários metros de rolagem. */
+  readonly sessoesExpandidas = signal<ReadonlySet<string>>(new Set());
 
   readonly totalPrescritas = computed(() => this.sessoes().length);
   readonly totalConcluidas = computed(
@@ -47,6 +51,31 @@ export class SessoesTreinoComponent implements OnInit {
     return Array.isArray(sessao.modulos)
       ? sessao.modulos
       : sessao.modulos.modulos ?? [];
+  }
+
+  expandida(sessaoId: string): boolean {
+    return this.sessoesExpandidas().has(sessaoId);
+  }
+
+  alternarExpansao(sessaoId: string): void {
+    this.sessoesExpandidas.update((ids) => {
+      const atualizados = new Set(ids);
+      if (!atualizados.delete(sessaoId)) {
+        atualizados.add(sessaoId);
+      }
+      return atualizados;
+    });
+  }
+
+  /** Resumo mostrado na sessão fechada, para ela ainda dizer algo útil. */
+  resumoDosModulos(sessao: SessaoTreino): string {
+    const modulos = this.modulosDaSessao(sessao);
+    if (modulos.length === 0) {
+      return 'Sem módulos detalhados';
+    }
+    const minutos = modulos.reduce((total, modulo) => total + (modulo.duracao_min ?? 0), 0);
+    const rotuloModulos = `${modulos.length} ${modulos.length === 1 ? 'módulo' : 'módulos'}`;
+    return minutos > 0 ? `${rotuloModulos} · ${minutos} min` : rotuloModulos;
   }
 
   formatarData(data: string): string {
@@ -147,7 +176,12 @@ export class SessoesTreinoComponent implements OnInit {
     this.error.set(null);
 
     try {
-      this.sessoes.set(await this.supabaseService.getSessoesTreino());
+      const sessoes = await this.supabaseService.getSessoesTreino();
+      this.sessoes.set(sessoes);
+      // A mais recente é a prescrição vigente — é ela que o usuário veio ver.
+      if (sessoes.length > 0) {
+        this.sessoesExpandidas.set(new Set([sessoes[0].id]));
+      }
     } catch (cause: unknown) {
       const message = cause instanceof Error ? cause.message : 'Erro desconhecido';
       this.error.set(`Não foi possível carregar as sessões de treino. ${message}`);

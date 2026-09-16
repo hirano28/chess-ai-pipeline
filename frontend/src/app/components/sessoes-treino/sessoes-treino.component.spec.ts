@@ -173,4 +173,39 @@ describe('SessoesTreinoComponent (P-4 / D-38)', () => {
 
     expect(component.error()).toContain('Não foi possível concluir a sessão');
   });
+
+  it('só a sessão mais recente abre expandida', async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const sessoes = component.sessoes();
+    expect(sessoes.length).toBeGreaterThan(1);
+    expect(component.expandida(sessoes[0].id)).toBe(true);
+    for (const antiga of sessoes.slice(1)) {
+      expect(component.expandida(antiga.id)).toBe(false);
+    }
+  });
+
+  it('alternarExpansao abre e fecha a mesma sessão', async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const antiga = component.sessoes()[1];
+    component.alternarExpansao(antiga.id);
+    expect(component.expandida(antiga.id)).toBe(true);
+
+    component.alternarExpansao(antiga.id);
+    expect(component.expandida(antiga.id)).toBe(false);
+    // Fechar uma não pode fechar a outra.
+    expect(component.expandida(component.sessoes()[0].id)).toBe(true);
+  });
+
+  it('a sessão fechada ainda diz quantos módulos e quantos minutos tem', async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const resumo = component.resumoDosModulos(component.sessoes()[0]);
+    expect(resumo).toMatch(/módulos?/);
+    expect(resumo).toContain('min');
+  });
 });

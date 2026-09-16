@@ -99,8 +99,11 @@
           @for (tema of temasVulneraveis(); track tema.slug) {
             <div class="painel flex flex-col justify-between transition-colors hover:border-linha-forte">
               <div>
-                <div class="flex items-start justify-between gap-2">
-                  <h4 class="font-semibold text-marfim">{{ tema.nome }}</h4>
+                <!-- min-h reserva as 2 linhas do título: sem isso, um nome
+                     longo ("Cálculo Profundo (4+ lances)") empurrava a barra de
+                     progresso para baixo e desalinhava a linha inteira. -->
+                <div class="flex min-h-[3rem] items-start justify-between gap-2">
+                  <h4 class="line-clamp-2 font-semibold text-marfim">{{ tema.nome }}</h4>
                   <span class="selo shrink-0" [class]="badgeCategoria(tema.categoria)">
                     {{ tema.categoria }}
                   </span>
