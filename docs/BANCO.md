@@ -2,7 +2,7 @@
 doc: BANCO.md
 escopo: schema do Supabase, vocabulário controlado, invariantes e regras de migração
 nao_contem: contagem de linhas nem estado dos dados (ver ESTADO.md)
-verificado_em: 2026-09-13
+verificado_em: 2026-09-15
 fonte: introspecção direta do projeto Supabase pmzmershonrqzwbmhaco
 ---
 
@@ -112,9 +112,52 @@ access token já vem com ~1 ano de validade. Quem precisar do token deve pegá-l
 por `obter_access_token_lichess()` em `api_server.py`, que valida `expires_at`
 antes de entregar e devolve `None` quando a pessoa precisa reconectar.
 
-`perfis_usuario`, `uso_diario_usuario`, `lichess_oauth_tokens` e
-`lichess_oauth_pkce` são as únicas tabelas do schema com FK declarada
-para `auth.users` até agora — as 6 tabelas raiz da seção anterior não têm.
+### Fila de treino diário — repetição espaçada (D-48, D-49)
+
+| Tabela | Colunas relevantes | Papel |
+|---|---|---|
+| `fila_treino_espacado` | `user_id` (**FK real** para `auth.users(id)`), `lance_id` (**FK opcional** para `lances_criticos(id)`, `on delete cascade`), `exercicio_id` (**FK opcional** para `exercicios_taticos(id)`, `on delete restrict`, D-49), `origem` (`'lance_critico'` \| `'exercicio_tatico'`), `proxima_revisao_data`, `intervalo_dias`, `fator_facilidade`, `repeticoes`, `total_revisoes`, `ultima_qualidade`, `livro_citado`, `capitulo_citado`, `pagina_citada` — unique `(user_id, lance_id)`, unique `(user_id, exercicio_id)`, check `(lance_id is not null) <> (exercicio_id is not null)` | agendamento SM-2 sobre os lances PICO já diagnosticados OU sobre exercícios do catálogo tático, para a tela `/treino` |
+| `exercicios_taticos` | `puzzle_id_lichess` (unique), `fen`, `categoria_hexagono`, `temas_lichess[]`, `rating`, `popularidade` | catálogo de exercícios táticos (D-49), importado do dump público de puzzles do Lichess e re-taggeado em `HEXAGON_CATEGORIES` — corpus compartilhado, sem `user_id` |
+
+Populada em lote por `backend/agentes/popular_fila_treino_espacado.py`
+(loop por usuário, roda depois de `agente1_linter.py` no pipeline diário) —
+a API só lê e reagenda, nunca insere card novo pra este lado. `lance_id` só
+aceita `lances_criticos` do tipo `PICO` com `fen_antes_lance` preenchido:
+`EROSAO` é uma janela de vários lances sem um "lance certo" único, fora do
+escopo desta fila. `on delete cascade` em `lance_id`: quando uma partida é
+reprocessada (R6, apaga `lances_criticos` antigos antes de gerar novos), a
+linha da fila correspondente some junto, em vez de virar FK quebrada.
+
+**D-49** acrescentou um segundo tipo de card: `POST /treino/foco/{categoria}`
+insere exercícios do catálogo `exercicios_taticos` na fila de hoje, quando o
+usuário pede treino focado numa categoria fraca do Hexágono (botão "Focar").
+`exercicio_id` usa `on delete restrict`, não `cascade`: apagar em massa o
+catálogo não pode arrastar silenciosamente o progresso de SM-2 de quem já
+tem esses exercícios na própria fila — a exclusão deve falhar alto. O
+catálogo em si é importado ocasionalmente (não no pipeline diário) por
+`backend/rag/importar_exercicios_taticos.py`, que baixa o dump público do
+Lichess (CC0) e mapeia os temas dele para `HEXAGON_CATEGORIES` via um
+dicionário fixo — só `TATICA`, `CALCULO`, `FINAIS` e `ESTRUTURA_DE_PEOES`
+têm cobertura: o Lichess não tem tema equivalente a `ESTRATEGIA` (avaliação
+posicional) nem `GESTAO_DE_TEMPO` (os puzzles são posições estáticas, sem
+relógio) — ver D-49 em `DECISOES.md`.
+
+`livro_citado`/`capitulo_citado`/`pagina_citada` são resolvidos **uma vez**
+na população/inserção (via `buscar_conceitos()`, `agente3_prescritor.py` —
+ILIKE puro sobre `indice_conceitual`, sem Gemini) e cacheados aqui: o
+endpoint de resposta (`POST /treino/{id}/responder`) não paga esse custo a
+cada repetição, pra nenhuma das duas origens. RLS: cada usuário só lê a
+própria linha (`user_id = auth.uid()`), sem policy de escrita para
+`authenticated` — quem escreve é sempre o backend (service role), via o
+script de população, a API, ou (pra `exercicios_taticos`) o script de
+import. `exercicios_taticos` segue o mesmo padrão RLS de
+`indice_conceitual`/`livros_chunks`: RLS ligada, **zero policies** — sem
+`user_id`, corpus compartilhado, só o backend lê/escreve.
+
+`perfis_usuario`, `uso_diario_usuario`, `lichess_oauth_tokens`,
+`lichess_oauth_pkce` e `fila_treino_espacado` são as únicas tabelas do schema
+com FK declarada para `auth.users` até agora — as 6 tabelas raiz da seção
+anterior não têm.
 
 ## 2. Vocabulário controlado — as 16 tags de falha
 

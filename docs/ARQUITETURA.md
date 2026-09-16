@@ -61,6 +61,14 @@ Enriquecimentos que entram lateralmente nesse fluxo:
 - `backend/agentes/gerar_resumo_partida.py` → `resumo_partida` (narrativa da
   partida inteira + momento-chave estratégico).
 - `backend/agentes/gerar_perguntas_pendentes.py` → `perguntas_pendentes`.
+- `backend/agentes/popular_fila_treino_espacado.py` → `fila_treino_espacado`
+  (D-48, roda depois de `agente1_linter.py`: agenda os lances `PICO` já
+  diagnosticados para repetição espaçada, sem chamar Gemini — a citação de
+  livro é ILIKE puro sobre `indice_conceitual`).
+- `backend/rag/importar_exercicios_taticos.py` → `exercicios_taticos` (D-49,
+  **não** roda no pipeline diário — import ocasional/manual: baixa o dump
+  público de puzzles do Lichess e mapeia os temas dele para
+  `HEXAGON_CATEGORIES`).
 
 ## 3. Os três agentes de LLM
 
@@ -121,6 +129,9 @@ já foi atingido — mesmo princípio de "falhar rápido" de 🎫, mas para cust
 | `POST /revisar-avulso` 🎫⏱️ | avalia lance único ou sequência a partir de FEN/PGN + texto do raciocínio |
 | `POST /revisar-avulso/salvar` 🎫👤 | persiste um exercício revisado; devolve o `id` da linha criada |
 | `GET /revisoes-avulsas/recentes` 🎫👤 | histórico do Laboratório, filtrado pelo dono da sessão (D-18) |
+| `GET /treino/fila` 🎫👤 | cards de repetição espaçada vencidos hoje (D-48; D-49 mistura exercícios do catálogo tático); **não** inclui `tags_falha`, causa raiz nem citação — isso só aparece na resposta de responder, senão a revisão vira consulta em vez de teste |
+| `POST /treino/{fila_id}/responder` 🎫👤 | avalia o lance via Stockfish (reaproveita `avaliar_lance_avulso`/`resolver_lance_usuario`, sem Gemini), reagenda via SM-2 e revela a causa raiz + citação já cacheadas na linha; partida de outro dono responde 404 |
+| `POST /treino/foco/{categoria}` 🎫👤 | D-49: insere exercícios do catálogo `exercicios_taticos` na fila de hoje, focados numa categoria fraca do Hexágono; 400 se a categoria não existe em `HEXAGON_CATEGORIES` |
 | `POST /explicar-posicao` 🎫👤⏱️ | avaliação objetiva + explicação didática de uma posição; persiste em `explicacoes_posicao` e devolve o `id` (falha de persistência não derruba a resposta — ver D-11) |
 | `GET /explicacoes-posicao/recentes` 🎫👤 | histórico do Explicador, filtrado pelo dono; cada item embute a resposta completa, sem endpoint "buscar por id" |
 | `GET /resolver-fen` 🎫 | resolve FEN ou PGN para o FEN final; parsing puro, sem Gemini nem Stockfish |
@@ -151,10 +162,11 @@ Angular 21, standalone components, signals, Tailwind CSS 4, testes em Vitest.
 | `/laboratorio` | `laboratorio-raciocinio` | exercício avulso com feedback imediato |
 | `/explicador` | `explicador-posicao` | explicação didática de uma posição |
 | `/analisador` | `analisador-partida` | cola PGN, acompanha o progresso, lê o resumo |
+| `/treino` | `treino-do-dia` | repetição espaçada sobre os próprios lances críticos já diagnosticados (D-48) e, quando pedido, exercícios do catálogo tático focados numa categoria fraca (D-49) — diferente das "Sessões de treino" da tela `/` (prescrição semanal do Agente 3) |
 | `/perfil` | `perfil-usuario` | cadastra a(s) conta(s) de Lichess/Chess.com de quem está logado (D-28) |
 | `/login` | `login` | signUp/signInWithPassword do Supabase Auth (Fase B.1 — ver D-15 em `DECISOES.md`) |
 
-`authGuard` está ligado nas 5 rotas do dashboard (todas acima, exceto
+`authGuard` está ligado nas 6 rotas do dashboard (todas acima, exceto
 `/login`) desde D-23 — ver a nota mais abaixo sobre a Fase B.
 
 Componentes de apoio: `tabuleiro-preview` (tabuleiro 8x8 em CSS Grid com SVGs do

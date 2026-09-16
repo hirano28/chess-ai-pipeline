@@ -56,6 +56,7 @@ describe('App', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     const links = Array.from(compiled.querySelectorAll('nav a')).map((a) => a.textContent?.trim());
     expect(links).toContain('Hexágono');
+    expect(links).toContain('Treino');
     expect(links).toContain('Laboratório');
     expect(links).toContain('Explicador');
     expect(links).toContain('Analisador');

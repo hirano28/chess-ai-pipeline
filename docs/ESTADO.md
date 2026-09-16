@@ -16,11 +16,11 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **520**, todos passando, em 30 módulos |
-| Testes de frontend (Vitest) | **133**, todos passando, em 19 arquivos |
+| Testes de backend | **586**, todos passando, em 33 módulos |
+| Testes de frontend (Vitest) | **151**, todos passando, em 21 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
-`.github/workflows/deploy-backend.yml` lista os 30 módulos de teste do backend
+`.github/workflows/deploy-backend.yml` lista os 33 módulos de teste do backend
 à mão (incluindo `backend.rag.test_importar_indice_conceitual`, `backend.rag.test_processar_livro`,
 `backend.ingestao.test_backfill_tempos_chesscom`,
 `backend.common.test_lichess_explorer`, `backend.common.test_syzygy_tablebase`,
@@ -28,10 +28,12 @@ atualize também a data no cabeçalho.
 `backend.agentes.test_medir_eficacia`, `backend.common.test_lichess_oauth`,
 `backend.ingestao.test_importar_puzzle_activity`, `backend.agentes.test_agente2_analista`,
 `backend.common.test_notacao_pt`, `backend.analise_engine.test_backfill_fen_lances_criticos`,
-`backend.ingestao.test_coletar_partidas`, `backend.ingestao.test_coletar_partidas_chesscom`
-e `backend.ingestao.test_common_ingestao` — regra R8 cumprida). Continua sendo
-uma lista mantida manualmente: todo módulo de teste novo precisa ser
-adicionado lá também.
+`backend.ingestao.test_coletar_partidas`, `backend.ingestao.test_coletar_partidas_chesscom`,
+`backend.ingestao.test_common_ingestao`, `backend.common.test_spaced_repetition` e
+`backend.agentes.test_popular_fila_treino_espacado` (D-48), e
+`backend.rag.test_importar_exercicios_taticos` (D-49) —
+regra R8 cumprida). Continua sendo uma lista mantida manualmente: todo módulo
+de teste novo precisa ser adicionado lá também.
 
 ## 2. Volume de dados
 
@@ -58,6 +60,8 @@ pendência P-11 abaixo).
 | `analises_hexagono` | 5 |
 | `sessoes_treino` | 5 |
 | `resumo_partida` | 135 |
+| `fila_treino_espacado` | 640 (632 `lance_critico`, D-48, escalonados em 64 dias a 10 novos/dia; 8 `exercicio_tatico`, D-49, adicionados via `/treino/foco/TATICA` na validação real); 2 já respondidas |
+| `exercicios_taticos` | 1.200 (tabela nova, D-49); 300 por categoria em `TATICA`/`CALCULO`/`FINAIS`/`ESTRUTURA_DE_PEOES` — `ESTRATEGIA`/`GESTAO_DE_TEMPO` sem cobertura (sem tema equivalente no Lichess) |
 
 ## 3. Composição do corpus — dado que muda a leitura de tudo
 
@@ -506,6 +510,44 @@ Lichess" (redireciona para autorização PKCE), botões de reconectar/desconecta
 completo dos query params de retorno (`?conectado=lichess` e `?erro=...`). Backend ganhou
 `GET /lichess/oauth/status` e `POST /lichess/oauth/desconectar`. **Ciclo OAuth 100% concluído.**
 
+**Treino Diário — repetição espaçada (15/09/2026, D-48).** Maior gap do
+produto contra o mercado (pesquisa de concorrentes: Aimchess, Chess DNA,
+Chessy, Backrank.io, Blunders.ai, Noctie.ai) era diagnosticar sem virar
+treino ativo. Tabela nova `fila_treino_espacado` (SM-2 simplificado),
+script `popular_fila_treino_espacado.py` (roda depois do Agente 1 no
+pipeline diário) e 2 endpoints (`GET /treino/fila`, `POST
+/treino/{id}/responder`) reaproveitando a avaliação de lance já existente em
+`revisar_exercicio_avulso.py` — sem chamar Gemini no card de revisão, de
+propósito (decisão de escopo confirmada com o usuário). Validado contra a
+conta real do Edson: 632 dos 714 diagnósticos existentes eram elegíveis
+(`PICO` com `fen_antes_lance`), escalonados em 64 dias a 10 novos/dia;
+servidor real respondeu um card de verdade (Stockfish real, sem mock),
+classificou `BOM`, revelou a citação do livro e reagendou corretamente; 2ª
+conta de teste confirmou isolamento por dono (404, nunca 403, mesmo padrão
+de D-29/D-30).
+
+**Catálogo de exercícios táticos + Treino Focado (15-16/09/2026, D-49).**
+Fecha a lacuna do D-48 pra quem ainda não errou o suficiente numa categoria:
+tabela nova `exercicios_taticos` (catálogo global, sem `user_id`) importada
+do dump público de puzzles do Lichess (`backend/rag/
+importar_exercicios_taticos.py`, import ocasional, não roda no pipeline
+diário) e re-taggeada em `HEXAGON_CATEGORIES`. `fila_treino_espacado` passou
+a aceitar uma segunda origem (`exercicio_tatico`, `exercicio_id` com `on
+delete restrict`); novo endpoint `POST /treino/foco/{categoria}` injeta
+exercícios na fila de hoje quando o usuário clica "Focar" no Hexágono — o
+mesmo motor SM-2 e os mesmos `GET /treino/fila`/`POST /treino/{id}/
+responder` do D-48 atendem as duas origens. Achado honesto: só `TATICA`,
+`CALCULO`, `FINAIS` e `ESTRUTURA_DE_PEOES` têm exercícios de catálogo —
+`ESTRATEGIA` e `GESTAO_DE_TEMPO` não têm tema equivalente no Lichess.
+Validado com a conta real do Edson: import real trouxe 1.200 exercícios
+(300/categoria, idempotente na 2ª execução), `POST /treino/foco/TATICA`
+adicionou 8 exercícios reais, `GET /treino/fila` misturou as duas origens
+sem vazar diagnóstico, e `POST /treino/{id}/responder` avaliou via Stockfish
+real, classificou `BOM` e reagendou corretamente. **Não verificado:** o
+clique manual em "Focar" no navegador — sem ferramenta de automação de
+navegador disponível nesta sessão e sem servidor de dev acessível na porta
+local; pendente de confirmação humana.
+
 ### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
 
 Não era decisão deliberada, era lacuna: `deploy-backend.yml` só propagava
@@ -557,8 +599,9 @@ agora é idêntico entre anônimo e autenticado, confirmado caractere a
 caractere e via `curl` direto no PostgREST com o JWT real. Uma análise real
 no Laboratório (Stockfish + Gemini, não mock), salva estando logado, grava
 com o `user_id` real da conta (D-17); a mesma ação sem sessão continua
-gravando `DEFAULT_USER_ID`, como sempre. `authGuard` está ligado nas 5 rotas
-do dashboard desde D-23 (Fase B efetivamente concluída) — a frase acima sobre
+gravando `DEFAULT_USER_ID`, como sempre. `authGuard` está ligado nas 6 rotas
+do dashboard desde D-23 (Fase B efetivamente concluída; `/treino` somou-se
+às 5 originais em D-48) — a frase acima sobre
 "deliberadamente desligado" descrevia só o estado transitório de B.1
 (12/09/2026) e ficou desatualizada quando B foi fechada no dia seguinte; ver
 `app.routes.ts`.

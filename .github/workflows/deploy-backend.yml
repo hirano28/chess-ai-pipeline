@@ -57,6 +57,7 @@ jobs:
             backend.agentes.test_insights_puzzles \
             backend.agentes.test_medir_eficacia \
             backend.agentes.test_normalizar_aberturas \
+            backend.agentes.test_popular_fila_treino_espacado \
             backend.agentes.test_revisar_exercicio_avulso \
             backend.agentes.test_revisar_pensamento \
             backend.analise_engine.test_analisar_partidas \
@@ -66,6 +67,7 @@ jobs:
             backend.common.test_lichess_explorer \
             backend.common.test_lichess_oauth \
             backend.common.test_notacao_pt \
+            backend.common.test_spaced_repetition \
             backend.common.test_syzygy_tablebase \
             backend.common.test_tenant \
             backend.ingestao.test_backfill_tempos_chesscom \
@@ -74,6 +76,7 @@ jobs:
             backend.ingestao.test_common_ingestao \
             backend.ingestao.test_enriquecer_partidas_lichess \
             backend.ingestao.test_importar_puzzle_activity \
+            backend.rag.test_importar_exercicios_taticos \
             backend.rag.test_importar_indice_conceitual \
             backend.rag.test_processar_livro
 

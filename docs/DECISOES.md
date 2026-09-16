@@ -2102,6 +2102,240 @@ validação visual final depende de abrir no navegador.
 
 ---
 
+### D-48 — Treino Diário: repetição espaçada sobre os próprios lances críticos
+
+**Data:** 2026-09-15
+**Gatilho:** pesquisa de mercado (mapeamento do produto + concorrentes:
+Aimchess, Chess DNA, Chessy, Backrank.io, Blunders.ai, PatternForge, Noctie.ai,
+Chessable) mostrou que praticamente todo concorrente próximo converge para o
+mesmo padrão — importar as partidas do usuário, achar os erros reais, e
+devolvê-los como fila de repetição espaçada até o padrão "grudar". Era o maior
+gap entre o produto e o mercado: o pipeline já diagnostica (16 tags de causa
+raiz, hexágono, gargalo) mas não fazia a pessoa treinar ativamente o que foi
+diagnosticado. ~90% do dado necessário já existia (`lances_criticos.fen_antes_lance`
+desde D-27, `diagnosticos.raiz_conceitual_violada`/`tags_falha`), faltava só a
+camada de agendamento.
+
+**Decisão de escopo (confirmada com o usuário antes de implementar).** O card
+de revisão pede só o lance, sem texto de raciocínio — `classificar_qualidade_lance`
+(`revisar_pensamento.py`, puro threshold sobre `queda_win_percent`) já basta
+pra derivar a nota do SM-2, e manter o Gemini fora do caminho quente é o que
+permite muitas repetições por dia sem custo nem latência extra. A causa raiz
+do erro (já calculada uma vez pelo Agente 1) e a citação do livro aparecem no
+feedback pós-resposta, não antes — do contrário a revisão vira consulta, não
+teste.
+
+**Schema (`backend/db/fila_treino_espacado.sql`).** Tabela nova com
+`user_id` (FK real p/ `auth.users`, `on delete cascade`), `lance_id` (FK p/
+`lances_criticos`, `on delete cascade` — quando uma partida é reprocessada,
+R6 apaga `lances_criticos` antigos, e a linha da fila correspondente some
+junto, em vez de virar FK quebrada), campos de agendamento SM-2
+(`intervalo_dias`, `fator_facilidade`, `repeticoes`, `total_revisoes`,
+`ultima_qualidade`) e a citação já resolvida e cacheada
+(`livro_citado`/`capitulo_citado`/`pagina_citada`). RLS habilitada com policy
+de leitura própria (defesa em profundidade, mesmo padrão de
+`uso_diario_usuario` em D-32), sem policy de escrita para `authenticated`.
+
+**`backend/common/spaced_repetition.py` (novo).** SM-2 simplificado (mesmo
+algoritmo do Anki), função pura `atualizar_agendamento(...)`. Nota 0-5
+derivada de `qualidade_lance`: `BOM`→5, `SUBOTIMO`→3, `RUIM`→1. 9 testes
+determinísticos (`test_spaced_repetition.py`).
+
+**`backend/agentes/popular_fila_treino_espacado.py` (novo).** Roda no
+pipeline diário, depois de `agente1_linter.py`. Loop por usuário (mesmo
+formato de `agente2_analista.py`, try/except isolado por conta). Filtra
+`tipo_evento='PICO'` (EROSAO é uma janela de vários lances, sem um "lance
+certo" único, fica fora do v1) e `fen_antes_lance` não nulo (coluna existe
+desde D-27, nem toda linha antiga tem). Resolve a citação **uma vez** via
+`buscar_conceitos()` (`agente3_prescritor.py` — ILIKE puro sobre
+`indice_conceitual`, **sem Gemini, sem embedding**) e cacheia na linha.
+Escalona no máximo `TREINO_NOVOS_POR_DIA` (env var, default 10) cards novos
+por dia — evita popular o backlog histórico inteiro de uma vez no primeiro
+run. 13 testes (`test_popular_fila_treino_espacado.py`).
+
+**`backend/api/api_server.py` — 2 endpoints novos.** `GET /treino/fila`
+(lista os cards vencidos hoje, deliberadamente sem `tags_falha`/causa raiz/
+citação) e `POST /treino/{fila_id}/responder` (`{lance}` → avalia via
+Stockfish reaproveitando **exatamente** `resolver_lance_usuario` e
+`avaliar_lance_avulso` de `revisar_exercicio_avulso.py` — zero lógica de
+motor duplicada —, reagenda via `atualizar_agendamento` e revela causa raiz +
+citação). 404 (nunca 403) quando o card não existe ou é de outro dono, mesmo
+padrão IDOR-safe de D-29/D-30. **Sem `limite_diario`** nesta rota, ao
+contrário de D-32: só usa Stockfish (já serializado por `engine_lock`, sem
+custo de API paga), e o objetivo da feature é permitir muitas repetições por
+dia — um teto baixo contradiria o propósito. 10 testes
+(`ObterFilaTreinoTest`, `ResponderTreinoTest`).
+
+**Validado com a conta real do Edson (`bfde845a-8e2e-4885-801f-0fed2dd3b426`),
+sem mock nenhum:**
+- `popular_fila_treino_espacado.py` rodado de verdade contra os 714
+  diagnósticos reais já existentes: **632 cards elegíveis** (`PICO` +
+  `fen_antes_lance`) enfileirados, escalonados em **64 dias** a 10/dia
+  (confirmado por SQL: `2026-09-15` a `2026-11-17`, exatamente 10 por dia).
+  2ª execução: 0 cards novos (idempotente). 632/632 linhas com citação
+  resolvida (2 livros distintos), **zero chamadas ao Gemini**.
+- Servidor real (`uvicorn`, porta de teste) + sessão real via magic link
+  (Admin API): `GET /treino/fila` devolveu os 10 cards de hoje, confirmando
+  por inspeção das chaves do JSON que nenhum campo de diagnóstico vaza antes
+  da resposta. `POST /treino/1/responder` com um lance real (`h4`) rodou o
+  Stockfish de verdade, classificou `BOM`, revelou a causa raiz e a citação
+  ("Meu Sistema", Nimzowitsch) e reagendou pra amanhã (`repeticoes: 1`) —
+  exatamente o que o SM-2 prevê pra uma 1ª repetição boa.
+- 2ª conta de teste real (Admin API, removida ao final): `GET /treino/fila`
+  devolveu fila vazia (não vê os 632 cards da conta A); `POST` num `fila_id`
+  da conta A devolveu **404** — isolamento por dono confirmado, mesmo padrão
+  de verificação de D-29/D-30.
+- `on delete cascade` confirmado direto no catálogo do Postgres
+  (`pg_constraint.confdeltype = 'c'` nas duas FKs), sem precisar reprocessar
+  uma partida real de produção pra provar o comportamento.
+- Um efeito colateral encontrado e corrigido durante a validação: o e-mail de
+  identificação do usuário no ambiente do agente (`edson.hirano28@gmail.com`)
+  **não é** o e-mail de login da conta real (`edson.hirano.dev@gmail.com`) —
+  a 1ª tentativa de gerar um magic link criou uma conta órfã por engano,
+  detectada por SQL e removida antes de qualquer outro passo.
+
+**Frontend.** `treino.service.ts` (mesmo template de `puzzles.service.ts`),
+componente novo `treino-do-dia` (reaproveita `app-tabuleiro-preview` — que é
+só preview estático, sem drag-and-drop — e o input de lance livre PT/EN,
+mesma UX do Laboratório), rota `/treino` (lazy, `authGuard`) e novo link de
+navegação "Treino". Usa só classes do sistema de design (D-47), nenhum hex
+novo.
+
+**Testes:** 32 novos no backend (520 → **552**, 32 módulos), 14 novos no
+frontend (133 → **147**, 21 arquivos). `ng build` limpo.
+
+**R8 cumprido:** `backend.common.test_spaced_repetition` e
+`backend.agentes.test_popular_fila_treino_espacado` registrados em
+`docs/OPERACAO.md` e `.github/workflows/deploy-backend.yml`. Novo step
+`popular_fila_treino_espacado.py` em `pipeline-diario.yml` (logo após
+`agente1_linter.py`, `continue-on-error: true`, com linha no resumo de
+falhas).
+
+---
+
+### D-49 — Banco de exercícios táticos categorizado + "Treino Focado"
+
+**Data:** 2026-09-15/16
+**Gatilho:** pedido direto do usuário — montar uma base de exercícios táticos
+categorizada nas mesmas tags já mapeadas (`HEXAGON_CATEGORIES`), pra sugerir
+os exercícios certos como opção de treino focado nos erros do usuário. O
+D-48 só cobre categorias em que o usuário já errou o suficiente nos próprios
+jogos; faltava material pra treinar uma categoria fraca desde o primeiro dia.
+
+**Decisão de fonte.** Importar o dump público de puzzles do Lichess (CC0) em
+vez de linkar pra fora (como `insights_puzzles.py` já fazia,
+`lichess.org/training/{tema}`) ou criar exercícios manualmente — dá controle
+total da UX e permite plugar direto na fila de repetição espaçada do D-48.
+
+**Decisão de fusão: uma fila só, não uma tela paralela.** O motor SM-2
+(`atualizar_agendamento`) já é puro e genérico — não conhece
+`lances_criticos`, só recebe `intervalo_dias/fator_facilidade/repeticoes/
+qualidade`. O acoplamento com "lance próprio" estava só em 3 pontos
+localizados: o FK obrigatório `lance_id`, os dois joins de `GET /treino/fila`
+e `POST /treino/{id}/responder`, e a citação de livro. Duas telas separadas
+fragmentariam "feitas hoje"/streak em duas contagens — pior experiência do
+que "uma opção de treino focado" pedida. Como o D-48 ainda não tinha sido
+commitado nesta sessão, o schema foi ajustado livremente, sem migração de
+dado real em produção a proteger.
+
+**Schema.** Tabela nova `exercicios_taticos` (catálogo global, sem
+`user_id`, RLS ligada e **zero policies** — mesmo padrão de
+`indice_conceitual`/`livros_chunks`): `puzzle_id_lichess` (unique), `fen`
+(já a posição real a resolver — o FEN bruto do Lichess mais o primeiro lance
+do CSV, o "lance de preparo" do adversário), `categoria_hexagono`,
+`temas_lichess[]`, `rating`, `popularidade`. **Não guarda a "resposta
+certa"**: a qualidade da resposta é avaliada dinamicamente pelo Stockfish
+(`avaliar_lance_avulso`), igual a `lances_criticos` — zero gabarito
+duplicado. `fila_treino_espacado` ganhou `lance_id` opcional, `exercicio_id`
+(FK opcional pra `exercicios_taticos`, **`on delete restrict`, não
+`cascade`**: apagar em massa o catálogo não pode arrastar silenciosamente o
+progresso de SM-2 de quem já tem esses exercícios na fila — a exclusão deve
+falhar alto), `origem` (`'lance_critico'` \| `'exercicio_tatico'`) e os
+checks/uniques que garantem exatamente uma origem por linha.
+
+**`backend/rag/importar_exercicios_taticos.py` (novo, import ocasional/
+manual — NÃO entra no `pipeline-diario.yml`).** Baixa
+`lichess_db_puzzle.csv.zst` em streaming (`requests` + `zstandard`, nova
+dependência), mapeia os temas do Lichess pra `HEXAGON_CATEGORIES` via
+dicionário fixo, filtra por faixa de rating/popularidade
+(`EXERCICIO_RATING_MIN/MAX`, `EXERCICIO_POPULARIDADE_MIN`) e por um teto por
+categoria (`EXERCICIOS_POR_CATEGORIA`, default 300) — para de ler o stream
+assim que todas as categorias aplicáveis batem o teto. Upsert idempotente
+por `puzzle_id_lichess`. **Sem flag `--substituir`** nesta v1 (diferente de
+`importar_indice_conceitual.py`): dado o `on delete restrict`, um delete em
+massa falharia assim que qualquer exercício estivesse referenciado na fila
+de algum usuário — não vale a pena complicar o script pra um caso de uso
+raro.
+
+**Achado honesto:** o Lichess não tem tema de puzzle equivalente a
+`ESTRATEGIA` (avaliação posicional) nem `GESTAO_DE_TEMPO` (os puzzles são
+posições estáticas, sem relógio) — só `TATICA`, `CALCULO`, `FINAIS` e
+`ESTRUTURA_DE_PEOES` recebem exercícios de catálogo. Confirmado rodando o
+import de verdade: 7.288 linhas lidas do dump público (parou assim que os 4
+tetos de 300 bateram — não precisou ler as ~5M linhas inteiras), **1.200
+exercícios importados** (300 por categoria aplicável), 3.334 puladas (tema
+não mapeado ou fora da faixa de qualidade). 2ª execução: 1.200 linhas,
+0 duplicatas (idempotência confirmada por `count(distinct puzzle_id_lichess)`).
+
+**`POST /treino/foco/{categoria}` (novo endpoint).** 400 se a categoria não
+existe em `HEXAGON_CATEGORIES`. Exclui exercícios já na fila do usuário,
+sorteia `TREINO_FOCO_QTD_EXERCICIOS` (default 8) com `random.sample`,
+resolve a citação uma vez via `resolver_citacao` (reaproveitado de
+`popular_fila_treino_espacado.py`) e insere via
+`upsert(..., on_conflict="user_id,exercicio_id", ignore_duplicates=True)` —
+um duplo clique em "Focar" vira no-op, não um 500. `GET /treino/fila` e
+`POST /treino/{id}/responder` ganharam um branch por `origem`: exercício de
+catálogo não tem `diagnosticos` associado, então `raiz_conceitual_violada`/
+`tags_falha` voltam vazios de propósito — a explicação do "porquê" já vem do
+Stockfish + melhor lance, mesma filosofia de "sem Gemini no caminho quente"
+do D-48.
+
+**Auto-revisão (Plan agent) encontrou e corrigiu um bug real antes da
+implementação:** o desenho original usava `on delete cascade` em
+`exercicio_id`, copiando o padrão de `lance_id` sem questionar — mas como
+`importar_exercicios_taticos.py` reimportaria com um `delete()` (não
+`TRUNCATE`), isso teria disparado o cascade e apagado silenciosamente o
+progresso de SM-2 de qualquer usuário com exercícios na fila. Corrigido
+trocando pra `on delete restrict` e removendo a flag `--substituir` da v1
+inteiramente. A mesma revisão também pegou: falta de `Depends(verificar_sessao)`
+explícito no novo endpoint (já estava correto no desenho, só não documentado
+no plano), inserção sem proteção contra duplo-clique, e o guard defensivo de
+FEN ausente faltando no branch novo do `GET /treino/fila` — todos corrigidos
+antes de escrever qualquer código.
+
+**Validado com a conta real do Edson, sem mock:** `POST /treino/foco/TATICA`
+adicionou 8 exercícios reais; `GET /treino/fila` devolveu 17 itens (9
+`lance_critico` + 8 `exercicio_tatico`), sem nenhum campo de diagnóstico
+vazando nos itens de catálogo; `POST /treino/{id}/responder` com um lance
+real (`Kh1`, posição `2r2rk1/pp3p2/4p3/3p2q1/3P4/P1N4Q/1PP5/1R4K1 w - - 0 31`)
+classificou `BOM` via Stockfish de verdade, revelou a citação já cacheada
+("How to Reassess Your Chess"), reagendou pra `2026-09-16` (`repeticoes: 1`)
+e devolveu `raiz_conceitual_violada: null`/`tags_falha: []` como esperado.
+Verificação de browser (clicar "Focar" no Hexágono) **não foi possível**
+neste ambiente — sem ferramenta de automação de navegador disponível e sem
+um servidor de dev respondendo na porta local; a compensação foi validar o
+contrato inteiro (schema, endpoints, componentes) ponta a ponta via API real
+e `ng build`/`ng test` limpos, mas o clique manual no navegador continua
+pendente de verificação humana.
+
+**Frontend.** `treino.service.ts` ganhou `focarCategoria()` e o tipo
+`ROTULOS_CATEGORIA_HEXAGONO` (rótulos amigáveis das 6 categorias,
+reaproveitado pelo selo do card e pelos botões). `treino-do-dia` ganhou um
+selo de origem por card ("Da sua partida" vs "Exercício: <categoria>").
+`hexagono-radar` ganhou uma seção "Treino focado" com um botão por categoria
+que chama `focarCategoria()` e navega pra `/treino`.
+
+**Testes:** 34 novos no backend (552 → **586**, 33 módulos: +
+`backend.rag.test_importar_exercicios_taticos`), 4 novos no frontend
+(147 → **151**, 21 arquivos). `ng build` limpo.
+
+**R8 cumprido:** `backend.rag.test_importar_exercicios_taticos` registrado em
+`docs/OPERACAO.md` e `.github/workflows/deploy-backend.yml`. Novo script
+**não** entra em `pipeline-diario.yml` de propósito — import ocasional de
+conteúdo de referência estático, não dado de usuário.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

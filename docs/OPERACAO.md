@@ -2,7 +2,7 @@
 doc: OPERACAO.md
 escopo: comandos, execução de scripts, automação, variáveis de ambiente, troubleshooting
 nao_contem: arquitetura (ver ARQUITETURA.md), schema (ver BANCO.md), estado (ver ESTADO.md)
-verificado_em: 2026-09-13
+verificado_em: 2026-09-15
 ---
 
 # Operação
@@ -37,6 +37,7 @@ python -m unittest \
   backend.agentes.test_insights_puzzles \
   backend.agentes.test_medir_eficacia \
   backend.agentes.test_normalizar_aberturas \
+  backend.agentes.test_popular_fila_treino_espacado \
   backend.agentes.test_revisar_exercicio_avulso \
   backend.agentes.test_revisar_pensamento \
   backend.analise_engine.test_analisar_partidas \
@@ -46,6 +47,7 @@ python -m unittest \
   backend.common.test_lichess_explorer \
   backend.common.test_lichess_oauth \
   backend.common.test_notacao_pt \
+  backend.common.test_spaced_repetition \
   backend.common.test_syzygy_tablebase \
   backend.common.test_tenant \
   backend.ingestao.test_backfill_tempos_chesscom \
@@ -54,6 +56,7 @@ python -m unittest \
   backend.ingestao.test_common_ingestao \
   backend.ingestao.test_enriquecer_partidas_lichess \
   backend.ingestao.test_importar_puzzle_activity \
+  backend.rag.test_importar_exercicios_taticos \
   backend.rag.test_importar_indice_conceitual \
   backend.rag.test_processar_livro
 ```
@@ -91,6 +94,7 @@ python backend/ingestao/coletar_partidas.py            # Lichess
 python backend/ingestao/coletar_partidas_chesscom.py   # Chess.com
 python backend/analise_engine/analisar_partidas.py     # Stockfish
 python backend/agentes/agente1_linter.py               # diagnóstico por lance
+python backend/agentes/popular_fila_treino_espacado.py # fila de repetição espaçada (D-48)
 python backend/agentes/agente2_analista.py             # estatística + narrativa
 python backend/agentes/agente3_prescritor.py           # sprint de treino
 ```
@@ -103,9 +107,10 @@ Precisam ser rodados à mão quando necessário:
 python backend/ingestao/importar_anotacoes_lichess.py   # anotações de Lichess Study (precisa study:write)
 python backend/ingestao/backfill_eco_abertura.py        # ECO faltante (execução única)
 python backend/agentes/normalizar_aberturas.py          # abertura_normalizada (após novas levas de partidas)
+python backend/rag/importar_exercicios_taticos.py       # catálogo de exercícios táticos (D-49) — baixa o dump do Lichess, ~1-2min
 ```
 
-Os scripts `importar_puzzle_activity.py`, `enriquecer_partidas_lichess.py`, `gerar_perguntas_pendentes.py` e `gerar_resumo_partida.py` foram automatizados no `pipeline-diario.yml`, e `medir_eficacia.py` no `pipeline-semanal.yml` (ver D-37 em `DECISOES.md`).
+Os scripts `importar_puzzle_activity.py`, `enriquecer_partidas_lichess.py`, `gerar_perguntas_pendentes.py` e `gerar_resumo_partida.py` foram automatizados no `pipeline-diario.yml`, e `medir_eficacia.py` no `pipeline-semanal.yml` (ver D-37 em `DECISOES.md`). `popular_fila_treino_espacado.py` também roda no `pipeline-diario.yml`, logo após `agente1_linter.py` (D-48). `importar_exercicios_taticos.py` (D-49) fica de fora de propósito: importa conteúdo de referência estático (o catálogo de puzzles do Lichess não muda dia a dia), não dado de usuário — rodar de novo só acrescenta puzzles novos ou amplia a faixa de rating, sem necessidade de agenda diária.
 
 ## 5. Processar um livro novo no RAG
 
@@ -135,7 +140,7 @@ chunking saiu errado e o RAG vai citar página errada.
 
 | Workflow | Agenda (UTC) | O que roda |
 |---|---|---|
-| `pipeline-diario.yml` | `0 9 * * *` | coleta Lichess + Chess.com, puzzles, enriquecimento Lichess, Stockfish, Agente 1, perguntas pendentes, resumos |
+| `pipeline-diario.yml` | `0 9 * * *` | coleta Lichess + Chess.com, puzzles, enriquecimento Lichess, Stockfish, Agente 1, fila de treino espaçado (D-48), perguntas pendentes, resumos |
 | `pipeline-semanal.yml` | `0 10 * * 1` | medir eficácia de treinos, Agente 2, Agente 3 |
 | `deploy-backend.yml` | push na `main` em `backend/**` ou `Dockerfile` | testes, build, deploy no Cloud Run |
 
@@ -155,7 +160,9 @@ commitados.
 `LIMITE_DIARIO_ANALISAR_PGN`, `LIMITE_DIARIO_EXPLICAR_POSICAO`,
 `LIMITE_DIARIO_REVISAR_AVULSO`, `LIMITE_DIARIO_RECONHECER_POSICAO`,
 `LICHESS_OAUTH_CLIENT_ID`, `LICHESS_OAUTH_REDIRECT_URI`,
-`LICHESS_OAUTH_SCOPES`, `FRONTEND_URL`.
+`LICHESS_OAUTH_SCOPES`, `FRONTEND_URL`, `TREINO_NOVOS_POR_DIA`,
+`TREINO_FOCO_QTD_EXERCICIOS`, `EXERCICIO_RATING_MIN`, `EXERCICIO_RATING_MAX`,
+`EXERCICIO_POPULARIDADE_MIN`, `EXERCICIOS_POR_CATEGORIA`.
 
 **OAuth do Lichess (D-33).** As 4 últimas são opcionais, com default no código.
 Nenhuma delas é segredo: o Lichess usa cliente público, sem `client_secret` e
@@ -180,6 +187,23 @@ incrementa `uso_diario_usuario` via RPC (`incrementar_uso_diario`, atômico,
 dia calculado em `America/Sao_Paulo`) ANTES do corpo da rota, e barra com 429
 quando a contagem do dia supera o limite — ver BANCO.md e D-32 em
 `DECISOES.md`.
+
+**Fila de treino diário (D-48).** `TREINO_NOVOS_POR_DIA` (default 10) limita
+quantos cards NOVOS `popular_fila_treino_espacado.py` introduz "hoje" por
+usuário a cada execução — o resto do backlog (típico na primeira execução,
+com meses de diagnósticos acumulados) é escalonado nos dias seguintes, para
+não despejar centenas de cards de uma vez na tela `/treino`.
+
+**Catálogo de exercícios táticos e treino focado (D-49).**
+`TREINO_FOCO_QTD_EXERCICIOS` (default 8) é quantos exercícios entram na fila
+de uma vez quando o usuário clica "Focar" numa categoria
+(`POST /treino/foco/{categoria}`). As outras 4 controlam o import ocasional
+de `backend/rag/importar_exercicios_taticos.py`: `EXERCICIO_RATING_MIN`/
+`EXERCICIO_RATING_MAX` (default 1000/2200) filtram a faixa de dificuldade dos
+puzzles aceitos, `EXERCICIO_POPULARIDADE_MIN` (default 50) evita puzzles
+obscuros/mal avaliados no Lichess, e `EXERCICIOS_POR_CATEGORIA` (default 300)
+é o teto de exercícios importados por categoria — o script para de ler o
+dump assim que todas as categorias com tema mapeado batem o teto.
 
 `API_SECRET_KEYS` usa o formato `nome:chave,nome:chave` e convive com a
 `API_SECRET_KEY` antiga (chave única) por compatibilidade. **Desde D-25 as

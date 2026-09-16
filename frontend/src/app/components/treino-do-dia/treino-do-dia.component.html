@@ -1,0 +1,149 @@
+<main class="pagina">
+  <section class="conteudo max-w-2xl">
+    <header class="max-w-2xl">
+      <p class="sobrelinha">Repetição espaçada</p>
+      <h1 class="titulo-pagina">Treino Diário</h1>
+      <p class="subtitulo">
+        Posições reais das suas próprias partidas, onde você errou antes, e exercícios do
+        catálogo tático quando você pede treino focado numa categoria — revisadas até o padrão
+        grudar. Diferente das
+        <a routerLink="/" class="text-latao-500 underline hover:text-latao-400">sessões de treino</a>
+        do Hexágono (essas são a prescrição semanal do Agente 3): aqui é a prática diária.
+      </p>
+    </header>
+
+    @if (!carregando() && totalHoje() > 0) {
+      <div class="grid grid-cols-2 gap-2">
+        <div class="metrica text-center">
+          <span class="metrica-valor text-xl text-sucesso">{{ feitasHoje() }}</span>
+          <span class="metrica-rotulo">Feitas hoje</span>
+        </div>
+        <div class="metrica text-center">
+          <span class="metrica-valor text-xl">{{ totalHoje() }}</span>
+          <span class="metrica-rotulo">Total hoje</span>
+        </div>
+      </div>
+    }
+
+    @if (carregando()) {
+      <div class="cartao space-y-4" role="status" aria-label="Carregando fila de treino">
+        <div class="esqueleto mx-auto h-52 w-52"></div>
+        <div class="esqueleto h-10 w-full"></div>
+      </div>
+    } @else if (erro() && !itemAtual()) {
+      <div class="aviso aviso-erro" role="alert">
+        <span aria-hidden="true">!</span>
+        <span>{{ erro() }}</span>
+      </div>
+    } @else if (!itemAtual()) {
+      <div class="estado-vazio">
+        <span class="text-2xl" aria-hidden="true">✓</span>
+        <p>Nenhuma revisão pendente hoje. Volte amanhã, ou jogue mais partidas.</p>
+      </div>
+    } @else {
+      <section class="cartao">
+        @if (!resultado()) {
+          <!-- Card de pergunta: sem nenhuma pista sobre o tipo de erro original. -->
+          <div class="mb-5 flex items-center justify-between">
+            @if (itemAtual()!.origem === 'exercicio_tatico') {
+              <span class="selo selo-neutro">Exercício: {{ rotuloCategoria(itemAtual()!.categoria) }}</span>
+            } @else {
+              <span class="selo selo-neutro">Lance {{ itemAtual()!.numero_lance }}</span>
+            }
+            @if (itemAtual()!.repeticoes > 0) {
+              <span class="selo selo-latao">{{ itemAtual()!.repeticoes }}ª revisão</span>
+            }
+          </div>
+
+          <app-tabuleiro-preview
+            class="mb-5 block"
+            [fen]="itemAtual()!.fen"
+            [orientacao]="itemAtual()!.cor_jogada === 'PRETAS' ? 'PRETAS' : 'BRANCAS'"
+          />
+
+          <label class="rotulo" for="campo-lance-treino">Qual é o seu lance?</label>
+          <input
+            id="campo-lance-treino"
+            type="text"
+            class="campo"
+            placeholder="Ex.: Cxe5"
+            [value]="lance()"
+            [disabled]="enviando()"
+            (keydown.enter)="responder()"
+            (input)="lance.set($any($event.target).value)"
+          />
+
+          @if (erro()) {
+            <div class="aviso aviso-erro mt-3" role="alert">
+              <span aria-hidden="true">!</span>
+              <span>{{ erro() }}</span>
+            </div>
+          }
+
+          <button
+            type="button"
+            class="btn btn-primario btn-largo mt-4"
+            [disabled]="!formularioValido()"
+            (click)="responder()"
+          >
+            @if (enviando()) {
+              <span class="pulso" aria-hidden="true"></span>
+              <span>Avaliando…</span>
+            } @else {
+              <span>Responder</span>
+            }
+          </button>
+        } @else {
+          <!-- Revelação: qualidade, melhor lance, causa raiz original e citação. -->
+          <div class="mb-5 flex items-center justify-between">
+            <span class="selo" [class]="corBadgeQualidadeLance(resultado()!.qualidade_lance)">
+              {{ resultado()!.qualidade_lance }}
+            </span>
+            <span class="legenda">Próxima revisão: {{ resultado()!.proxima_revisao_data }}</span>
+          </div>
+
+          <app-tabuleiro-preview
+            class="mb-5 block"
+            [fen]="itemAtual()!.fen"
+            [orientacao]="itemAtual()!.cor_jogada === 'PRETAS' ? 'PRETAS' : 'BRANCAS'"
+          />
+
+          <div class="mb-4 grid gap-2 sm:grid-cols-2">
+            <div class="painel">
+              <p class="metrica-rotulo mt-0">Melhor lance do motor</p>
+              <p class="mt-1 font-semibold text-marfim">{{ resultado()!.melhor_lance ?? '—' }}</p>
+            </div>
+            <div class="painel">
+              <p class="metrica-rotulo mt-0">Queda de win%</p>
+              <p class="mt-1 font-semibold text-marfim">{{ resultado()!.queda_win_percent }}</p>
+            </div>
+          </div>
+
+          @if (resultado()!.raiz_conceitual_violada) {
+            <div class="painel mb-4">
+              <p class="metrica-rotulo mt-0">Por que você errou da 1ª vez</p>
+              <p class="mt-1.5 text-sm leading-6 text-bruma-200">
+                {{ resultado()!.raiz_conceitual_violada }}
+              </p>
+            </div>
+          }
+
+          @if (resultado()!.livro_citado) {
+            <p class="aviso aviso-latao mb-4">
+              <span aria-hidden="true">📖</span>
+              <span>
+                {{ resultado()!.livro_citado }}
+                @if (resultado()!.capitulo_citado) { <span> · cap. {{ resultado()!.capitulo_citado }}</span> }
+                @if (resultado()!.pagina_citada) { <span> · pág. {{ resultado()!.pagina_citada }}</span> }
+              </span>
+            </p>
+          }
+
+          <button type="button" class="btn btn-primario btn-largo" (click)="proxima()">
+            Próxima
+          </button>
+        }
+      </section>
+    }
+  </section>
+</main>

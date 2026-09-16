@@ -23,7 +23,8 @@ from fastapi import Depends, HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from backend.agentes.revisar_pensamento import Settings
+from backend.agentes.popular_fila_treino_espacado import _CACHE_CITACAO
+from backend.agentes.revisar_pensamento import AvaliacaoLance, Settings
 from backend.api import api_server
 
 CHAVE_CORRETA = "chave-secreta-de-teste"
@@ -2447,6 +2448,461 @@ class DesconectarOauthLichessTest(unittest.TestCase):
     def test_sem_sessao_recebe_401(self) -> None:
         with gate_de_sessao_real():
             resposta = self.client.post("/lichess/oauth/desconectar")
+
+        self.assertEqual(resposta.status_code, 401)
+
+
+class ObterFilaTreinoTest(unittest.TestCase):
+    """GET /treino/fila (D-48): lista os cards vencidos hoje, sem revelar a causa."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _mockar_client(self) -> MagicMock:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        return mock_client
+
+    def test_devolve_itens_sem_revelar_causa_do_erro(self) -> None:
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": 7,
+                "repeticoes": 1,
+                "total_revisoes": 2,
+                "lances_criticos": {
+                    "numero_lance": 14,
+                    "fen_antes_lance": chess_fen_inicial(),
+                    "partidas": {
+                        "cor_jogada": "BRANCAS",
+                        "data_partida": "2026-09-10",
+                        "plataforma": "LICHESS",
+                    },
+                },
+            }
+        ]
+        base.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        resposta = self.client.get("/treino/fila", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        corpo = resposta.json()
+        self.assertEqual(corpo["feitas_hoje"], 0)
+        self.assertEqual(corpo["total_hoje"], 1)
+        item = corpo["itens"][0]
+        self.assertEqual(item["fila_id"], 7)
+        self.assertEqual(item["fen"], chess_fen_inicial())
+        self.assertEqual(item["numero_lance"], 14)
+        self.assertEqual(item["cor_jogada"], "BRANCAS")
+        # Nenhum campo de diagnóstico (tags_falha, causa raiz, citação) existe
+        # na resposta - é a garantia de que o card não vaza a resposta antes
+        # do usuário tentar o lance.
+        self.assertNotIn("tags_falha", item)
+        self.assertNotIn("raiz_conceitual_violada", item)
+        self.assertNotIn("livro_citado", item)
+
+    def test_pula_item_sem_fen_registrada(self) -> None:
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": 1,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "lances_criticos": {"numero_lance": 3, "fen_antes_lance": None, "partidas": {}},
+            }
+        ]
+        base.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        resposta = self.client.get("/treino/fila", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["itens"], [])
+
+    def test_conta_feitas_hoje_separado_das_pendentes(self) -> None:
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = []
+        base.gt.return_value.gte.return_value.execute.return_value.data = [
+            {"id": 1},
+            {"id": 2},
+            {"id": 3},
+        ]
+
+        resposta = self.client.get("/treino/fila", headers=HEADERS_SESSAO)
+
+        corpo = resposta.json()
+        self.assertEqual(corpo["feitas_hoje"], 3)
+        self.assertEqual(corpo["total_hoje"], 3)
+        self.assertEqual(corpo["itens"], [])
+
+    def test_sem_supabase_devolve_503(self) -> None:
+        resposta = self.client.get("/treino/fila", headers=HEADERS_SESSAO)
+        self.assertEqual(resposta.status_code, 503)
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/treino/fila")
+
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_item_de_exercicio_tatico_devolve_origem_e_categoria(self) -> None:
+        """D-49: card vindo do catálogo tático não tem numero_lance/cor_jogada,
+        mas devolve origem+categoria pro frontend distinguir o selo."""
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": 9,
+                "origem": "exercicio_tatico",
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "exercicios_taticos": {
+                    "fen": chess_fen_inicial(),
+                    "categoria_hexagono": "TATICA",
+                },
+            }
+        ]
+        base.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        resposta = self.client.get("/treino/fila", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        item = resposta.json()["itens"][0]
+        self.assertEqual(item["origem"], "exercicio_tatico")
+        self.assertEqual(item["categoria"], "TATICA")
+        self.assertIsNone(item["numero_lance"])
+        self.assertIsNone(item["cor_jogada"])
+
+    def test_pula_exercicio_tatico_sem_fen_registrada(self) -> None:
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": 9,
+                "origem": "exercicio_tatico",
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "exercicios_taticos": {"fen": None, "categoria_hexagono": "TATICA"},
+            }
+        ]
+        base.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        resposta = self.client.get("/treino/fila", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["itens"], [])
+
+
+class ResponderTreinoTest(unittest.TestCase):
+    """POST /treino/{fila_id}/responder (D-48): avalia via Stockfish e reagenda."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        api_server._state["engine"] = MagicMock()
+        api_server._state["engine_lock"] = threading.Lock()
+        api_server._state["settings"] = _fake_settings()
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _mockar_fila(
+        self, mock_client: MagicMock, fila_row: dict[str, Any] | None
+    ) -> None:
+        resposta = mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute
+        resposta.return_value.data = [fila_row] if fila_row else []
+
+    def _mockar_diagnostico(
+        self, mock_client: MagicMock, diagnostico_row: dict[str, Any] | None
+    ) -> None:
+        resposta = mock_client.table.return_value.select.return_value.eq.return_value.execute
+        resposta.return_value.data = [diagnostico_row] if diagnostico_row else []
+
+    def test_card_inexistente_ou_de_outro_dono_devolve_404(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(mock_client, None)
+
+        resposta = self.client.post(
+            "/treino/999/responder", json={"lance": "e4"}, headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 404)
+
+    def test_lance_bom_devolve_qualidade_e_reagenda_para_amanha(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(
+            mock_client,
+            {
+                "id": 7,
+                "lance_id": "lance-uuid-1",
+                "intervalo_dias": 0,
+                "fator_facilidade": 2.5,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "livro_citado": "Meu Sistema",
+                "capitulo_citado": "4",
+                "pagina_citada": 88,
+                "lances_criticos": {"fen_antes_lance": chess_fen_inicial()},
+            },
+        )
+        self._mockar_diagnostico(
+            mock_client,
+            {
+                "raiz_conceitual_violada": "Não avaliou o centro antes de decidir.",
+                "tags_falha": ["calculo_tatico_deficiente"],
+            },
+        )
+        avaliacao_fake = AvaliacaoLance(
+            lance_jogado="e4",
+            melhor_lance="e4",
+            queda_win_percent=0.5,
+            linha_principal=["e4", "e5"],
+            top_candidatos=[],
+        )
+
+        with patch.object(api_server, "avaliar_lance_avulso", return_value=avaliacao_fake):
+            resposta = self.client.post(
+                "/treino/7/responder", json={"lance": "e4"}, headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        corpo = resposta.json()
+        self.assertEqual(corpo["qualidade_lance"], "BOM")
+        self.assertEqual(corpo["melhor_lance"], "e4")
+        self.assertEqual(
+            corpo["raiz_conceitual_violada"], "Não avaliou o centro antes de decidir."
+        )
+        self.assertEqual(corpo["tags_falha"], ["calculo_tatico_deficiente"])
+        self.assertEqual(corpo["livro_citado"], "Meu Sistema")
+        self.assertEqual(corpo["repeticoes"], 1)
+
+        # Reagendamento de verdade: 1ª repetição boa vira 1 dia (SM-2).
+        payload_update = mock_client.table.return_value.update.call_args[0][0]
+        self.assertEqual(payload_update["repeticoes"], 1)
+        self.assertEqual(payload_update["intervalo_dias"], 1)
+        self.assertEqual(payload_update["total_revisoes"], 1)
+        mock_client.table.return_value.update.return_value.eq.assert_called_once_with(
+            "id", 7
+        )
+
+    def test_lance_ruim_reseta_a_serie(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(
+            mock_client,
+            {
+                "id": 7,
+                "lance_id": "lance-uuid-1",
+                "intervalo_dias": 30,
+                "fator_facilidade": 2.8,
+                "repeticoes": 5,
+                "total_revisoes": 5,
+                "livro_citado": None,
+                "capitulo_citado": None,
+                "pagina_citada": None,
+                "lances_criticos": {"fen_antes_lance": chess_fen_inicial()},
+            },
+        )
+        self._mockar_diagnostico(mock_client, None)
+        avaliacao_ruim = AvaliacaoLance(
+            lance_jogado="a3",
+            melhor_lance="e4",
+            queda_win_percent=25.0,
+            linha_principal=[],
+            top_candidatos=[],
+        )
+
+        with patch.object(api_server, "avaliar_lance_avulso", return_value=avaliacao_ruim):
+            resposta = self.client.post(
+                "/treino/7/responder", json={"lance": "a3"}, headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        corpo = resposta.json()
+        self.assertEqual(corpo["qualidade_lance"], "RUIM")
+        self.assertEqual(corpo["repeticoes"], 0)
+        payload_update = mock_client.table.return_value.update.call_args[0][0]
+        self.assertEqual(payload_update["repeticoes"], 0)
+        self.assertEqual(payload_update["intervalo_dias"], 1)
+
+    def test_lance_ilegal_devolve_400(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(
+            mock_client,
+            {
+                "id": 7,
+                "lance_id": "lance-uuid-1",
+                "intervalo_dias": 0,
+                "fator_facilidade": 2.5,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "livro_citado": None,
+                "capitulo_citado": None,
+                "pagina_citada": None,
+                "lances_criticos": {"fen_antes_lance": chess_fen_inicial()},
+            },
+        )
+
+        resposta = self.client.post(
+            "/treino/7/responder", json={"lance": "Txz9"}, headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 400)
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.post("/treino/7/responder", json={"lance": "e4"})
+
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_exercicio_tatico_nao_consulta_diagnosticos(self) -> None:
+        """D-49: card de catálogo não tem diagnosticos associado - raiz/tags
+        voltam vazias, sem tentar consultar uma tabela que não tem a ver."""
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(
+            mock_client,
+            {
+                "id": 9,
+                "lance_id": None,
+                "origem": "exercicio_tatico",
+                "intervalo_dias": 0,
+                "fator_facilidade": 2.5,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "livro_citado": "Livro X",
+                "capitulo_citado": "2",
+                "pagina_citada": 10,
+                "exercicios_taticos": {"fen": chess_fen_inicial()},
+            },
+        )
+        avaliacao_fake = AvaliacaoLance(
+            lance_jogado="e4",
+            melhor_lance="e4",
+            queda_win_percent=0.5,
+            linha_principal=["e4", "e5"],
+            top_candidatos=[],
+        )
+
+        with patch.object(api_server, "avaliar_lance_avulso", return_value=avaliacao_fake):
+            resposta = self.client.post(
+                "/treino/9/responder", json={"lance": "e4"}, headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        corpo = resposta.json()
+        self.assertEqual(corpo["qualidade_lance"], "BOM")
+        self.assertIsNone(corpo["raiz_conceitual_violada"])
+        self.assertEqual(corpo["tags_falha"], [])
+        self.assertEqual(corpo["livro_citado"], "Livro X")
+        nomes_tabelas = [chamada.args[0] for chamada in mock_client.table.call_args_list]
+        self.assertNotIn("diagnosticos", nomes_tabelas)
+
+
+class FocarCategoriaTreinoTest(unittest.TestCase):
+    """POST /treino/foco/{categoria} (D-49): injeta exercícios do catálogo
+    tático na fila de hoje, focados numa categoria fraca."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["api_keys"] = {CHAVE_CORRETA: "teste"}
+        _CACHE_CITACAO.clear()
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+        _CACHE_CITACAO.clear()
+
+    def _mockar_tabelas(
+        self,
+        ja_na_fila: list[dict[str, Any]],
+        candidatos: list[dict[str, Any]],
+    ) -> dict[str, MagicMock]:
+        mocks: dict[str, MagicMock] = {}
+
+        def table_side_effect(nome_tabela: str):
+            mock_tabela = MagicMock()
+            mocks[nome_tabela] = mock_tabela
+            if nome_tabela == "fila_treino_espacado":
+                resp = MagicMock()
+                resp.data = ja_na_fila
+                mock_tabela.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp
+            elif nome_tabela == "exercicios_taticos":
+                resp = MagicMock()
+                resp.data = candidatos
+                mock_tabela.select.return_value.eq.return_value.execute.return_value = resp
+            elif nome_tabela == "indice_conceitual":
+                # buscar_conceitos (agente3_prescritor.py): sem conceito
+                # indexado pra essa busca - resolver_citacao devolve None e a
+                # linha fica com os 3 campos de citação nulos (não é erro).
+                resp = MagicMock()
+                resp.data = []
+                mock_tabela.select.return_value.ilike.return_value.execute.return_value = resp
+            return mock_tabela
+
+        mock_client = MagicMock()
+        mock_client.table.side_effect = table_side_effect
+        api_server._state["supabase_client"] = mock_client
+        return mocks
+
+    def test_categoria_invalida_devolve_400(self) -> None:
+        resposta = self.client.post("/treino/foco/NAO_EXISTE", headers=HEADERS_SESSAO)
+        self.assertEqual(resposta.status_code, 400)
+
+    def test_insere_exercicios_novos_da_categoria(self) -> None:
+        candidatos = [{"id": f"ex-{i}"} for i in range(3)]
+        mocks = self._mockar_tabelas(ja_na_fila=[], candidatos=candidatos)
+
+        resposta = self.client.post("/treino/foco/TATICA", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["adicionados"], 3)
+        upsert_mock = mocks["fila_treino_espacado"].upsert
+        (linhas,), kwargs = upsert_mock.call_args
+        self.assertEqual(len(linhas), 3)
+        self.assertTrue(all(linha["origem"] == "exercicio_tatico" for linha in linhas))
+        self.assertEqual(kwargs.get("on_conflict"), "user_id,exercicio_id")
+        self.assertTrue(kwargs.get("ignore_duplicates"))
+
+    def test_exclui_exercicios_ja_na_fila_do_usuario(self) -> None:
+        candidatos = [{"id": "ex-1"}, {"id": "ex-2"}]
+        mocks = self._mockar_tabelas(
+            ja_na_fila=[{"exercicio_id": "ex-1"}], candidatos=candidatos
+        )
+
+        resposta = self.client.post("/treino/foco/TATICA", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["adicionados"], 1)
+        upsert_mock = mocks["fila_treino_espacado"].upsert
+        (linhas,), _ = upsert_mock.call_args
+        self.assertEqual(linhas[0]["exercicio_id"], "ex-2")
+
+    def test_sem_candidatos_novos_nao_chama_upsert(self) -> None:
+        mocks = self._mockar_tabelas(
+            ja_na_fila=[{"exercicio_id": "ex-1"}], candidatos=[{"id": "ex-1"}]
+        )
+
+        resposta = self.client.post("/treino/foco/TATICA", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["adicionados"], 0)
+        mocks["fila_treino_espacado"].upsert.assert_not_called()
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.post("/treino/foco/TATICA")
 
         self.assertEqual(resposta.status_code, 401)
 

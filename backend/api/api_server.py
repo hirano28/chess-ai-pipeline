@@ -11,14 +11,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import random
 import re
 import secrets
 import sys
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 import chess
 import google.genai as genai
@@ -45,6 +47,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from backend.agentes.agente1_linter import (  # noqa: E402
     load_settings as load_linter_settings,
 )
+from backend.agentes.agente2_analista import HEXAGON_CATEGORIES  # noqa: E402
 from backend.agentes.analisar_pgn_avulso import (  # noqa: E402
     executar_pipeline_partida,
     gerar_external_id,
@@ -63,16 +66,22 @@ from backend.agentes.insights_puzzles import (  # noqa: E402
 from backend.agentes.insights_repertorio import (  # noqa: E402
     calcular_insights_repertorio,
 )
+from backend.agentes.popular_fila_treino_espacado import (  # noqa: E402
+    resolver_citacao,
+)
 from backend.agentes.revisar_exercicio_avulso import (  # noqa: E402
     EngineIndisponivelError,
+    avaliar_lance_avulso,
     configure_console_logger,
     normalizar_lances,
     processar_revisao_sequencia,
+    resolver_lance_usuario,
     resolver_posicao,
     salvar_exercicio,
 )
 from backend.agentes.revisar_pensamento import (  # noqa: E402
     carregar_passos_guia,
+    classificar_qualidade_lance,
     load_settings,
 )
 from backend.analise_engine.analisar_partidas import (  # noqa: E402
@@ -86,6 +95,10 @@ from backend.common.lichess_oauth import (  # noqa: E402
     obter_access_token_lichess,
 )
 from backend.common.progress import log_and_print  # noqa: E402
+from backend.common.spaced_repetition import (  # noqa: E402
+    atualizar_agendamento,
+    nota_sm2_da_qualidade_lance,
+)
 from backend.common.syzygy_tablebase import (  # noqa: E402
     avaliar_lance_final_syzygy,
     consultar_syzygy,
@@ -124,6 +137,11 @@ LIMITES_DIARIOS_ENV: dict[str, tuple[str, int]] = {
     "reconhecer-posicao": ("LIMITE_DIARIO_RECONHECER_POSICAO", 30),
 }
 MENSAGEM_LIMITE_DIARIO = "Limite diário atingido, tente novamente amanhã."
+
+# D-49: quantos exercícios do catálogo tático entram na fila de uma vez
+# quando o usuário clica "Focar" numa categoria (mesmo padrão de
+# configuração por env var de TREINO_NOVOS_POR_DIA, D-48).
+TREINO_FOCO_QTD_EXERCICIOS = int(os.getenv("TREINO_FOCO_QTD_EXERCICIOS", "8"))
 
 # D-33: OAuth do Lichess (Authorization Code + PKCE). Endpoints confirmados na
 # doc oficial: o Lichess aceita cliente público NÃO registrado (client_id é uma
@@ -247,6 +265,69 @@ class ResolverFenResponse(BaseModel):
     """Resposta com o FEN final resolvido a partir de uma FEN ou PGN."""
 
     fen: str
+
+
+class ItemFilaTreino(BaseModel):
+    """Um card pendente de revisão hoje (D-48; D-49 acrescentou a origem
+    'exercicio_tatico', do catálogo importado do Lichess).
+
+    Deliberadamente NÃO inclui tags_falha/raiz_conceitual_violada nem a
+    citação do livro: revelar a causa do erro antes do usuário tentar o
+    lance transformaria o treino numa consulta, não num teste.
+    """
+
+    fila_id: int
+    fen: str
+    origem: str
+    numero_lance: int | None = None
+    cor_jogada: str | None = None
+    data_partida: str | None = None
+    plataforma: str | None = None
+    categoria: str | None = None
+    repeticoes: int
+    total_revisoes: int
+
+
+class FilaTreinoResponse(BaseModel):
+    """Fila de hoje + contadores para o indicador de progresso do frontend."""
+
+    itens: list[ItemFilaTreino]
+    feitas_hoje: int
+    total_hoje: int
+
+
+class ResponderTreinoRequest(BaseModel):
+    """Payload da resposta a um card: só o lance (ver D-48 - sem raciocínio)."""
+
+    lance: str
+
+
+class ResponderTreinoResponse(BaseModel):
+    """Revelação completa após responder: qualidade, causa raiz e citação.
+
+    raiz_conceitual_violada/tags_falha só vêm preenchidos pra cards de
+    lance próprio (D-48) - exercícios de catálogo (D-49) não têm um
+    `diagnosticos` associado, a explicação do "porquê" já vem da avaliação
+    do Stockfish + melhor lance.
+    """
+
+    qualidade_lance: str
+    lance_interpretado: str = ""
+    melhor_lance: str | None
+    queda_win_percent: float
+    raiz_conceitual_violada: str | None = None
+    tags_falha: list[str] = Field(default_factory=list)
+    livro_citado: str | None = None
+    capitulo_citado: str | None = None
+    pagina_citada: int | None = None
+    proxima_revisao_data: str
+    repeticoes: int
+
+
+class FocoTreinoResponse(BaseModel):
+    """Resposta de POST /treino/foco/{categoria} (D-49)."""
+
+    adicionados: int
 
 
 class ExplicarPosicaoRequest(BaseModel):
@@ -840,6 +921,332 @@ def listar_revisoes_avulsas_recentes(
         ) from error
 
     return [RevisaoAvulsaRecenteItem(**row) for row in resp.data or []]
+
+
+def _hoje_america_sao_paulo() -> date:
+    """Mesmo fuso de `incrementar_uso_diario` (D-32): a virada é à meia-noite
+    local do usuário, não em UTC (America/Sao_Paulo é UTC-3)."""
+
+    return datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+
+
+@app.get("/treino/fila", response_model=FilaTreinoResponse)
+def obter_fila_treino(user_id: str = Depends(verificar_sessao)) -> FilaTreinoResponse:
+    """Lista os cards de repetição espaçada vencidos hoje (D-48).
+
+    Não revela tags_falha, causa raiz nem citação de livro - isso só aparece
+    na resposta de POST /treino/{fila_id}/responder, depois de tentar o lance.
+    """
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    hoje = _hoje_america_sao_paulo()
+    inicio_do_dia = datetime.combine(hoje, time.min, tzinfo=ZoneInfo("America/Sao_Paulo"))
+
+    try:
+        resp_pendentes = (
+            client.table("fila_treino_espacado")
+            .select(
+                "id, origem, repeticoes, total_revisoes, "
+                "lances_criticos(numero_lance, fen_antes_lance, "
+                "partidas(cor_jogada, data_partida, plataforma)), "
+                "exercicios_taticos(fen, categoria_hexagono)"
+            )
+            .eq("user_id", user_id)
+            .lte("proxima_revisao_data", hoje.isoformat())
+            .order("proxima_revisao_data")
+            .execute()
+        )
+        resp_feitas = (
+            client.table("fila_treino_espacado")
+            .select("id")
+            .eq("user_id", user_id)
+            .gt("total_revisoes", 0)
+            .gte("atualizado_em", inicio_do_dia.isoformat())
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar a fila de treino: {error}"
+        ) from error
+
+    itens: list[ItemFilaTreino] = []
+    for row in resp_pendentes.data or []:
+        origem = row.get("origem") or "lance_critico"
+
+        if origem == "exercicio_tatico":
+            exercicio = row.get("exercicios_taticos") or {}
+            if isinstance(exercicio, list):
+                exercicio = exercicio[0] if exercicio else {}
+            fen = exercicio.get("fen")
+            if not fen:
+                # Mesmo cuidado defensivo do branch de lance próprio: uma
+                # inconsistência pontual não pode quebrar a fila inteira.
+                continue
+            itens.append(
+                ItemFilaTreino(
+                    fila_id=row["id"],
+                    fen=fen,
+                    origem=origem,
+                    categoria=exercicio.get("categoria_hexagono"),
+                    repeticoes=row.get("repeticoes") or 0,
+                    total_revisoes=row.get("total_revisoes") or 0,
+                )
+            )
+            continue
+
+        lance = row.get("lances_criticos") or {}
+        if isinstance(lance, list):
+            lance = lance[0] if lance else {}
+        partida = lance.get("partidas") or {}
+        if isinstance(partida, list):
+            partida = partida[0] if partida else {}
+        fen = lance.get("fen_antes_lance")
+        if not fen:
+            # Defensivo: a população já filtra por fen_antes_lance preenchido,
+            # mas um reprocessamento entre a população e esta consulta poderia
+            # deixar a linha temporariamente inconsistente.
+            continue
+        itens.append(
+            ItemFilaTreino(
+                fila_id=row["id"],
+                fen=fen,
+                origem=origem,
+                numero_lance=lance.get("numero_lance") or 0,
+                cor_jogada=partida.get("cor_jogada"),
+                data_partida=partida.get("data_partida"),
+                plataforma=partida.get("plataforma"),
+                repeticoes=row.get("repeticoes") or 0,
+                total_revisoes=row.get("total_revisoes") or 0,
+            )
+        )
+
+    feitas_hoje = len(resp_feitas.data or [])
+    return FilaTreinoResponse(
+        itens=itens, feitas_hoje=feitas_hoje, total_hoje=len(itens) + feitas_hoje
+    )
+
+
+@app.post("/treino/{fila_id}/responder", response_model=ResponderTreinoResponse)
+def responder_treino(
+    fila_id: int,
+    payload: ResponderTreinoRequest,
+    user_id: str = Depends(verificar_sessao),
+) -> ResponderTreinoResponse:
+    """Avalia a resposta de um card via Stockfish e reagenda via SM-2 (D-48).
+
+    Sem chamada ao Gemini: classificar_qualidade_lance (threshold sobre
+    queda_win_percent) já basta pra derivar a nota do SM-2, e manter o Gemini
+    fora do caminho quente é o que permite muitas repetições por dia sem
+    custo nem latência extra (decisão de escopo do D-48).
+    """
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resp_fila = (
+            client.table("fila_treino_espacado")
+            .select(
+                "id, lance_id, origem, intervalo_dias, fator_facilidade, repeticoes, "
+                "total_revisoes, livro_citado, capitulo_citado, pagina_citada, "
+                "lances_criticos(fen_antes_lance), exercicios_taticos(fen)"
+            )
+            .eq("id", fila_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar o card de treino: {error}"
+        ) from error
+
+    linhas_fila = resp_fila.data or []
+    if not linhas_fila:
+        # 404, nunca 403 (mesmo padrão IDOR-safe de D-29/D-30): não revela se
+        # o card existe e pertence a outra conta.
+        raise HTTPException(status_code=404, detail="Card de treino não encontrado.")
+    fila_row = linhas_fila[0]
+    origem = fila_row.get("origem") or "lance_critico"
+
+    if origem == "exercicio_tatico":
+        exercicio = fila_row.get("exercicios_taticos") or {}
+        if isinstance(exercicio, list):
+            exercicio = exercicio[0] if exercicio else {}
+        fen = exercicio.get("fen")
+    else:
+        lance_critico = fila_row.get("lances_criticos") or {}
+        if isinstance(lance_critico, list):
+            lance_critico = lance_critico[0] if lance_critico else {}
+        fen = lance_critico.get("fen_antes_lance")
+    if not fen:
+        raise HTTPException(
+            status_code=500, detail="Card de treino sem posição registrada."
+        )
+
+    try:
+        board = chess.Board(fen)
+        resolvido = resolver_lance_usuario(board, payload.lance)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    try:
+        avaliacao = avaliar_lance_avulso(
+            _state["engine"], board, resolvido.move, _state.get("engine_lock")
+        )
+    except EngineIndisponivelError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao avaliar o lance: {error}"
+        ) from error
+
+    settings = _state["settings"]
+    qualidade_lance = classificar_qualidade_lance(
+        avaliacao.queda_win_percent, settings.limiar_lance_bom, settings.limiar_lance_ruim
+    )
+
+    diagnostico: dict[str, Any] = {}
+    if origem == "lance_critico":
+        try:
+            resp_diagnostico = (
+                client.table("diagnosticos")
+                .select("raiz_conceitual_violada, tags_falha")
+                .eq("lance_id", fila_row["lance_id"])
+                .execute()
+            )
+            diagnostico_rows = resp_diagnostico.data or []
+        except Exception:
+            # O diagnóstico é só um complemento explicativo aqui - se a consulta
+            # falhar, a avaliação do lance (o que importa de verdade) já está
+            # pronta; melhor devolver sem a causa raiz do que falhar a revisão
+            # inteira.
+            diagnostico_rows = []
+        diagnostico = diagnostico_rows[0] if diagnostico_rows else {}
+    # Exercício de catálogo (D-49) não tem diagnosticos associado - raiz e
+    # tags ficam vazias de propósito, a explicação já vem do Stockfish.
+
+    hoje = _hoje_america_sao_paulo()
+    nota = nota_sm2_da_qualidade_lance(qualidade_lance)
+    agendamento = atualizar_agendamento(
+        intervalo_dias=fila_row.get("intervalo_dias") or 0,
+        fator_facilidade=fila_row.get("fator_facilidade") or 2.5,
+        repeticoes=fila_row.get("repeticoes") or 0,
+        qualidade=nota,
+        hoje=hoje,
+    )
+
+    try:
+        client.table("fila_treino_espacado").update(
+            {
+                "intervalo_dias": agendamento.intervalo_dias,
+                "fator_facilidade": agendamento.fator_facilidade,
+                "repeticoes": agendamento.repeticoes,
+                "total_revisoes": (fila_row.get("total_revisoes") or 0) + 1,
+                "ultima_qualidade": nota,
+                "proxima_revisao_data": agendamento.proxima_revisao_data.isoformat(),
+                "atualizado_em": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", fila_id).execute()
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao reagendar o card de treino: {error}"
+        ) from error
+
+    return ResponderTreinoResponse(
+        qualidade_lance=qualidade_lance,
+        lance_interpretado=resolvido.lance_interpretado,
+        melhor_lance=avaliacao.melhor_lance,
+        queda_win_percent=avaliacao.queda_win_percent,
+        raiz_conceitual_violada=diagnostico.get("raiz_conceitual_violada"),
+        tags_falha=diagnostico.get("tags_falha") or [],
+        livro_citado=fila_row.get("livro_citado"),
+        capitulo_citado=fila_row.get("capitulo_citado"),
+        pagina_citada=fila_row.get("pagina_citada"),
+        proxima_revisao_data=agendamento.proxima_revisao_data.isoformat(),
+        repeticoes=agendamento.repeticoes,
+    )
+
+
+@app.post("/treino/foco/{categoria}", response_model=FocoTreinoResponse)
+def focar_categoria_treino(
+    categoria: str,
+    user_id: str = Depends(verificar_sessao),
+) -> FocoTreinoResponse:
+    """Insere exercícios do catálogo tático (D-49) na fila de hoje, focados
+    numa categoria fraca do Hexágono - a "opção de treino focado" pedida
+    quando o usuário ainda não tem lances críticos próprios suficientes
+    naquela categoria. Usa a mesma fila/motor SM-2 do D-48.
+    """
+    if categoria not in HEXAGON_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Categoria inválida: {categoria}")
+
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resp_ja_na_fila = (
+            client.table("fila_treino_espacado")
+            .select("exercicio_id")
+            .eq("user_id", user_id)
+            .eq("origem", "exercicio_tatico")
+            .execute()
+        )
+        ja_na_fila = {
+            row["exercicio_id"] for row in resp_ja_na_fila.data or [] if row.get("exercicio_id")
+        }
+
+        resp_candidatos = (
+            client.table("exercicios_taticos")
+            .select("id")
+            .eq("categoria_hexagono", categoria)
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao buscar exercícios da categoria: {error}"
+        ) from error
+
+    candidatos = [
+        row["id"] for row in resp_candidatos.data or [] if row["id"] not in ja_na_fila
+    ]
+    if not candidatos:
+        return FocoTreinoResponse(adicionados=0)
+
+    escolhidos = random.sample(candidatos, k=min(TREINO_FOCO_QTD_EXERCICIOS, len(candidatos)))
+
+    # Mesma citação pra todos os exercícios desta categoria neste lote - um
+    # único resolver_citacao (buscar_conceitos, sem custo de LLM), reaproveitado
+    # de popular_fila_treino_espacado.py (D-48).
+    citacao = resolver_citacao(client, categoria)
+    hoje = _hoje_america_sao_paulo()
+    linhas = [
+        {
+            "user_id": user_id,
+            "exercicio_id": exercicio_id,
+            "origem": "exercicio_tatico",
+            "proxima_revisao_data": hoje.isoformat(),
+            "livro_citado": citacao.get("livro") if citacao else None,
+            "capitulo_citado": citacao.get("capitulo") if citacao else None,
+            "pagina_citada": citacao.get("pagina_aprox") if citacao else None,
+        }
+        for exercicio_id in escolhidos
+    ]
+
+    try:
+        # ignore_duplicates: um duplo clique em "Focar" antes do botão
+        # desabilitar vira no-op, não um 500 pela unique(user_id, exercicio_id).
+        client.table("fila_treino_espacado").upsert(
+            linhas, on_conflict="user_id,exercicio_id", ignore_duplicates=True
+        ).execute()
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao adicionar exercícios à fila: {error}"
+        ) from error
+
+    return FocoTreinoResponse(adicionados=len(linhas))
 
 
 @app.post("/explicar-posicao", response_model=ExplicarPosicaoResponse)

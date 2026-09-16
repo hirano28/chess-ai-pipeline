@@ -83,6 +83,11 @@ jobs:
         id: agente1_linter
         run: python backend/agentes/agente1_linter.py
 
+      - name: Popular fila de treino espacado
+        id: popular_fila_treino
+        continue-on-error: true
+        run: python backend/agentes/popular_fila_treino_espacado.py
+
       - name: Gerar perguntas pendentes
         id: gerar_perguntas
         continue-on-error: true
@@ -111,6 +116,7 @@ jobs:
             echo "| Enriquecer Lichess | ${{ steps.enriquecer_lichess.outcome || 'nao executada' }} |"
             echo "| Analise Stockfish | ${{ steps.analisar_engine.outcome || 'nao executada' }} |"
             echo "| Agente 1 | ${{ steps.agente1_linter.outcome || 'nao executada' }} |"
+            echo "| Fila de treino espacado | ${{ steps.popular_fila_treino.outcome || 'nao executada' }} |"
             echo "| Perguntas pendentes | ${{ steps.gerar_perguntas.outcome || 'nao executada' }} |"
             echo "| Resumos de partidas | ${{ steps.gerar_resumos.outcome || 'nao executada' }} |"
           } >> "$GITHUB_STEP_SUMMARY"

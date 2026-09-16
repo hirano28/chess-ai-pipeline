@@ -6,6 +6,7 @@ stockfish
 google-genai
 anthropic
 requests
+zstandard
 pandas
 numpy
 pdfplumber

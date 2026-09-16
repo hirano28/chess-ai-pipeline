@@ -15,6 +15,11 @@ export const routes: Routes = [
 		canActivate: [authGuard],
 	},
 	{
+		path: 'treino',
+		loadComponent: () => import('./components/treino-do-dia/treino-do-dia.component').then((m) => m.TreinoDoDiaComponent),
+		canActivate: [authGuard],
+	},
+	{
 		path: 'laboratorio',
 		loadComponent: () => import('./components/laboratorio-raciocinio/laboratorio-raciocinio.component').then((m) => m.LaboratorioRaciocinioComponent),
 		canActivate: [authGuard],

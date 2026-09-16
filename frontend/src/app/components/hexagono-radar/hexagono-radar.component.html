@@ -87,6 +87,30 @@
       </aside>
     </div>
 
+    <section class="cartao" aria-labelledby="treino-focado-heading">
+      <p class="sobrelinha">Repetição espaçada</p>
+      <h2 id="treino-focado-heading" class="titulo-secao">Treino focado</h2>
+      <p class="mt-1 text-sm leading-6 text-bruma-200">
+        Sem lances críticos próprios suficientes numa categoria ainda? Treine com exercícios do
+        catálogo tático focados nela.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-2">
+        @for (categoria of categorias; track categoria) {
+          <button
+            type="button"
+            class="btn btn-secundario btn-pequeno"
+            [disabled]="focandoCategoria() === categoria"
+            (click)="focar(categoria)"
+          >
+            @if (focandoCategoria() === categoria) {
+              <span class="pulso" aria-hidden="true"></span>
+            }
+            <span>Focar em {{ rotulosCategoria[categoria] }}</span>
+          </button>
+        }
+      </div>
+    </section>
+
     <app-repertorio-insights />
 
     <app-puzzles-insights />

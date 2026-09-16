@@ -8,6 +8,7 @@ import {
   signal,
   viewChild
 } from '@angular/core';
+import { Router } from '@angular/router';
 import {
   Chart,
   Filler,
@@ -22,6 +23,7 @@ import {
   AnaliseHexagonoMetricas,
   SupabaseService
 } from '../../services/supabase.service';
+import { ROTULOS_CATEGORIA_HEXAGONO, TreinoService } from '../../services/treino.service';
 import { SessoesTreinoComponent } from '../sessoes-treino/sessoes-treino.component';
 import { NarrativaAnaliseComponent } from '../narrativa-analise/narrativa-analise.component';
 import { PerguntasPendentesComponent } from '../perguntas-pendentes/perguntas-pendentes.component';
@@ -72,8 +74,13 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
   readonly error = signal<string | null>(null);
   readonly dados = signal<AnaliseHexagonoMetricas | null>(null);
   readonly modoVisualizacao = signal<'erros' | 'forcas'>('erros');
+  readonly categorias = CATEGORIAS;
+  readonly rotulosCategoria = ROTULOS_CATEGORIA_HEXAGONO;
+  readonly focandoCategoria = signal<string | null>(null);
 
   private readonly supabaseService = inject(SupabaseService);
+  private readonly treinoService = inject(TreinoService);
+  private readonly router = inject(Router);
   private chart?: Chart<'radar'>;
 
   constructor() {
@@ -99,6 +106,18 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
 
   selecionarModo(modo: 'erros' | 'forcas'): void {
     this.modoVisualizacao.set(modo);
+  }
+
+  /** D-49: injeta exercícios do catálogo tático na fila de hoje, focados
+   * nesta categoria, e leva o usuário direto pra tela de treino. */
+  async focar(categoria: Categoria): Promise<void> {
+    if (this.focandoCategoria()) {
+      return;
+    }
+    this.focandoCategoria.set(categoria);
+    await this.treinoService.focarCategoria(categoria);
+    this.focandoCategoria.set(null);
+    await this.router.navigateByUrl('/treino');
   }
 
   private async carregarAnalise(): Promise<void> {
