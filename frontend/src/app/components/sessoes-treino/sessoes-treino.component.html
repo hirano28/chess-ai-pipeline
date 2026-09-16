@@ -79,19 +79,30 @@
                   </button>
                 </div>
               } @else {
-                <button
-                  type="button"
-                  class="btn btn-primario shrink-0 self-start"
-                  [disabled]="sessoesAtualizando().has(sessao.id)"
-                  (click)="marcarComoConcluida(sessao)"
-                >
-                  @if (sessoesAtualizando().has(sessao.id)) {
-                    <span class="pulso" aria-hidden="true"></span>
-                    <span>Salvando…</span>
-                  } @else {
-                    <span>Marcar como concluída</span>
-                  }
-                </button>
+                <!--
+                  D-54: a ação principal virou executar a sessão, não declarar
+                  que ela aconteceu. Marcar à mão continua existindo abaixo,
+                  como saída para quem estudou fora do app — mas deixou de ser
+                  o único caminho, que era o motivo de 5 sessões prescritas e
+                  nenhuma concluída.
+                -->
+                <div class="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+                  <a [routerLink]="['/sessao', sessao.id]" class="btn btn-primario">
+                    {{ sessao.data_iniciada ? 'Continuar sessão' : 'Iniciar sessão' }}
+                  </a>
+                  <button
+                    type="button"
+                    class="text-xs text-bruma-500 underline transition-colors hover:text-bruma-200 disabled:opacity-50"
+                    [disabled]="sessoesAtualizando().has(sessao.id)"
+                    (click)="marcarComoConcluida(sessao)"
+                  >
+                    {{
+                      sessoesAtualizando().has(sessao.id)
+                        ? 'Salvando…'
+                        : 'Já fiz fora do app — marcar como concluída'
+                    }}
+                  </button>
+                </div>
               }
             </div>
 

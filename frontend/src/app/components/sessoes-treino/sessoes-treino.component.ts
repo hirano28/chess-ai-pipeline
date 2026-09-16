@@ -1,4 +1,5 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import {
   ModuloTreino,
   SessaoTreino,
@@ -8,6 +9,7 @@ import {
 @Component({
   selector: 'app-sessoes-treino',
   standalone: true,
+  imports: [RouterLink],
   templateUrl: './sessoes-treino.component.html'
 })
 export class SessoesTreinoComponent implements OnInit {

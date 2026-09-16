@@ -43,13 +43,28 @@ const VIEWPORTS = [
   { nome: 'celular', viewport: { width: 390, height: 844 } }
 ];
 
+/** Rotas com parâmetro (ex.: /sessao/:id) não cabem numa lista fixa — o id
+ *  muda a cada execução. `ROTAS_EXTRA="/sessao/abc:sessao,/x:nome"` acrescenta
+ *  as que interessarem naquela verificação. */
+const ROTAS_EXTRA = (process.env.ROTAS_EXTRA ?? '')
+  .split(',')
+  .map((entrada) => entrada.trim())
+  .filter(Boolean)
+  .map((entrada) => {
+    const corte = entrada.lastIndexOf(':');
+    return corte === -1
+      ? { caminho: entrada, nome: entrada.replace(/\W+/g, '-').replace(/^-|-$/g, '') }
+      : { caminho: entrada.slice(0, corte), nome: entrada.slice(corte + 1) };
+  });
+
 const ROTAS = [
   { caminho: '/', nome: 'hexagono' },
   { caminho: '/treino', nome: 'treino' },
   { caminho: '/laboratorio', nome: 'laboratorio' },
   { caminho: '/explicador', nome: 'explicador' },
   { caminho: '/analisador', nome: 'analisador' },
-  { caminho: '/perfil', nome: 'perfil' }
+  { caminho: '/perfil', nome: 'perfil' },
+  ...ROTAS_EXTRA
 ];
 
 /** Espera a tela assentar: as telas buscam dado da API/Supabase ao entrar, e

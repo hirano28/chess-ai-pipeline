@@ -29,6 +29,10 @@ export interface SessaoTreino {
   modulos: ModuloTreino[] | SprintTreinoPayload;
   data_prescrita: string;
   data_concluida: string | null;
+  /** Quando o usuário abriu a sessão na tela de execução (D-54). Null = ainda
+   * é só uma prescrição; o cartão do dashboard usa isso para escolher entre
+   * "Iniciar" e "Continuar". */
+  data_iniciada?: string | null;
   eficacia_medida?: number | null;
   observacoes?: string | null;
 }
@@ -140,7 +144,7 @@ export class SupabaseService {
   async getSessoesTreino(): Promise<SessaoTreino[]> {
     const { data, error } = await this.client
       .from('sessoes_treino')
-      .select('id, diagnostico_gargalo, modulos, data_prescrita, data_concluida, eficacia_medida, observacoes')
+      .select('id, diagnostico_gargalo, modulos, data_prescrita, data_iniciada, data_concluida, eficacia_medida, observacoes')
       .order('data_prescrita', { ascending: false });
 
     if (error) {

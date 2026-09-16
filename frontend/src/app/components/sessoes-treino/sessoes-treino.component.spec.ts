@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { vi, describe, beforeEach, it, expect } from 'vitest';
 import { SessoesTreinoComponent } from './sessoes-treino.component';
 import { SessaoTreino, SupabaseService } from '../../services/supabase.service';
@@ -51,6 +52,9 @@ describe('SessoesTreinoComponent (P-4 / D-38)', () => {
     await TestBed.configureTestingModule({
       imports: [SessoesTreinoComponent],
       providers: [
+        // D-54: o cartão da sessão aberta agora leva para /sessao/:id, então o
+        // template usa RouterLink.
+        provideRouter([]),
         {
           provide: SupabaseService,
           useValue: {
@@ -115,6 +119,38 @@ describe('SessoesTreinoComponent (P-4 / D-38)', () => {
     const sessaoAtualizada = component.sessoes().find((s) => s.id === 'sessao-3');
     expect(sessaoAtualizada?.data_concluida).toBe('2026-09-14T15:00:00Z');
     expect(component.totalConcluidas()).toBe(3);
+  });
+
+  it('a sessão aberta oferece executar, não só declarar concluída (D-54)', async () => {
+    /** 5 sessões prescritas e 0 concluídas em produção: o botão manual era o
+     * único caminho e ninguém o usava. A ação principal agora leva para a tela
+     * de execução. */
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const links = Array.from(
+      fixture.nativeElement.querySelectorAll('a[href^="/sessao/"]')
+    ) as HTMLAnchorElement[];
+    expect(links.length).toBe(1);
+    expect(links[0].getAttribute('href')).toBe('/sessao/sessao-3');
+    expect(links[0].textContent).toContain('Iniciar sessão');
+  });
+
+  it('sessão já iniciada convida a continuar, não a recomeçar', async () => {
+    (supabaseService.getSessoesTreino as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { ...sessoesExemplo[2], data_iniciada: '2026-09-13T10:00:00Z' }
+    ]);
+    fixture = TestBed.createComponent(SessoesTreinoComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const link = fixture.nativeElement.querySelector(
+      'a[href^="/sessao/"]'
+    ) as HTMLAnchorElement;
+    expect(link.textContent).toContain('Continuar sessão');
   });
 
   it('permite desmarcar / reabrir uma sessão concluída', async () => {

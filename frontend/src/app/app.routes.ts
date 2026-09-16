@@ -20,6 +20,11 @@ export const routes: Routes = [
 		canActivate: [authGuard],
 	},
 	{
+		path: 'sessao/:id',
+		loadComponent: () => import('./components/sessao-execucao/sessao-execucao.component').then((m) => m.SessaoExecucaoComponent),
+		canActivate: [authGuard],
+	},
+	{
 		path: 'laboratorio',
 		loadComponent: () => import('./components/laboratorio-raciocinio/laboratorio-raciocinio.component').then((m) => m.LaboratorioRaciocinioComponent),
 		canActivate: [authGuard],

@@ -687,6 +687,26 @@
     color: var(--color-bruma-500);
   }
 
+  /* --- barra de progresso (D-54) ------------------------------------------ */
+
+  /* Usada na sessão de treino focado. O elemento externo carrega o
+     role="progressbar" e o aria-valuenow; a barra interna é puramente
+     decorativa, por isso o texto da porcentagem vive fora dela. */
+  .barra-progresso {
+    overflow: hidden;
+    height: 0.5rem;
+    width: 100%;
+    border-radius: 999px;
+    background-color: var(--color-ardosia-850);
+    border: 1px solid var(--color-linha);
+  }
+  .barra-progresso-preenchida {
+    height: 100%;
+    border-radius: 999px;
+    background-color: var(--color-latao-500);
+    transition: width 220ms ease-out;
+  }
+
   /* --- tabela de dados ---------------------------------------------------- */
 
   .tabela-rolavel {
