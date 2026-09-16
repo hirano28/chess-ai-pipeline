@@ -18,7 +18,7 @@ fonte: introspecção direta do projeto Supabase pmzmershonrqzwbmhaco
 | `lances_criticos` | `partida_id`, `numero_lance`, `numero_lance_fim`, `tipo_evento`, `gravidade_cpl`, `queda_win_percent`, `fen_antes_lance`, `origem` | lances e janelas ruins achados pelo Stockfish. `fen_antes_lance` (D-27) é o FEN de antes do lance (ou do início da janela, em EROSAO); `origem` (D-43) indica se o lance foi detectado pelo motor (`'GRAVIDADE'`) ou promovido por anotação de pensamento do jogador no estudo (`'ANOTACAO'`) |
 | `diagnosticos` | `lance_id`, `tags_falha[]`, `diagnostico_mecanico`, `tipo_erro` | causa do erro, gerada pelo Gemini; `tipo_erro` (D-43) categoriza `PROCESSO` vs `CONTEUDO` vs `INDETERMINADO` contrastando o raciocínio do jogador com a avaliação do motor |
 | `analises_hexagono` | `data_analise`, `metricas` (jsonb), `narrativa`, `gargalo_sistemico_atual` | saída do Agente 2 |
-| `sessoes_treino` | `diagnostico_gargalo`, `modulos` (jsonb), `data_prescrita`, `data_concluida`, `eficacia_medida`, `observacoes` | sprints do Agente 3 |
+| `sessoes_treino` | `diagnostico_gargalo`, `modulos` (jsonb), `data_prescrita`, `data_iniciada` (D-54), `progresso` (jsonb, D-54), `data_concluida`, `eficacia_medida`, `observacoes` | sprints do Agente 3, executáveis desde o D-54 |
 
 ### Enriquecimento
 
@@ -116,8 +116,9 @@ antes de entregar e devolve `None` quando a pessoa precisa reconectar.
 
 | Tabela | Colunas relevantes | Papel |
 |---|---|---|
-| `fila_treino_espacado` | `user_id` (**FK real** para `auth.users(id)`), `lance_id` (**FK opcional** para `lances_criticos(id)`, `on delete cascade`), `exercicio_id` (**FK opcional** para `exercicios_taticos(id)`, `on delete restrict`, D-49), `origem` (`'lance_critico'` \| `'exercicio_tatico'`), `proxima_revisao_data`, `intervalo_dias`, `fator_facilidade`, `repeticoes`, `total_revisoes`, `ultima_qualidade`, `livro_citado`, `capitulo_citado`, `pagina_citada` — unique `(user_id, lance_id)`, unique `(user_id, exercicio_id)`, check `(lance_id is not null) <> (exercicio_id is not null)` | agendamento SM-2 sobre os lances PICO já diagnosticados OU sobre exercícios do catálogo tático, para a tela `/treino` |
-| `exercicios_taticos` | `puzzle_id_lichess` (unique), `fen`, `categoria_hexagono`, `temas_lichess[]`, `rating`, `popularidade` | catálogo de exercícios táticos (D-49), importado do dump público de puzzles do Lichess e re-taggeado em `HEXAGON_CATEGORIES` — corpus compartilhado, sem `user_id` |
+| `fila_treino_espacado` | `user_id` (**FK real** para `auth.users(id)`), `lance_id` (**FK opcional** para `lances_criticos(id)`, `on delete cascade`), `exercicio_id` (**FK opcional** para `exercicios_taticos(id)`, `on delete restrict`, D-49), `posicional_id` (**FK opcional** para `exercicios_posicionais(id)`, `on delete restrict`, D-55), `origem` (`'lance_critico'` \| `'exercicio_tatico'` \| `'exercicio_posicional'`), `proxima_revisao_data`, `intervalo_dias`, `fator_facilidade`, `repeticoes`, `total_revisoes`, `ultima_qualidade`, `livro_citado`, `capitulo_citado`, `pagina_citada` — unique `(user_id, lance_id)`, `(user_id, exercicio_id)` e `(user_id, posicional_id)`, check `num_nonnulls(lance_id, exercicio_id, posicional_id) = 1` | agendamento SM-2 sobre os lances PICO já diagnosticados OU sobre exercícios de catálogo (táticos e posicionais), para a tela `/treino` |
+| `exercicios_taticos` | `puzzle_id_lichess` (unique), `fen`, `categoria_hexagono`, `temas_lichess[]`, `rating`, `popularidade` | catálogo de exercícios táticos (D-49), importado do dump público de puzzles do Lichess (CC0) e re-taggeado em `HEXAGON_CATEGORIES` — corpus compartilhado, sem `user_id` |
+| `exercicios_posicionais` | `jogo_url` + `ply` (unique), `numero_lance`, `fen`, `categoria_hexagono`, `severidade` (`Mistake` \| `Blunder`), `queda_centipeoes`, `segundos_restantes`, `brancas`, `pretas`, `evento`, `data_partida` | catálogo de exercícios **não táticos** (D-55), extraído dos broadcasts do Lichess (partidas OTB reais, **CC BY-SA 4.0** — licença diferente da dos puzzles). Corpus compartilhado, sem `user_id`. É o material que faltava a ESTRATEGIA e GESTAO_DE_TEMPO (P-15) |
 
 Populada em lote por `backend/agentes/popular_fila_treino_espacado.py`
 (loop por usuário, roda depois de `agente1_linter.py` no pipeline diário) —
@@ -142,6 +143,20 @@ têm cobertura: o Lichess não tem tema equivalente a `ESTRATEGIA` (avaliação
 posicional) nem `GESTAO_DE_TEMPO` (os puzzles são posições estáticas, sem
 relógio) — ver D-49 em `DECISOES.md`.
 
+**D-55** acrescentou a terceira origem, `exercicio_posicional`, e com ela as
+duas categorias que faltavam. A fonte não é puzzle: é o banco de broadcasts
+do Lichess (partidas OTB reais de torneio), onde cada lance traz `[%eval]`,
+`[%clk]` e a anotação do próprio Lichess dizendo onde alguém errou. O filtro
+central exige que **o melhor lance seja quieto** (sem captura, sem xeque, sem
+promoção) — é isso que faz a posição ser posicional/defensiva em vez de
+tática disfarçada, e portanto material honesto para `ESTRATEGIA`. Para
+`GESTAO_DE_TEMPO` o critério é outro e vem antes: o erro aconteceu com pouco
+relógio, e aí o exercício é cronometrado com o mesmo tempo que o jogador
+tinha (`segundos_restantes`). O XOR de duas colunas virou
+`num_nonnulls(lance_id, exercicio_id, posicional_id) = 1`. **Atenção à
+licença**: broadcasts são CC BY-SA 4.0, não CC0 — a procedência é gravada e
+exibida na tela depois da resposta, e isso é atribuição, não enfeite.
+
 `livro_citado`/`capitulo_citado`/`pagina_citada` são resolvidos **uma vez**
 na população/inserção (via `buscar_conceitos()`, `agente3_prescritor.py` —
 ILIKE puro sobre `indice_conceitual`, sem Gemini) e cacheados aqui: o
@@ -149,10 +164,10 @@ endpoint de resposta (`POST /treino/{id}/responder`) não paga esse custo a
 cada repetição, pra nenhuma das duas origens. RLS: cada usuário só lê a
 própria linha (`user_id = auth.uid()`), sem policy de escrita para
 `authenticated` — quem escreve é sempre o backend (service role), via o
-script de população, a API, ou (pra `exercicios_taticos`) o script de
-import. `exercicios_taticos` segue o mesmo padrão RLS de
-`indice_conceitual`/`livros_chunks`: RLS ligada, **zero policies** — sem
-`user_id`, corpus compartilhado, só o backend lê/escreve.
+script de população, a API, ou (pros dois catálogos) os scripts de
+import. `exercicios_taticos` e `exercicios_posicionais` seguem o mesmo padrão
+RLS de `indice_conceitual`/`livros_chunks`: RLS ligada, **zero policies** —
+sem `user_id`, corpus compartilhado, só o backend lê/escreve.
 
 `perfis_usuario`, `uso_diario_usuario`, `lichess_oauth_tokens`,
 `lichess_oauth_pkce` e `fila_treino_espacado` são as únicas tabelas do schema

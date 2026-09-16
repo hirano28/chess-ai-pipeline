@@ -2697,6 +2697,58 @@ class ObterFilaTreinoTest(unittest.TestCase):
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(resposta.json()["itens"], [])
 
+    def test_exercicio_posicional_traz_categoria_e_relogio(self) -> None:
+        """D-55: nos cards de GESTAO_DE_TEMPO o relógio precisa chegar ANTES da
+        resposta, porque a pressão de tempo é o que está sendo treinado."""
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": 9,
+                "origem": "exercicio_posicional",
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "exercicios_posicionais": {
+                    "fen": chess_fen_inicial(),
+                    "categoria_hexagono": "GESTAO_DE_TEMPO",
+                    "segundos_restantes": 49,
+                },
+            }
+        ]
+        base.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        item = self.client.get("/treino/fila", headers=HEADERS_SESSAO).json()["itens"][0]
+
+        self.assertEqual(item["origem"], "exercicio_posicional")
+        self.assertEqual(item["categoria"], "GESTAO_DE_TEMPO")
+        self.assertEqual(item["segundos_sugeridos"], 49)
+
+    def test_exercicio_posicional_nao_revela_a_partida_antes_da_resposta(self) -> None:
+        """A procedência ("GM X × GM Y, Granada 2026") é a revelação de depois;
+        antes ela é contexto que o jogador original não tinha."""
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": 9,
+                "origem": "exercicio_posicional",
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "exercicios_posicionais": {
+                    "fen": chess_fen_inicial(),
+                    "categoria_hexagono": "ESTRATEGIA",
+                    "segundos_restantes": None,
+                },
+            }
+        ]
+        base.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        item = self.client.get("/treino/fila", headers=HEADERS_SESSAO).json()["itens"][0]
+
+        self.assertIsNone(item["segundos_sugeridos"])
+        for campo in ("brancas", "pretas", "evento", "partida_url", "partida_referencia"):
+            self.assertNotIn(campo, item)
+
     def test_conta_feitas_hoje_separado_das_pendentes(self) -> None:
         mock_client = self._mockar_client()
         base = mock_client.table.return_value.select.return_value.eq.return_value
@@ -2807,6 +2859,199 @@ class ResponderTreinoTest(unittest.TestCase):
         )
 
         self.assertEqual(resposta.status_code, 404)
+
+    def test_exercicio_posicional_revela_a_partida_depois_de_responder(self) -> None:
+        """D-55: é isto que transforma a posição de volta em partida real — e é
+        a atribuição que a licença CC BY-SA dos broadcasts exige."""
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(
+            mock_client,
+            {
+                "id": 11,
+                "lance_id": None,
+                "origem": "exercicio_posicional",
+                "intervalo_dias": 0,
+                "fator_facilidade": 2.5,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "exercicios_posicionais": {
+                    "fen": chess_fen_inicial(),
+                    "brancas": "GM Moranda, Wojciech",
+                    "pretas": "CM Klepek, Witold",
+                    "evento": "Adolf Anderssen Chess Festival",
+                    "data_partida": "2026-08-01",
+                    "jogo_url": "https://lichess.org/broadcast/x/y/z",
+                },
+            },
+        )
+        avaliacao_fake = AvaliacaoLance(
+            lance_jogado="e4",
+            melhor_lance="e4",
+            queda_win_percent=0.5,
+            linha_principal=["e4"],
+            top_candidatos=[],
+        )
+
+        with patch.object(api_server, "avaliar_lance_avulso", return_value=avaliacao_fake):
+            corpo = self.client.post(
+                "/treino/11/responder", json={"lance": "e4"}, headers=HEADERS_SESSAO
+            ).json()
+
+        self.assertEqual(
+            corpo["partida_referencia"],
+            "GM Moranda, Wojciech × CM Klepek, Witold — Adolf Anderssen Chess Festival (2026)",
+        )
+        self.assertEqual(corpo["partida_url"], "https://lichess.org/broadcast/x/y/z")
+        # Exercício de catálogo não tem diagnóstico associado (mesma regra do
+        # D-49): a explicação vem do Stockfish, não de uma causa raiz inventada.
+        self.assertIsNone(corpo["raiz_conceitual_violada"])
+        self.assertEqual(corpo["tags_falha"], [])
+
+    def _mockar_card_cronometrado(self, mock_client: MagicMock, limite: int = 60) -> None:
+        self._mockar_fila(
+            mock_client,
+            {
+                "id": 12,
+                "lance_id": None,
+                "origem": "exercicio_posicional",
+                "intervalo_dias": 10,
+                "fator_facilidade": 2.5,
+                "repeticoes": 3,
+                "total_revisoes": 3,
+                "exercicios_posicionais": {
+                    "fen": chess_fen_inicial(),
+                    "jogo_url": "https://lichess.org/broadcast/x/y/z",
+                    "segundos_restantes": limite,
+                },
+            },
+        )
+
+    def _responder_cronometrado(
+        self, segundos_gastos: int | None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Devolve (corpo da resposta, payload gravado na fila)."""
+
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_card_cronometrado(mock_client)
+        avaliacao_fake = AvaliacaoLance(
+            lance_jogado="e4",
+            melhor_lance="e4",
+            queda_win_percent=0.5,
+            linha_principal=["e4"],
+            top_candidatos=[],
+        )
+        with patch.object(api_server, "avaliar_lance_avulso", return_value=avaliacao_fake):
+            corpo = self.client.post(
+                "/treino/12/responder",
+                json={"lance": "e4", "segundos_gastos": segundos_gastos},
+                headers=HEADERS_SESSAO,
+            ).json()
+        (gravado,), _ = mock_client.table.return_value.update.call_args
+        return corpo, gravado
+
+    def test_lance_bom_dentro_do_tempo_agenda_normalmente(self) -> None:
+        corpo, _ = self._responder_cronometrado(segundos_gastos=30)
+
+        self.assertEqual(corpo["qualidade_lance"], "BOM")
+        self.assertFalse(corpo["fora_do_tempo"])
+        self.assertEqual(corpo["repeticoes"], 4)
+
+    def test_lance_bom_fora_do_tempo_perde_fator_de_facilidade(self) -> None:
+        """Sem isto o cronômetro seria enfeite: o SM-2 agendaria como se o
+        tempo não existisse, num card cuja falha medida É o tempo (D-55).
+
+        A penalidade é a do SM-2 para uma resposta "difícil": o fator de
+        facilidade cai, e com ele todos os intervalos seguintes. A data da
+        PRÓXIMA revisão é a mesma, porque o SM-2 a calcula com o fator antigo —
+        o aperto aparece a partir da repetição seguinte.
+        """
+        _, dentro = self._responder_cronometrado(segundos_gastos=30)
+        fora_corpo, fora = self._responder_cronometrado(segundos_gastos=90)
+
+        self.assertTrue(fora_corpo["fora_do_tempo"])
+        # O lance continua classificado com honestidade: quem foi rebaixado foi
+        # o agendamento, não o julgamento do lance.
+        self.assertEqual(fora_corpo["qualidade_lance"], "BOM")
+        self.assertLess(fora["fator_facilidade"], dentro["fator_facilidade"])
+        self.assertEqual(fora["ultima_qualidade"], 3)
+        self.assertEqual(dentro["ultima_qualidade"], 5)
+
+    def test_sem_segundos_gastos_nao_ha_como_afirmar_atraso(self) -> None:
+        corpo, _ = self._responder_cronometrado(segundos_gastos=None)
+
+        self.assertFalse(corpo["fora_do_tempo"])
+
+    def test_card_sem_relogio_ignora_os_segundos_informados(self) -> None:
+        """Só GESTAO_DE_TEMPO guarda relógio; um card de ESTRATEGIA não pode
+        ser penalizado por demora."""
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(
+            mock_client,
+            {
+                "id": 13,
+                "lance_id": None,
+                "origem": "exercicio_posicional",
+                "intervalo_dias": 0,
+                "fator_facilidade": 2.5,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "exercicios_posicionais": {
+                    "fen": chess_fen_inicial(),
+                    "segundos_restantes": None,
+                },
+            },
+        )
+        avaliacao_fake = AvaliacaoLance(
+            lance_jogado="e4",
+            melhor_lance="e4",
+            queda_win_percent=0.5,
+            linha_principal=["e4"],
+            top_candidatos=[],
+        )
+
+        with patch.object(api_server, "avaliar_lance_avulso", return_value=avaliacao_fake):
+            corpo = self.client.post(
+                "/treino/13/responder",
+                json={"lance": "e4", "segundos_gastos": 9999},
+                headers=HEADERS_SESSAO,
+            ).json()
+
+        self.assertFalse(corpo["fora_do_tempo"])
+
+    def test_card_de_lance_proprio_nao_ganha_referencia_de_partida_alheia(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(
+            mock_client,
+            {
+                "id": 7,
+                "lance_id": "lance-uuid-1",
+                "intervalo_dias": 0,
+                "fator_facilidade": 2.5,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "lances_criticos": {"fen_antes_lance": chess_fen_inicial()},
+            },
+        )
+        self._mockar_diagnostico(mock_client, None)
+        avaliacao_fake = AvaliacaoLance(
+            lance_jogado="e4",
+            melhor_lance="e4",
+            queda_win_percent=0.5,
+            linha_principal=["e4"],
+            top_candidatos=[],
+        )
+
+        with patch.object(api_server, "avaliar_lance_avulso", return_value=avaliacao_fake):
+            corpo = self.client.post(
+                "/treino/7/responder", json={"lance": "e4"}, headers=HEADERS_SESSAO
+            ).json()
+
+        self.assertIsNone(corpo["partida_referencia"])
+        self.assertIsNone(corpo["partida_url"])
 
     def test_lance_bom_devolve_qualidade_e_reagenda_para_amanha(self) -> None:
         mock_client = MagicMock()
@@ -2998,19 +3243,27 @@ class FocarCategoriaTreinoTest(unittest.TestCase):
         self,
         ja_na_fila: list[dict[str, Any]],
         candidatos: list[dict[str, Any]],
+        posicionais: list[dict[str, Any]] | None = None,
     ) -> dict[str, MagicMock]:
         mocks: dict[str, MagicMock] = {}
 
         def table_side_effect(nome_tabela: str):
-            mock_tabela = MagicMock()
+            mock_tabela = mocks.get(nome_tabela) or MagicMock()
             mocks[nome_tabela] = mock_tabela
             if nome_tabela == "fila_treino_espacado":
                 resp = MagicMock()
                 resp.data = ja_na_fila
                 mock_tabela.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp
+                upsert = MagicMock()
+                upsert.data = []
+                mock_tabela.upsert.return_value.execute.return_value = upsert
             elif nome_tabela == "exercicios_taticos":
                 resp = MagicMock()
                 resp.data = candidatos
+                mock_tabela.select.return_value.eq.return_value.execute.return_value = resp
+            elif nome_tabela == "exercicios_posicionais":
+                resp = MagicMock()
+                resp.data = posicionais or []
                 mock_tabela.select.return_value.eq.return_value.execute.return_value = resp
             elif nome_tabela == "indice_conceitual":
                 # buscar_conceitos (agente3_prescritor.py): sem conceito
@@ -3071,6 +3324,50 @@ class FocarCategoriaTreinoTest(unittest.TestCase):
         self.assertEqual(resposta.json()["motivo"], "ja_na_fila")
         mocks["fila_treino_espacado"].upsert.assert_not_called()
 
+    def test_sorteia_dos_dois_catalogos_na_mesma_categoria(self) -> None:
+        """D-55: numa categoria com material dos dois tipos o lote sai
+        misturado, em vez de esgotar um catálogo antes de tocar no outro."""
+        mocks = self._mockar_tabelas(
+            ja_na_fila=[],
+            candidatos=[{"id": f"tat-{i}"} for i in range(50)],
+            posicionais=[{"id": f"pos-{i}"} for i in range(50)],
+        )
+
+        resposta = self.client.post("/treino/foco/FINAIS", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["adicionados"], 8)
+        colunas = set()
+        for (linhas,), kwargs in mocks["fila_treino_espacado"].upsert.call_args_list:
+            for linha in linhas:
+                coluna = "exercicio_id" if "exercicio_id" in linha else "posicional_id"
+                colunas.add(coluna)
+                self.assertEqual(kwargs.get("on_conflict"), f"user_id,{coluna}")
+                self.assertEqual(
+                    linha["origem"],
+                    "exercicio_tatico" if coluna == "exercicio_id" else "exercicio_posicional",
+                )
+        # Com 50 de cada e 8 sorteados, tirar tudo de um só catálogo tem
+        # probabilidade ínfima — se acontecer, o sorteio não está combinando.
+        self.assertEqual(colunas, {"exercicio_id", "posicional_id"})
+
+    def test_categoria_so_com_catalogo_posicional(self) -> None:
+        """O caso que fecha o P-15: ESTRATEGIA não tem puzzle nenhum e mesmo
+        assim passa a ter treino focado."""
+        mocks = self._mockar_tabelas(
+            ja_na_fila=[],
+            candidatos=[],
+            posicionais=[{"id": f"pos-{i}"} for i in range(20)],
+        )
+
+        resposta = self.client.post("/treino/foco/ESTRATEGIA", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.json()["adicionados"], 8)
+        self.assertIsNone(resposta.json()["motivo"])
+        (linhas,), kwargs = mocks["fila_treino_espacado"].upsert.call_args
+        self.assertTrue(all(linha["origem"] == "exercicio_posicional" for linha in linhas))
+        self.assertEqual(kwargs.get("on_conflict"), "user_id,posicional_id")
+
     def test_categoria_sem_catalogo_se_distingue_de_fila_cheia(self) -> None:
         """Os dois zeros são situações diferentes e a tela precisa dizer qual
         foi (D-52): ESTRATEGIA e GESTAO_DE_TEMPO não têm exercício nenhum
@@ -3109,18 +3406,43 @@ class DisponibilidadeFocoTreinoTest(unittest.TestCase):
     def tearDown(self) -> None:
         api_server._state.clear()
 
-    def _mockar_catalogo(self, linhas: list[dict[str, Any]]) -> None:
+    def _mockar_catalogo(
+        self, taticos: dict[str, int], posicionais: dict[str, int] | None = None
+    ) -> MagicMock:
+        """Uma contagem `exact` por (catálogo, categoria).
+
+        Duas coisas moram aqui: a contagem `exact` do D-54 (o select anterior
+        era cortado no teto de 1000 linhas do PostgREST e devolvia números
+        errados em silêncio) e os dois catálogos do D-55.
+        """
+
         mock_client = MagicMock()
-        resp = MagicMock()
-        resp.data = linhas
-        mock_client.table.return_value.select.return_value.execute.return_value = resp
+        pedido: dict[str, str] = {}
+
+        def table(nome: str):
+            pedido["tabela"] = nome
+            return mock_client.table.return_value
+
+        def eq(_coluna: str, valor: str):
+            pedido["categoria"] = valor
+            return mock_client.table.return_value.select.return_value.eq.return_value
+
+        def execute():
+            fonte = taticos if pedido.get("tabela") == "exercicios_taticos" else (posicionais or {})
+            resp = MagicMock()
+            resp.count = fonte.get(pedido.get("categoria", ""), 0)
+            return resp
+
+        mock_client.table.side_effect = table
+        mock_client.table.return_value.select.return_value.eq.side_effect = eq
+        mock_client.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.side_effect = (
+            execute
+        )
         api_server._state["supabase_client"] = mock_client
+        return mock_client
 
     def test_conta_por_categoria(self) -> None:
-        self._mockar_catalogo(
-            [{"categoria_hexagono": "TATICA"}] * 3
-            + [{"categoria_hexagono": "FINAIS"}] * 2
-        )
+        self._mockar_catalogo({"TATICA": 3, "FINAIS": 2})
 
         resposta = self.client.get("/treino/foco/disponibilidade", headers=HEADERS_SESSAO)
 
@@ -3129,10 +3451,47 @@ class DisponibilidadeFocoTreinoTest(unittest.TestCase):
         self.assertEqual(por_categoria["TATICA"], 3)
         self.assertEqual(por_categoria["FINAIS"], 2)
 
+    def test_conta_acima_do_teto_de_mil_linhas_do_postgrest(self) -> None:
+        """A versão anterior selecionava as linhas e contava em Python; com
+        1200 exercícios no catálogo o PostgREST cortava em 1000 e o endpoint
+        reportava 120 onde havia 300. `count='exact'` não depende do corpo."""
+        self._mockar_catalogo({"TATICA": 4200})
+
+        por_categoria = self.client.get(
+            "/treino/foco/disponibilidade", headers=HEADERS_SESSAO
+        ).json()["por_categoria"]
+
+        self.assertEqual(por_categoria["TATICA"], 4200)
+
+    def test_soma_os_dois_catalogos(self) -> None:
+        """D-55: ESTRATEGIA passou a ter material, mas vindo do catálogo
+        posicional, não do de puzzles. Contar só um esconderia metade."""
+        self._mockar_catalogo(
+            taticos={"TATICA": 300, "ESTRATEGIA": 0},
+            posicionais={"ESTRATEGIA": 300, "GESTAO_DE_TEMPO": 300},
+        )
+
+        por_categoria = self.client.get(
+            "/treino/foco/disponibilidade", headers=HEADERS_SESSAO
+        ).json()["por_categoria"]
+
+        self.assertEqual(por_categoria["TATICA"], 300)
+        self.assertEqual(por_categoria["ESTRATEGIA"], 300)
+        self.assertEqual(por_categoria["GESTAO_DE_TEMPO"], 300)
+
+    def test_categoria_presente_nos_dois_catalogos_soma(self) -> None:
+        self._mockar_catalogo(taticos={"FINAIS": 300}, posicionais={"FINAIS": 300})
+
+        por_categoria = self.client.get(
+            "/treino/foco/disponibilidade", headers=HEADERS_SESSAO
+        ).json()["por_categoria"]
+
+        self.assertEqual(por_categoria["FINAIS"], 600)
+
     def test_categoria_sem_exercicio_vem_como_zero_explicito(self) -> None:
         """Sumir do mapa viraria `undefined` no frontend e o botão voltaria a
         parecer disponível — as 6 categorias precisam estar sempre presentes."""
-        self._mockar_catalogo([{"categoria_hexagono": "TATICA"}])
+        self._mockar_catalogo({"TATICA": 1})
 
         resposta = self.client.get("/treino/foco/disponibilidade", headers=HEADERS_SESSAO)
 
@@ -3141,16 +3500,14 @@ class DisponibilidadeFocoTreinoTest(unittest.TestCase):
         self.assertEqual(por_categoria["ESTRATEGIA"], 0)
         self.assertEqual(por_categoria["GESTAO_DE_TEMPO"], 0)
 
-    def test_ignora_categoria_desconhecida_vinda_do_banco(self) -> None:
-        self._mockar_catalogo(
-            [{"categoria_hexagono": "CATEGORIA_QUE_NAO_EXISTE"}, {"categoria_hexagono": "TATICA"}]
-        )
+    def test_devolve_exatamente_as_seis_categorias(self) -> None:
+        self._mockar_catalogo({"TATICA": 1})
 
         por_categoria = self.client.get(
             "/treino/foco/disponibilidade", headers=HEADERS_SESSAO
         ).json()["por_categoria"]
 
-        self.assertNotIn("CATEGORIA_QUE_NAO_EXISTE", por_categoria)
+        self.assertEqual(len(por_categoria), 6)
         self.assertEqual(por_categoria["TATICA"], 1)
 
     def test_sem_sessao_recebe_401(self) -> None:
@@ -3161,6 +3518,358 @@ class DisponibilidadeFocoTreinoTest(unittest.TestCase):
 
     def test_sem_banco_recebe_503(self) -> None:
         resposta = self.client.get("/treino/foco/disponibilidade", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 503)
+
+
+class ExecucaoSessaoTreinoTest(unittest.TestCase):
+    """Sessão de treino focado executável (D-54).
+
+    Antes do D-54 a sessão era um texto com um botão manual de "marcar como
+    concluída": 5 prescritas, 0 concluídas, 0 com eficácia medida em
+    produção. Os testes aqui protegem justamente o que fecha esse loop — o
+    bloco de prática com exercícios reais e a conclusão automática, que é o
+    que `medir_eficacia.py` espera para conseguir medir alguma coisa.
+    """
+
+    SESSAO_ID = "11111111-aaaa-bbbb-cccc-222222222222"
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        _CACHE_CITACAO.clear()
+        self.client = TestClient(api_server.app)
+        self.updates: list[dict[str, Any]] = []
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+        _CACHE_CITACAO.clear()
+
+    def _sessao(self, **overrides: Any) -> dict[str, Any]:
+        base = {
+            "id": self.SESSAO_ID,
+            "diagnostico_gargalo": "TATICA: Sprint de Superação Tática",
+            "modulos": {
+                "titulo": "Sprint de Superação Tática",
+                "duracao_total_min": 40,
+                "modulos": [
+                    {
+                        "nome": "Teoria: Ataques Descobertos",
+                        "conteudo": "Mecanismos do xeque descoberto.",
+                        "duracao_min": 15,
+                        "livro": "Xadrez Vitorioso",
+                        "capitulo": "ATAQUES DESCOBERTOS",
+                        "pagina_aprox": 23,
+                    },
+                    {
+                        "nome": "Fixação: Padrões de Garfo",
+                        "conteudo": "Reconhecimento de padrões.",
+                        "duracao_min": 25,
+                        "livro": "Xadrez Vitorioso",
+                        "capitulo": "ATAQUES DESCOBERTOS",
+                        "pagina_aprox": 32,
+                    },
+                ],
+            },
+            "data_prescrita": "2026-09-14T00:00:00Z",
+            "data_iniciada": None,
+            "data_concluida": None,
+            "progresso": {},
+        }
+        base.update(overrides)
+        return base
+
+    def _mockar(
+        self,
+        sessao: dict[str, Any] | None,
+        candidatos: list[dict[str, Any]] | None = None,
+        ja_na_fila: list[dict[str, Any]] | None = None,
+        fila_do_bloco: list[dict[str, Any]] | None = None,
+        ids_criados: list[int] | None = None,
+    ) -> dict[str, MagicMock]:
+        mocks: dict[str, MagicMock] = {}
+        updates = self.updates
+
+        def table_side_effect(nome_tabela: str):
+            mock_tabela = mocks.get(nome_tabela) or MagicMock()
+            mocks[nome_tabela] = mock_tabela
+
+            if nome_tabela == "sessoes_treino":
+                resp = MagicMock()
+                resp.data = [sessao] if sessao else []
+                mock_tabela.select.return_value.eq.return_value.eq.return_value.execute.return_value = resp
+
+                def registrar_update(payload: dict[str, Any]):
+                    updates.append(payload)
+                    return MagicMock()
+
+                mock_tabela.update.side_effect = registrar_update
+            elif nome_tabela == "fila_treino_espacado":
+                resp_fila_bloco = MagicMock()
+                resp_fila_bloco.data = fila_do_bloco or []
+                mock_tabela.select.return_value.in_.return_value.eq.return_value.execute.return_value = (
+                    resp_fila_bloco
+                )
+                resp_ja_na_fila = MagicMock()
+                resp_ja_na_fila.data = ja_na_fila or []
+                mock_tabela.select.return_value.eq.return_value.eq.return_value.execute.return_value = (
+                    resp_ja_na_fila
+                )
+                resp_upsert = MagicMock()
+                resp_upsert.data = [{"id": item} for item in (ids_criados or [])]
+                mock_tabela.upsert.return_value.execute.return_value = resp_upsert
+            elif nome_tabela == "exercicios_taticos":
+                resp = MagicMock()
+                resp.data = candidatos or []
+                mock_tabela.select.return_value.eq.return_value.execute.return_value = resp
+            elif nome_tabela == "indice_conceitual":
+                resp = MagicMock()
+                resp.data = []
+                mock_tabela.select.return_value.ilike.return_value.execute.return_value = resp
+            return mock_tabela
+
+        mock_client = MagicMock()
+        mock_client.table.side_effect = table_side_effect
+        api_server._state["supabase_client"] = mock_client
+        return mocks
+
+    def test_execucao_lista_blocos_de_estudo_e_um_de_pratica(self) -> None:
+        self._mockar(self._sessao())
+
+        resposta = self.client.get(
+            f"/sessoes/{self.SESSAO_ID}/execucao", headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        corpo = resposta.json()
+        self.assertEqual(corpo["categoria_foco"], "TATICA")
+        self.assertEqual([bloco["tipo"] for bloco in corpo["blocos"]], ["estudo", "estudo", "pratica"])
+        self.assertEqual(corpo["titulo"], "Sprint de Superação Tática")
+        self.assertFalse(corpo["concluida"])
+
+    def test_antes_de_iniciar_o_bloco_de_pratica_nao_diz_nenhum_exercicio(self) -> None:
+        """O lote só é sorteado ao iniciar. Dizer "nenhum exercício" antes
+        disso seria falso — o catálogo tem material, a sessão é que está
+        fechada. Apareceu chamando o endpoint de verdade (D-54)."""
+        self._mockar(self._sessao())
+
+        pratica = self.client.get(
+            f"/sessoes/{self.SESSAO_ID}/execucao", headers=HEADERS_SESSAO
+        ).json()["blocos"][-1]
+
+        self.assertEqual(pratica["nome"], "Prática: exercícios de Tática")
+        self.assertFalse(pratica["concluido"])
+
+    def test_bloco_de_estudo_preserva_a_citacao_do_livro(self) -> None:
+        """O que o Agente 3 prescreveu continua visível; o D-54 acrescenta a
+        execução, não substitui o plano."""
+        self._mockar(self._sessao())
+
+        blocos = self.client.get(
+            f"/sessoes/{self.SESSAO_ID}/execucao", headers=HEADERS_SESSAO
+        ).json()["blocos"]
+
+        self.assertEqual(blocos[0]["livro"], "Xadrez Vitorioso")
+        self.assertEqual(blocos[0]["pagina_aprox"], 23)
+        self.assertEqual(blocos[0]["duracao_min"], 15)
+
+    def test_sessao_de_outro_usuario_devolve_404(self) -> None:
+        """404 e nunca 403 (D-29/D-30): não revela que a sessão existe."""
+        self._mockar(None)
+
+        resposta = self.client.get(
+            f"/sessoes/{self.SESSAO_ID}/execucao", headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 404)
+
+    def test_gargalo_em_formato_inesperado_desliga_o_bloco_de_pratica(self) -> None:
+        """Sem categoria legível não há de onde tirar exercício — a tela ainda
+        abre com os blocos de estudo em vez de estourar."""
+        self._mockar(self._sessao(diagnostico_gargalo="sem separador nenhum"))
+
+        corpo = self.client.get(
+            f"/sessoes/{self.SESSAO_ID}/execucao", headers=HEADERS_SESSAO
+        ).json()
+
+        self.assertIsNone(corpo["categoria_foco"])
+        self.assertEqual([bloco["tipo"] for bloco in corpo["blocos"]], ["estudo", "estudo"])
+
+    def test_iniciar_enfileira_exercicios_e_guarda_os_ids(self) -> None:
+        self._mockar(
+            self._sessao(),
+            candidatos=[{"id": f"ex-{i}"} for i in range(5)],
+            ids_criados=[101, 102, 103, 104, 105],
+        )
+
+        resposta = self.client.post(
+            f"/sessoes/{self.SESSAO_ID}/iniciar", headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertIsNotNone(resposta.json()["data_iniciada"])
+        gravado = self.updates[-1]
+        self.assertEqual(gravado["progresso"]["fila_ids"], [101, 102, 103, 104, 105])
+        self.assertIn("data_iniciada", gravado)
+
+    def test_iniciar_duas_vezes_nao_enfileira_de_novo(self) -> None:
+        """Sem isso, cada visita à tela empilharia mais uma dúzia de
+        exercícios na fila do dia."""
+        mocks = self._mockar(
+            self._sessao(
+                data_iniciada="2026-09-15T10:00:00Z",
+                progresso={"blocos_concluidos": [], "fila_ids": [101]},
+            ),
+            candidatos=[{"id": "ex-9"}],
+            fila_do_bloco=[{"id": 101, "total_revisoes": 0}],
+        )
+
+        resposta = self.client.post(
+            f"/sessoes/{self.SESSAO_ID}/iniciar", headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        mocks["fila_treino_espacado"].upsert.assert_not_called()
+        self.assertEqual(self.updates, [])
+
+    def test_progresso_da_pratica_conta_exercicios_respondidos(self) -> None:
+        self._mockar(
+            self._sessao(
+                data_iniciada="2026-09-15T10:00:00Z",
+                progresso={"blocos_concluidos": [], "fila_ids": [101, 102, 103]},
+            ),
+            fila_do_bloco=[
+                {"id": 101, "total_revisoes": 2},
+                {"id": 102, "total_revisoes": 0},
+                {"id": 103, "total_revisoes": 1},
+            ],
+        )
+
+        blocos = self.client.get(
+            f"/sessoes/{self.SESSAO_ID}/execucao", headers=HEADERS_SESSAO
+        ).json()["blocos"]
+
+        pratica = blocos[-1]
+        self.assertEqual(pratica["exercicios_feitos"], 2)
+        self.assertEqual(pratica["exercicios_total"], 3)
+        self.assertFalse(pratica["concluido"])
+
+    def test_concluir_bloco_de_estudo_grava_o_indice(self) -> None:
+        self._mockar(
+            self._sessao(
+                data_iniciada="2026-09-15T10:00:00Z",
+                progresso={"blocos_concluidos": [], "fila_ids": [101]},
+            ),
+            fila_do_bloco=[{"id": 101, "total_revisoes": 0}],
+        )
+
+        resposta = self.client.post(
+            f"/sessoes/{self.SESSAO_ID}/blocos/1/concluir", headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(self.updates[0]["progresso"]["blocos_concluidos"], [1])
+        self.assertTrue(resposta.json()["blocos"][1]["concluido"])
+
+    def test_concluir_o_bloco_de_pratica_a_mao_e_recusado(self) -> None:
+        """O índice do bloco de prática fica fora da faixa dos módulos de
+        propósito: deixá-lo marcável à mão devolveria o "eu acho que terminei"
+        que o D-54 veio remover."""
+        self._mockar(self._sessao())
+
+        resposta = self.client.post(
+            f"/sessoes/{self.SESSAO_ID}/blocos/2/concluir", headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 400)
+
+    def test_sessao_conclui_sozinha_quando_todos_os_blocos_terminam(self) -> None:
+        """O teste que protege o loop: é essa `data_concluida` automática que
+        medir_eficacia.py espera, e que nunca foi preenchida à mão."""
+        self._mockar(
+            self._sessao(
+                data_iniciada="2026-09-15T10:00:00Z",
+                progresso={"blocos_concluidos": [0], "fila_ids": [101]},
+            ),
+            fila_do_bloco=[{"id": 101, "total_revisoes": 1}],
+        )
+
+        resposta = self.client.post(
+            f"/sessoes/{self.SESSAO_ID}/blocos/1/concluir", headers=HEADERS_SESSAO
+        )
+
+        self.assertTrue(resposta.json()["concluida"])
+        self.assertIsNotNone(resposta.json()["data_concluida"])
+        self.assertTrue(
+            any("data_concluida" in payload for payload in self.updates),
+            "a conclusão precisa ser persistida, não só devolvida na resposta",
+        )
+
+    def test_nao_conclui_sozinha_se_a_sessao_nunca_foi_iniciada(self) -> None:
+        """Uma sessão nunca aberta e sem módulos concluídos não pode nascer
+        pronta só porque o bloco de prática está vazio."""
+        self._mockar(
+            self._sessao(progresso={"blocos_concluidos": [0, 1], "fila_ids": []})
+        )
+
+        corpo = self.client.get(
+            f"/sessoes/{self.SESSAO_ID}/execucao", headers=HEADERS_SESSAO
+        ).json()
+
+        self.assertFalse(corpo["concluida"])
+        self.assertEqual(
+            [payload for payload in self.updates if "data_concluida" in payload], []
+        )
+
+    def test_categoria_sem_catalogo_nao_trava_a_sessao(self) -> None:
+        """ESTRATEGIA/GESTAO_DE_TEMPO ainda sem material (P-15): o bloco nasce
+        concluído em vez de deixar a sessão impossível de terminar."""
+        self._mockar(
+            self._sessao(
+                diagnostico_gargalo="ESTRATEGIA: Sprint posicional",
+                data_iniciada="2026-09-15T10:00:00Z",
+                progresso={"blocos_concluidos": [0, 1], "fila_ids": []},
+            )
+        )
+
+        corpo = self.client.get(
+            f"/sessoes/{self.SESSAO_ID}/execucao", headers=HEADERS_SESSAO
+        ).json()
+
+        self.assertTrue(corpo["blocos"][-1]["concluido"])
+        self.assertEqual(corpo["blocos"][-1]["exercicios_total"], 0)
+        self.assertTrue(corpo["concluida"])
+
+    def test_falha_ao_contar_a_pratica_nao_derruba_a_tela(self) -> None:
+        mocks = self._mockar(
+            self._sessao(
+                data_iniciada="2026-09-15T10:00:00Z",
+                progresso={"blocos_concluidos": [], "fila_ids": [101]},
+            )
+        )
+        # O mock da tabela só nasce na primeira chamada de `table()`.
+        fila = api_server._state["supabase_client"].table("fila_treino_espacado")
+        fila.select.return_value.in_.return_value.eq.return_value.execute.side_effect = (
+            RuntimeError("fora do ar")
+        )
+        self.assertIn("fila_treino_espacado", mocks)
+
+        resposta = self.client.get(
+            f"/sessoes/{self.SESSAO_ID}/execucao", headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["blocos"][-1]["exercicios_feitos"], 0)
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get(f"/sessoes/{self.SESSAO_ID}/execucao")
+
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_sem_banco_recebe_503(self) -> None:
+        resposta = self.client.get(
+            f"/sessoes/{self.SESSAO_ID}/execucao", headers=HEADERS_SESSAO
+        )
 
         self.assertEqual(resposta.status_code, 503)
 

@@ -21,6 +21,7 @@ describe('TreinoService', () => {
         data_partida: '2026-09-10',
         plataforma: 'LICHESS',
         categoria: null,
+      segundos_sugeridos: null,
         repeticoes: 0,
         total_revisoes: 0
       }
@@ -39,6 +40,9 @@ describe('TreinoService', () => {
     livro_citado: 'Meu Sistema',
     capitulo_citado: '4',
     pagina_citada: 88,
+    partida_referencia: null,
+    partida_url: null,
+    fora_do_tempo: false,
     proxima_revisao_data: '2026-09-17',
     repeticoes: 1
   };
@@ -84,7 +88,7 @@ describe('TreinoService', () => {
     expect(resultado.resultado).toEqual(mockResultado);
     const callArgs = postSpy.mock.calls[0];
     expect(callArgs[0]).toContain('/treino/7/responder');
-    expect(callArgs[1]).toEqual({ lance: 'e4' });
+    expect(callArgs[1]).toEqual({ lance: 'e4', segundos_gastos: null });
   });
 
   it('responder() retorna a mensagem de detail do backend em erro 400', async () => {

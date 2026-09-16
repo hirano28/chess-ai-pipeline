@@ -13,12 +13,16 @@ import { AuthService } from './auth.service';
 export interface ItemFilaTreino {
   fila_id: number;
   fen: string;
-  origem: 'lance_critico' | 'exercicio_tatico';
+  origem: 'lance_critico' | 'exercicio_tatico' | 'exercicio_posicional';
   numero_lance: number | null;
   cor_jogada: string | null;
   data_partida: string | null;
   plataforma: string | null;
   categoria: string | null;
+  /** Só nos cards de Gestão de Tempo (D-55): o mesmo relógio que o jogador da
+   * partida original tinha. Chega antes da resposta porque a pressão de tempo
+   * É o exercício. */
+  segundos_sugeridos: number | null;
   repeticoes: number;
   total_revisoes: number;
 }
@@ -40,6 +44,13 @@ export interface ResultadoTreino {
   livro_citado: string | null;
   capitulo_citado: string | null;
   pagina_citada: number | null;
+  /** D-55: procedência do exercício posicional, revelada só depois de
+   * responder. É também a atribuição exigida pela licença CC BY-SA dos
+   * broadcasts do Lichess. */
+  partida_referencia: string | null;
+  partida_url: string | null;
+  /** O lance pode ter sido bom E ter estourado o relógio — são dois fatos. */
+  fora_do_tempo: boolean;
   proxima_revisao_data: string;
   repeticoes: number;
 }
@@ -137,12 +148,16 @@ export class TreinoService {
     }
   }
 
-  async responder(filaId: number, lance: string): Promise<ResponderTreinoResult> {
+  async responder(
+    filaId: number,
+    lance: string,
+    segundosGastos?: number | null
+  ): Promise<ResponderTreinoResult> {
     try {
       const resultado = await firstValueFrom(
         this.http.post<ResultadoTreino>(
           `${this.apiUrl}/treino/${filaId}/responder`,
-          { lance },
+          { lance, segundos_gastos: segundosGastos ?? null },
           { headers: await this.headersComSessao() }
         )
       );

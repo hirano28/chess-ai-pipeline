@@ -59,6 +59,7 @@ python -m unittest \
   backend.ingestao.test_enriquecer_partidas_lichess \
   backend.ingestao.test_importar_puzzle_activity \
   backend.rag.test_importar_exercicios_taticos \
+  backend.rag.test_importar_exercicios_posicionais \
   backend.rag.test_importar_indice_conceitual \
   backend.rag.test_processar_livro
 ```
@@ -110,9 +111,10 @@ python backend/ingestao/importar_anotacoes_lichess.py   # anotações de Lichess
 python backend/ingestao/backfill_eco_abertura.py        # ECO faltante (execução única)
 python backend/agentes/normalizar_aberturas.py          # abertura_normalizada (após novas levas de partidas)
 python backend/rag/importar_exercicios_taticos.py       # catálogo de exercícios táticos (D-49) — baixa o dump do Lichess, ~1-2min
+python backend/rag/importar_exercicios_posicionais.py   # catálogo posicional de partidas OTB (D-55) — broadcasts do Lichess, ~2-4min
 ```
 
-Os scripts `importar_puzzle_activity.py`, `enriquecer_partidas_lichess.py`, `gerar_perguntas_pendentes.py` e `gerar_resumo_partida.py` foram automatizados no `pipeline-diario.yml`, e `medir_eficacia.py` no `pipeline-semanal.yml` (ver D-37 em `DECISOES.md`). `popular_fila_treino_espacado.py` também roda no `pipeline-diario.yml`, logo após `agente1_linter.py` (D-48). `importar_exercicios_taticos.py` (D-49) fica de fora de propósito: importa conteúdo de referência estático (o catálogo de puzzles do Lichess não muda dia a dia), não dado de usuário — rodar de novo só acrescenta puzzles novos ou amplia a faixa de rating, sem necessidade de agenda diária.
+Os scripts `importar_puzzle_activity.py`, `enriquecer_partidas_lichess.py`, `gerar_perguntas_pendentes.py` e `gerar_resumo_partida.py` foram automatizados no `pipeline-diario.yml`, e `medir_eficacia.py` no `pipeline-semanal.yml` (ver D-37 em `DECISOES.md`). `popular_fila_treino_espacado.py` também roda no `pipeline-diario.yml`, logo após `agente1_linter.py` (D-48). `importar_exercicios_taticos.py` (D-49) fica de fora de propósito: importa conteúdo de referência estático (o catálogo de puzzles do Lichess não muda dia a dia), não dado de usuário — rodar de novo só acrescenta puzzles novos ou amplia a faixa de rating, sem necessidade de agenda diária. `importar_exercicios_posicionais.py` (D-55) fica de fora pelo mesmo motivo, com uma diferença: o default dele é o último mês completo de broadcasts, calculado na hora, então rodar de novo daqui a alguns meses traz partidas novas sem precisar editar nada.
 
 ## 5. Processar um livro novo no RAG
 
@@ -211,6 +213,27 @@ puzzles aceitos, `EXERCICIO_POPULARIDADE_MIN` (default 50) evita puzzles
 obscuros/mal avaliados no Lichess, e `EXERCICIOS_POR_CATEGORIA` (default 300)
 é o teto de exercícios importados por categoria — o script para de ler o
 dump assim que todas as categorias com tema mapeado batem o teto.
+
+**Catálogo posicional de partidas OTB (D-55).** Controlam
+`backend/rag/importar_exercicios_posicionais.py`, que lê os broadcasts do
+Lichess (partidas reais de torneio) e extrai posições onde o melhor lance é
+quieto — o material que ESTRATEGIA e GESTAO_DE_TEMPO não tinham (P-15).
+`POSICIONAL_MESES` (default: o último mês completo, calculado) é a lista de
+meses `YYYY-MM` a baixar, separados por vírgula. `POSICIONAL_EVAL_MAX_CP`
+(default 300) descarta posições já decididas, `POSICIONAL_QUEDA_MIN_CP`
+(default 150) exige que o erro tenha custado caro, `POSICIONAL_PECAS_FINAL`
+(default 4) é o corte que classifica a posição como final,
+`POSICIONAL_SEGUNDOS_PRESSAO` (default 120) é o relógio abaixo do qual o erro
+vira GESTAO_DE_TEMPO, `POSICIONAL_POR_CATEGORIA` (default 300) é o teto por
+categoria, e `POSICIONAL_EXIGIR_TITULO` (default ligado; `0` desliga) limita
+às partidas com pelo menos um jogador titulado. **Desligar esse último enche
+o catálogo de opens juvenis** — foi o que aconteceu na primeira execução
+real, antes do filtro existir.
+
+`SESSAO_QTD_EXERCICIOS` (default 12, D-54) é quantos exercícios entram no
+bloco de prática ao iniciar uma sessão de treino focado — maior que o
+`TREINO_FOCO_QTD_EXERCICIOS` do "Focar" avulso de propósito: a sessão é o
+formato longo, com começo e fim.
 
 `API_SECRET_KEYS`/`API_SECRET_KEY` (o antigo esquema de header `X-API-Key`,
 aposentado como gate de acesso desde D-25) foram **removidas de vez** numa

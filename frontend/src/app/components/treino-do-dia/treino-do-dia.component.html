@@ -4,9 +4,9 @@
       <p class="sobrelinha">Repetição espaçada</p>
       <h1 class="titulo-pagina">Treino Diário</h1>
       <p class="subtitulo">
-        Posições reais das suas próprias partidas, onde você errou antes, e exercícios do
-        catálogo tático quando você pede treino focado numa categoria — revisadas até o padrão
-        grudar. Diferente das
+        Posições onde você errou nas suas próprias partidas, mais exercícios de catálogo quando
+        você pede treino focado numa categoria — táticos de puzzle e posições de partidas reais
+        de torneio, onde o melhor lance é quieto. Revisadas até o padrão grudar. Diferente das
         <a routerLink="/" class="text-latao-500 underline hover:text-latao-400">sessões de treino</a>
         do Hexágono (essas são a prescrição semanal do Agente 3): aqui é a prática diária.
       </p>
@@ -44,16 +44,46 @@
       <section class="cartao">
         @if (!resultado()) {
           <!-- Card de pergunta: sem nenhuma pista sobre o tipo de erro original. -->
-          <div class="mb-5 flex items-center justify-between">
-            @if (itemAtual()!.origem === 'exercicio_tatico') {
-              <span class="selo selo-neutro">Exercício: {{ rotuloCategoria(itemAtual()!.categoria) }}</span>
-            } @else {
+          <div class="mb-5 flex flex-wrap items-center justify-between gap-2">
+            @if (itemAtual()!.origem === 'lance_critico') {
               <span class="selo selo-neutro">Lance {{ itemAtual()!.numero_lance }}</span>
+            } @else {
+              <span class="selo selo-neutro">{{ rotuloOrigem(itemAtual()!) }}</span>
             }
             @if (itemAtual()!.repeticoes > 0) {
               <span class="selo selo-latao">{{ itemAtual()!.repeticoes }}ª revisão</span>
             }
           </div>
+
+          <!--
+            Card cronometrado (D-55): o relógio é o exercício, não enfeite.
+            Estourá-lo rebaixa o agendamento no backend, e por isso ele
+            aparece antes do tabuleiro — precisa ser a primeira coisa vista.
+          -->
+          @if (segundosRestantes() !== null) {
+            <div
+              class="mb-4 flex items-center justify-between gap-3 rounded-[var(--radius-controle)] border px-3.5 py-2.5"
+              [class]="tempoEsgotado() ? 'border-perigo/60 bg-perigo/10' : 'border-linha bg-ardosia-850'"
+              role="timer"
+              aria-live="off"
+            >
+              <span class="text-[11px] font-semibold uppercase tracking-[0.14em] text-bruma-500">
+                {{ tempoEsgotado() ? 'Tempo esgotado' : 'Tempo do jogador na partida' }}
+              </span>
+              <span
+                class="font-display text-xl font-semibold tabular-nums"
+                [class]="tempoEsgotado() ? 'text-perigo' : 'text-marfim'"
+              >
+                {{ formatarRelogio(segundosRestantes()!) }}
+              </span>
+            </div>
+            @if (tempoEsgotado()) {
+              <p class="legenda mb-4">
+                Você pode responder mesmo assim — o lance continua sendo avaliado. Mas este card
+                treina decidir dentro do tempo, então ele voltará a aparecer mais cedo.
+              </p>
+            }
+          }
 
           <app-tabuleiro-preview
             class="mb-5 block"
@@ -137,6 +167,42 @@
                 @if (resultado()!.pagina_citada) { <span> · pág. {{ resultado()!.pagina_citada }}</span> }
               </span>
             </p>
+          }
+
+          @if (resultado()!.fora_do_tempo) {
+            <p class="aviso aviso-erro mb-4">
+              <span aria-hidden="true">⏱</span>
+              <span>
+                Você decidiu fora do tempo que o jogador tinha. O lance em si foi avaliado
+                normalmente, mas este card volta mais cedo — decidir dentro do relógio é o que
+                ele treina.
+              </span>
+            </p>
+          }
+
+          <!--
+            Revelação da procedência (D-55). Só aparece em exercício posicional,
+            e só aqui: antes de responder seria contexto que o jogador original
+            não tinha. Também é a atribuição que a licença CC BY-SA dos
+            broadcasts do Lichess exige.
+          -->
+          @if (resultado()!.partida_referencia) {
+            <div class="painel mb-4">
+              <p class="metrica-rotulo mt-0">Esta posição é de uma partida real</p>
+              <p class="mt-1.5 text-sm leading-6 text-bruma-200">
+                {{ resultado()!.partida_referencia }}
+              </p>
+              @if (resultado()!.partida_url) {
+                <a
+                  [href]="resultado()!.partida_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="mt-2 inline-block text-xs text-latao-500 underline hover:text-latao-400"
+                >
+                  Ver a partida no Lichess
+                </a>
+              }
+            </div>
           }
 
           <button type="button" class="btn btn-primario btn-largo" (click)="proxima()">

@@ -1,12 +1,12 @@
 ---
 doc: ESTADO.md
 escopo: ÚNICO lugar do repositório onde mora estado factual (contagens, status, pendências)
-verificado_em: 2026-09-15
+verificado_em: 2026-09-16
 como_reverificar: rode as queries da seção 6 e os comandos da seção 1
 aviso: número sem data de verificação em qualquer outro documento deve ser tratado como suspeito
 ---
 
-# Estado verificado — 2026-09-15
+# Estado verificado — 2026-09-16
 
 Tudo nesta página foi conferido nesta data contra o banco real
 (`pmzmershonrqzwbmhaco`), o código e os workflows. Ao mudar qualquer fato aqui,
@@ -16,8 +16,8 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **611**, todos passando, em 35 módulos |
-| Testes de frontend (Vitest) | **206**, todos passando, em 26 arquivos |
+| Testes de backend | **687**, todos passando, em 36 módulos |
+| Testes de frontend (Vitest) | **223**, todos passando, em 27 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
 `.github/workflows/deploy-backend.yml` lista os 35 módulos de teste do backend
@@ -60,10 +60,12 @@ pendência P-11 abaixo).
 | `explicacoes_posicao` | 7 (tabela nova, ver D-11 em `DECISOES.md`) |
 | `metricas_lichess_partida` | 18, para 67 partidas do Lichess; 14 já têm `precisao_abertura`/`precisao_meiojogo` preenchidas e 12 têm `precisao_final` — colunas novas (ver `BANCO.md`) sendo preenchidas prospectivamente pelo pipeline automatizado (D-37), sem reprocessamento retroativo das linhas mais antigas |
 | `analises_hexagono` | 5 |
-| `sessoes_treino` | 5 |
+| `sessoes_treino` | 5 prescritas, **1 concluída** e 0 com eficácia medida. A primeira conclusão da história do produto saiu do D-54, na validação real da tela de execução — antes disso eram 5/0/0, e `medir_eficacia.py` nunca teve o que medir |
 | `resumo_partida` | 135 |
-| `fila_treino_espacado` | 640 (632 `lance_critico`, D-48, escalonados em 64 dias a 10 novos/dia; 8 `exercicio_tatico`, D-49, adicionados via `/treino/foco/TATICA` na validação real); 2 já respondidas |
-| `exercicios_taticos` | 1.200 (tabela nova, D-49); 300 por categoria em `TATICA`/`CALCULO`/`FINAIS`/`ESTRUTURA_DE_PEOES` — `ESTRATEGIA`/`GESTAO_DE_TEMPO` sem cobertura (sem tema equivalente no Lichess) |
+| `fila_treino_espacado` | 676 (632 `lance_critico`, D-48, escalonados em 64 dias a 10 novos/dia; 28 `exercicio_tatico`, D-49; 16 `exercicio_posicional`, D-55) — 27 já respondidas, quase todas nas validações reais do D-54 e do D-55 |
+| `exercicios_taticos` | 1.200 (D-49); 300 por categoria em `TATICA`/`CALCULO`/`FINAIS`/`ESTRUTURA_DE_PEOES` — `ESTRATEGIA`/`GESTAO_DE_TEMPO` seguem sem cobertura AQUI, e é esperado: não existe tema de puzzle equivalente |
+| `exercicios_posicionais` | 1.200 (tabela nova, D-55), de 616 partidas OTB em 69 torneios (broadcasts do Lichess, agosto/2026); 300 em cada uma de `ESTRATEGIA`/`GESTAO_DE_TEMPO`/`FINAIS`/`ESTRUTURA_DE_PEOES` |
+| **Catálogo somado, por categoria** | `TATICA` 300, `CALCULO` 300, `ESTRATEGIA` 300, `GESTAO_DE_TEMPO` 300, `FINAIS` 600, `ESTRUTURA_DE_PEOES` 600 — **as 6 categorias do Hexágono têm material pela primeira vez** (fecha o P-15) |
 
 ## 3. Composição do corpus — dado que muda a leitura de tudo
 
@@ -136,42 +138,30 @@ específica).
 
 ## 4. Pendências
 
-### P-15 — Duas categorias do Hexágono não têm exercício de catálogo 🟡
+### P-15 — Duas categorias do Hexágono sem exercício de catálogo ✅ RESOLVIDA em 16/09/2026
 
-`verificado_em: 16/09/2026` (consulta direta a `exercicios_taticos` no projeto
-`pmzmershonrqzwbmhaco` + chamada real a `POST /treino/foco/{categoria}`).
+`verificado_em: 16/09/2026` (consulta direta aos dois catálogos no projeto
+`pmzmershonrqzwbmhaco` + chamada real a `POST /treino/foco/ESTRATEGIA` e
+`POST /treino/foco/GESTAO_DE_TEMPO`, que agora devolvem `adicionados: 8`).
 
-| Categoria | Exercícios no catálogo |
-|---|---|
-| CALCULO | 300 |
-| TATICA | 300 |
-| FINAIS | 300 |
-| ESTRUTURA_DE_PEOES | 300 |
-| **ESTRATEGIA** | **0** |
-| **GESTAO_DE_TEMPO** | **0** |
+Era o buraco de conteúdo: metade da taxonomia do produto não tinha treino
+focado. `ESTRATEGIA` e `GESTAO_DE_TEMPO` ficaram em 0 exercícios porque a
+única fonte era o dump de puzzles do Lichess, e **puzzle é tática por
+construção** — não existe tema que signifique estratégia, e posição de puzzle
+não tem relógio. Duas tentativas anteriores trataram só o sintoma de
+interface (D-52 explicou depois do clique; D-53 removeu o botão).
 
-`GESTAO_DE_TEMPO` era esperado e está documentado no D-49 (puzzle de Lichess é
-posição estática, não existe tema de relógio). **`ESTRATEGIA` estar vazia não
-era conhecido** — apareceu só na auditoria de UX do D-52. A causa provável é o
-`TEMA_LICHESS_PARA_CATEGORIA` de `backend/rag/importar_exercicios_taticos.py`
-não mapear nenhum tema para ESTRATEGIA; confirmar antes de agir.
+Resolvido pelo **D-55**, com outra fonte: o banco de broadcasts do Lichess
+(partidas OTB reais, com `[%eval]` e `[%clk]` em todo lance). O filtro exige
+que o melhor lance seja quieto, o que produz material genuinamente posicional;
+e o relógio do PGN dá a `GESTAO_DE_TEMPO` exercícios cronometrados com o tempo
+que o jogador realmente tinha. **As 6 categorias têm material** — ver a tabela
+de volume na seção 2.
 
-O sintoma de interface está resolvido: o D-52 fez o botão explicar depois do
-clique, e o D-53 removeu o botão de vez — o Hexágono só oferece "Focar" nas 4
-categorias com material e explica a ausência das outras em uma linha, apontando
-para o Treino Diário. **O buraco de conteúdo continua aberto**: metade da
-taxonomia do produto não tem treino focado de catálogo.
-
-Descartado no D-53, depois de revisar os temas do Lichess: **não dá para
-remapear**. Não existe tema que signifique estratégia — `quietMove` e
-`defensiveMove` são os mais próximos e ainda assim descrevem um lance dentro de
-uma sequência tática. Puzzle é tática por construção. Mapear um deles para
-ESTRATEGIA seria reetiquetar tática como estratégia, a mesma cobertura fingida
-que o D-49 recusou para GESTAO_DE_TEMPO.
-
-Resolver de verdade exige **outra fonte de material** (estudos do Lichess,
-posições de livro já indexadas em `indice_conceitual`, ou curadoria manual) —
-decisão de produto, não de código. Enquanto isso, a interface está honesta.
+O que foi recusado e continua recusado: remapear temas de puzzle para
+`ESTRATEGIA`. `quietMove` e `defensiveMove` são os mais próximos e ainda assim
+descrevem um lance dentro de uma sequência tática; usá-los seria reetiquetar
+tática como estratégia — a mesma cobertura fingida que o D-49 recusou.
 
 ### P-1 — Chaves de API expostas, rotação nunca feita 🔴
 
@@ -665,6 +655,33 @@ comportamento que está em produção hoje. Também corrigidos ali: cartões de
 ponto crítico espremidos no desktop pela miniatura do D-51, e navegação no
 celular escondendo "Analisador"/"Perfil" sem pista de rolagem.
 
+**A sessão de treino passou a ser executada (16/09/2026, D-54).** Achado que
+motivou tudo: 5 sessões prescritas, **0 concluídas, 0 com eficácia medida** —
+`medir_eficacia.py` só olha sessões com `data_concluida`, então o loop
+adaptativo do produto nunca fechou uma única vez. A sessão era texto com um
+botão manual que ninguém aperta. Agora tem tela própria (`/sessao/:id`) com
+blocos de estudo (os módulos do Agente 3, preservados) e um bloco de prática
+montado pelo backend com exercícios reais; a sessão **conclui sozinha** no
+último bloco. Validado ponta a ponta contra o banco real, com o contador indo
+de 5/0/0 para 5/1/0. Dois defeitos só apareceram rodando: o endpoint de
+disponibilidade reportava 120/280 onde havia 300/300 (teto de 1000 linhas do
+PostgREST, errado em silêncio) e o bloco de prática dizia "nenhum exercícios"
+antes de a sessão abrir. Testes: 611 → **628** no backend, 206 → **216** no
+frontend.
+
+**Exercícios posicionais de partidas OTB reais (16/09/2026, D-55).** Fecha o
+P-15 com uma fonte nova: o banco de broadcasts do Lichess (1,2 milhão de
+partidas de torneio, com `[%eval]` e `[%clk]` em todo lance e a anotação do
+próprio Lichess dizendo onde alguém errou). O filtro exige **melhor lance
+quieto**, o que produz material genuinamente posicional para `ESTRATEGIA`; o
+relógio do PGN dá a `GESTAO_DE_TEMPO` exercícios cronometrados com o tempo que
+o jogador tinha, e estourar o cronômetro rebaixa o agendamento SM-2 de
+verdade. A primeira execução real trouxe 1200 exercícios de um único dia de
+opens juvenis — daí o filtro `POSICIONAL_EXIGIR_TITULO`, que na reimportação
+rendeu 616 partidas em 69 torneios com GM/IM/WGM. Licença: broadcasts são CC
+BY-SA 4.0 (os puzzles do D-49 são CC0), então a procedência é exibida depois
+da resposta. Testes: 628 → **687** no backend, 216 → **223** no frontend.
+
 ### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
 
 Não era decisão deliberada, era lacuna: `deploy-backend.yml` só propagava
@@ -811,9 +828,23 @@ union all select 'revisao_exercicio_avulso', user_id, count(*) from revisao_exer
 union all select 'explicacoes_posicao', user_id, count(*) from explicacoes_posicao group by 1, 2
 order by 1, 3 desc;
 
--- o loop fechou?
+-- o loop fechou? (D-54 tornou a conclusão automática; antes dele era 5/0/0)
 select count(*) total, count(data_concluida) concluidas, count(eficacia_medida) medidas
 from sessoes_treino;
+
+-- catálogo somado por categoria (D-49 + D-55): as 6 precisam ter material,
+-- senão o Hexágono volta a esconder botão de "Focar" (P-15)
+select categoria_hexagono, sum(n) total from (
+  select categoria_hexagono, count(*) n from exercicios_taticos group by 1
+  union all
+  select categoria_hexagono, count(*) n from exercicios_posicionais group by 1
+) x group by 1 order by 1;
+
+-- diversidade do catálogo posicional: poucos torneios distintos é sinal de
+-- que o filtro de título foi desligado ou que o teto foi batido cedo demais
+select count(*) exercicios, count(distinct jogo_url) partidas,
+       count(distinct evento) torneios, min(data_partida), max(data_partida)
+from exercicios_posicionais;
 ```
 
 ```bash

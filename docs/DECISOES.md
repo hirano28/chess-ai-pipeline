@@ -2754,6 +2754,154 @@ fecham.
 
 ---
 
+### D-54 — A sessão de treino passa a ser executada, não só prescrita
+
+O Agente 3 prescreve uma sprint de treino por semana desde o D-19, com
+módulos citando livro, capítulo e página. Em 16/09/2026, uma consulta ao
+banco mostrou o resultado disso:
+
+| Prescritas | Concluídas | Eficácia medida |
+|---|---|---|
+| 5 | **0** | **0** |
+
+`medir_eficacia.py` (D-37) só olha sessões com `data_concluida` preenchida.
+Como nenhuma jamais foi concluída, **o agente que mede se o treino funcionou
+nunca teve o que medir**: o loop adaptativo, que é o argumento central do
+produto, nunca fechou uma única vez desde que foi construído.
+
+A causa não era falta de vontade do usuário. A sessão era um texto com um
+botão de "marcar como concluída" — não havia nada para *fazer* dentro dela, e
+declarar conclusão de uma leitura que ninguém verifica é um gesto vazio.
+
+**A sessão agora executa.** Nova tela `/sessao/:id` com os blocos em ordem:
+
+- **blocos de estudo**, que são os módulos do Agente 3 tal como estavam
+  (livro/capítulo/página preservados), concluídos ao marcar como lido —
+  leitura o sistema não tem como verificar, e fingir que tem seria pior;
+- **um bloco de prática**, que **não vem do LLM**: é montado pelo backend a
+  partir da categoria do gargalo, com exercícios reais do catálogo, e fecha
+  sozinho quando eles são respondidos no Treino Diário.
+
+É esse segundo bloco que dá à sessão um fim objetivo em vez de um "eu acho
+que terminei". E quando o último bloco fecha, `data_concluida` é gravada
+**automaticamente** — que é exatamente o dado que o `medir_eficacia.py`
+esperava. Verificado ponta a ponta contra o banco real: sessão iniciada, 3
+blocos de estudo marcados, 12 exercícios respondidos via Stockfish, e a
+sessão fechou sozinha. O contador saiu de 5/0/0 para 5/**1**/0 — a primeira
+sessão concluída da história do produto, e a primeira elegível à medição.
+
+**Decisões de desenho que valem registro:**
+
+- **Nenhuma coluna de categoria foi criada.** `diagnostico_gargalo` já guarda
+  `"CATEGORIA: título"` e `medir_eficacia.categoria_do_diagnostico()` já
+  parseia esse formato. Derivar em tempo de leitura fez as 5 sessões antigas
+  funcionarem na tela nova sem backfill nenhum — mesmo raciocínio do D-51.
+- **A conclusão automática mora num GET**, o que é incomum e é deliberado:
+  quem fecha o último bloco é `POST /treino/{id}/responder`, que não sabe
+  (nem deveria saber) que aquele card pertence a uma sessão. Descobrir no
+  próximo carregamento é o que faz a sessão terminar sozinha.
+- **O bloco de prática não é marcável à mão.** Deixá-lo marcável devolveria
+  exatamente o "eu acho que terminei" que esta decisão veio remover.
+- **O botão manual continua existindo**, rebaixado a link secundário com o
+  texto "Já fiz fora do app". Nem todo estudo acontece aqui, e remover a
+  saída seria trocar um problema por outro.
+- **`iniciar` é idempotente.** Sem isso, cada visita à tela empilharia mais
+  uma dúzia de exercícios na fila do dia.
+- **Categoria sem catálogo não trava a sessão**: o bloco nasce concluído e a
+  tela explica a ausência. A honestidade fica no texto, não num bloqueio.
+
+**Dois defeitos achados só por rodar**, com a suíte inteira verde:
+
+1. `GET /treino/foco/disponibilidade` (D-53) contava as linhas do catálogo em
+   Python, e o PostgREST corta a resposta em 1000 linhas. Com 1200 exercícios
+   no banco, o endpoint reportava **120 e 280 onde havia 300 e 300** — errado
+   em silêncio, sem erro nenhum, e piorando a cada exercício importado. Agora
+   é `count="exact"` por categoria.
+2. O bloco de prática dizia "Prática: **nenhum exercícios** de Tática" antes
+   de a sessão começar — erro de concordância e, pior, mentira: o catálogo
+   tinha material, a sessão é que não fora aberta.
+
+**Testes:** 17 novos no backend (611 → **628**), 10 novos no frontend
+(206 → **216**).
+
+---
+
+### D-55 — Exercícios "ache o melhor lance" de partidas OTB reais, e o fim do P-15
+
+Pergunta do usuário: para tática dá para reutilizar os puzzles do Lichess,
+mas e o treino de achar o melhor lance quando não há tática — quando o lance
+certo é defensivo, posicional, ou só empata? Existe base para isso?
+
+Existe, e não é o dump de puzzles. O Lichess publica um **banco de
+broadcasts**: 1.235.275 partidas OTB reais de torneio em PGN. Baixei um mês e
+inspecionei antes de escrever qualquer parser (AGENTS.md §2.3). Cada lance
+traz `[%eval]`, `[%clk]` e a anotação do próprio Lichess:
+
+```
+24... b4?? { [%eval 2.24] } { Blunder. bxc4 was best. } { [%clk 0:34:44] }
+```
+
+Ou seja: para todo lance em que um titulado errou, já temos a posição, o
+lance jogado, **qual era o melhor** e **quanto relógio restava**.
+
+**O filtro central é exigir que o melhor lance seja quieto** — sem captura,
+sem xeque, sem promoção. É ele que faz a posição ser posicional ou defensiva
+em vez de tática disfarçada, e portanto material honesto para `ESTRATEGIA`.
+Somado a isso: severidade `Mistake`/`Blunder` (imprecisão de GM raramente tem
+resposta única o bastante), posição ainda indefinida antes do erro
+(|avaliação| ≤ 300cp — "ache o melhor lance" numa partida ganha treina
+conversão, que é outra habilidade), e queda ≥ 150cp.
+
+**Isto encerra o P-15, inclusive a metade que o D-49 declarou impossível.** O
+D-49 estava certo sobre puzzles: posição de puzzle é estática, não tem
+relógio, logo não serve para `GESTAO_DE_TEMPO`. Broadcast tem relógio. Quando
+o erro acontece com pouco tempo (≤ 120s), a categoria é gestão de tempo — e é
+a única aqui que aceita lance não-quieto, porque errar com dois minutos é
+falha de relógio seja qual for a natureza do lance. Esses cards são
+**cronometrados com o mesmo tempo que o jogador original tinha**.
+
+**O cronômetro conta de verdade.** Estourá-lo rebaixa a nota do SM-2 para a
+de uma resposta "difícil": o fator de facilidade cai e aperta todos os
+intervalos seguintes. `qualidade_lance` fica intacto — o lance pode ter sido
+ótimo E ter demorado demais, e são dois julgamentos diferentes, cada um com
+seu campo. Sem essa penalidade o cronômetro seria enfeite numa categoria cuja
+falha medida É o tempo.
+
+**Continuamos sem guardar a resposta certa**, mesmo tendo ela de graça na
+anotação. Quem avalia é o Stockfish na hora, como no D-49. Isso resolve
+sozinho a objeção mais séria a este formato — posição posicional costuma ter
+vários lances defensáveis, e cobrar um só seria injusto: como medimos queda
+de avaliação em vez de comparar com um gabarito, qualquer lance que não perca
+nada passa como BOM.
+
+**Licença é diferente e importa:** puzzles são CC0, broadcasts são **CC BY-SA
+4.0**. Exige atribuição, então a procedência é gravada e exibida na tela —
+depois da resposta, nunca antes (antes seria contexto que o jogador original
+não tinha). É também o que transforma o exercício de volta em partida:
+"GM Moranda, Wojciech × CM Klepek, Witold — Adolf Anderssen 2026".
+
+**Um achado de qualidade que só apareceu rodando de verdade.** A primeira
+execução trouxe 1200 exercícios em ~1100 partidas, todos do **mesmo dia**, de
+opens juvenis ("Youth U14", "Open C"). Tecnicamente OTB, mas longe de
+"partida real conhecida" — o ponto é aprender com quem joga bem. Acrescentei
+o filtro `POSICIONAL_EXIGIR_TITULO`, apaguei o lote e reimportei: 1200
+exercícios de **616 partidas em 69 torneios distintos**, com GM/IM/WGM.
+
+**Tabela nova, e não uma coluna `fonte` em `exercicios_taticos`:** estes
+exercícios são por construção os que **não** são táticos. Guardá-los numa
+tabela chamada "exercicios_taticos" seria a mesma mentira silenciosa que o
+D-49 recusou ao deixar ESTRATEGIA vazia. Além disso a procedência só faz
+sentido aqui e viraria coluna nula na outra.
+
+**Estado do catálogo depois do import** (16/09/2026): as 6 categorias do
+Hexágono têm material pela primeira vez — TATICA 300, CALCULO 300,
+ESTRATEGIA 300, GESTAO_DE_TEMPO 300, FINAIS 600, ESTRUTURA_DE_PEOES 600.
+
+**Testes:** 47 novos no backend para o importador + 12 nos endpoints
+(628 → **687**), 7 novos no frontend (216 → **223**).
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

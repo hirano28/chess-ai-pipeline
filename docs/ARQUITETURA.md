@@ -69,6 +69,11 @@ Enriquecimentos que entram lateralmente nesse fluxo:
   **não** roda no pipeline diário — import ocasional/manual: baixa o dump
   público de puzzles do Lichess e mapeia os temas dele para
   `HEXAGON_CATEGORIES`).
+- `backend/rag/importar_exercicios_posicionais.py` → `exercicios_posicionais`
+  (D-55, **não** roda no pipeline diário — import ocasional/manual: lê os
+  broadcasts do Lichess, partidas OTB reais com `[%eval]` e `[%clk]`, e
+  extrai posições onde o melhor lance é quieto; é o material que ESTRATEGIA
+  e GESTAO_DE_TEMPO não tinham).
 
 ## 3. Os três agentes de LLM
 
@@ -130,10 +135,13 @@ já foi atingido — mesmo princípio de "falhar rápido" de 🎫, mas para cust
 | `POST /revisar-avulso` 🎫⏱️ | avalia lance único ou sequência a partir de FEN/PGN + texto do raciocínio |
 | `POST /revisar-avulso/salvar` 🎫👤 | persiste um exercício revisado; devolve o `id` da linha criada |
 | `GET /revisoes-avulsas/recentes` 🎫👤 | histórico do Laboratório, filtrado pelo dono da sessão (D-18) |
-| `GET /treino/fila` 🎫👤 | cards de repetição espaçada vencidos hoje (D-48; D-49 mistura exercícios do catálogo tático); **não** inclui `tags_falha`, causa raiz nem citação — isso só aparece na resposta de responder, senão a revisão vira consulta em vez de teste |
-| `POST /treino/{fila_id}/responder` 🎫👤 | avalia o lance via Stockfish (reaproveita `avaliar_lance_avulso`/`resolver_lance_usuario`, sem Gemini), reagenda via SM-2 e revela a causa raiz + citação já cacheadas na linha; partida de outro dono responde 404 |
+| `GET /treino/fila` 🎫👤 | cards de repetição espaçada vencidos hoje (D-48; D-49 mistura exercícios do catálogo tático, D-55 os posicionais de partidas OTB); **não** inclui `tags_falha`, causa raiz nem citação — isso só aparece na resposta de responder, senão a revisão vira consulta em vez de teste. A única exceção é `segundos_sugeridos` (D-55), que vem antes porque nos cards de GESTAO_DE_TEMPO o relógio **é** o exercício |
+| `POST /treino/{fila_id}/responder` 🎫👤 | avalia o lance via Stockfish (reaproveita `avaliar_lance_avulso`/`resolver_lance_usuario`, sem Gemini), reagenda via SM-2 e revela a causa raiz + citação já cacheadas na linha; partida de outro dono responde 404. D-55: aceita `segundos_gastos` e, num card cronometrado, estourar o tempo rebaixa a nota do SM-2 (`fora_do_tempo`) sem mexer em `qualidade_lance` — o lance e o tempo são dois julgamentos distintos; devolve também `partida_referencia`/`partida_url` do exercício posicional |
 | `GET /treino/foco/disponibilidade` 🎫 | D-53: quantos exercícios de catálogo existem por categoria do Hexágono, sempre com as 6 chaves (0 explícito nas vazias). O Hexágono usa isso para não oferecer "Focar" numa categoria sem material. Catálogo é global, então a sessão aqui só protege o acesso — não filtra dado |
-| `POST /treino/foco/{categoria}` 🎫👤 | D-49: insere exercícios do catálogo `exercicios_taticos` na fila de hoje, focados numa categoria fraca do Hexágono; 400 se a categoria não existe em `HEXAGON_CATEGORIES`. Quando `adicionados` é 0, `motivo` distingue `sem_catalogo` de `ja_na_fila` (D-52) — sem isso a tela não tem como explicar qual dos dois zeros aconteceu |
+| `POST /treino/foco/{categoria}` 🎫👤 | D-49/D-55: sorteia exercícios dos dois catálogos (`exercicios_taticos` e `exercicios_posicionais`) para a fila de hoje, focados numa categoria fraca do Hexágono; 400 se a categoria não existe em `HEXAGON_CATEGORIES`. Quando `adicionados` é 0, `motivo` distingue `sem_catalogo` de `ja_na_fila` (D-52) — sem isso a tela não tem como explicar qual dos dois zeros aconteceu |
+| `GET /sessoes/{id}/execucao` 🎫👤 | D-54: estado de execução da sessão de treino focado — blocos de estudo (módulos do Agente 3) + um bloco de prática montado pelo backend a partir da categoria do gargalo. **Conclui a sessão sozinha** quando todos os blocos terminam: quem fecha o último costuma ser `POST /treino/{id}/responder`, que nada sabe de sessões, e é essa `data_concluida` que `medir_eficacia.py` espera |
+| `POST /sessoes/{id}/iniciar` 🎫👤 | D-54: abre a sessão e enfileira os exercícios do bloco de prática. Idempotente — sem isso cada visita à tela empilharia mais uma dúzia de exercícios |
+| `POST /sessoes/{id}/blocos/{indice}/concluir` 🎫👤 | D-54: marca um bloco de **estudo** como lido. O bloco de prática não é marcável à mão de propósito: ele fecha quando os exercícios são de fato respondidos |
 | `POST /explicar-posicao` 🎫👤⏱️ | avaliação objetiva + explicação didática de uma posição; persiste em `explicacoes_posicao` e devolve o `id` (falha de persistência não derruba a resposta — ver D-11) |
 | `GET /explicacoes-posicao/recentes` 🎫👤 | histórico do Explicador, filtrado pelo dono; cada item embute a resposta completa, sem endpoint "buscar por id" |
 | `GET /resolver-fen` 🎫 | resolve FEN ou PGN para o FEN final; parsing puro, sem Gemini nem Stockfish |

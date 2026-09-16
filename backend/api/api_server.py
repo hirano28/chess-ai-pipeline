@@ -150,6 +150,25 @@ MENSAGEM_LIMITE_DIARIO = "Limite diário atingido, tente novamente amanhã."
 # configuração por env var de TREINO_NOVOS_POR_DIA, D-48).
 TREINO_FOCO_QTD_EXERCICIOS = int(os.getenv("TREINO_FOCO_QTD_EXERCICIOS", "8"))
 
+# D-54: quantos exercícios entram no bloco de prática ao INICIAR uma sessão de
+# treino focado. Maior que o "Focar" avulso acima de propósito: a sessão é o
+# formato longo com objetivo fechado, o "Focar" é o incremento rápido na fila
+# do dia.
+SESSAO_QTD_EXERCICIOS = int(os.getenv("SESSAO_QTD_EXERCICIOS", "12"))
+
+# Rótulos legíveis das chaves de HEXAGON_CATEGORIES. O frontend tem a mesma
+# tabela (ROTULOS_CATEGORIA_HEXAGONO em treino.service.ts) para os seus
+# próprios textos; aqui ela serve ao nome do bloco de prática (D-54), que é
+# montado no backend e chega pronto na tela.
+ROTULOS_CATEGORIA: dict[str, str] = {
+    "TATICA": "Tática",
+    "ESTRATEGIA": "Estratégia",
+    "FINAIS": "Finais",
+    "ESTRUTURA_DE_PEOES": "Estrutura de Peões",
+    "GESTAO_DE_TEMPO": "Gestão de Tempo",
+    "CALCULO": "Cálculo",
+}
+
 # D-33: OAuth do Lichess (Authorization Code + PKCE). Endpoints confirmados na
 # doc oficial: o Lichess aceita cliente público NÃO registrado (client_id é uma
 # string livre, sem client_secret), exige PKCE e só aceita o método S256.
@@ -291,6 +310,10 @@ class ItemFilaTreino(BaseModel):
     data_partida: str | None = None
     plataforma: str | None = None
     categoria: str | None = None
+    # Único dado do exercício posicional que vem ANTES da resposta (D-55): nos
+    # cards de GESTAO_DE_TEMPO o relógio é o exercício, não um detalhe - o
+    # usuário decide com o mesmo tempo que o jogador original tinha.
+    segundos_sugeridos: int | None = None
     repeticoes: int
     total_revisoes: int
 
@@ -304,9 +327,15 @@ class FilaTreinoResponse(BaseModel):
 
 
 class ResponderTreinoRequest(BaseModel):
-    """Payload da resposta a um card: só o lance (ver D-48 - sem raciocínio)."""
+    """Payload da resposta a um card: só o lance (ver D-48 - sem raciocínio).
+
+    `segundos_gastos` existe apenas para os cards de GESTAO_DE_TEMPO (D-55),
+    onde o relógio É o exercício. Vem do cliente, e num app de um usuário só
+    isso basta: quem burlaria estaria burlando a si mesmo.
+    """
 
     lance: str
+    segundos_gastos: int | None = None
 
 
 class ResponderTreinoResponse(BaseModel):
@@ -327,6 +356,18 @@ class ResponderTreinoResponse(BaseModel):
     livro_citado: str | None = None
     capitulo_citado: str | None = None
     pagina_citada: int | None = None
+    # D-55: só para exercícios posicionais. A procedência é revelada DEPOIS de
+    # responder - antes seria contexto que o exercício não dá ao jogador
+    # original, e depois é o que transforma a posição em partida de verdade
+    # ("isto foi GM Moranda x CM Klepek"). Também é a atribuição que a licença
+    # CC BY-SA dos broadcasts exige.
+    partida_referencia: str | None = None
+    partida_url: str | None = None
+    # D-55: o lance pode ter sido bom E ter estourado o relógio. Os dois fatos
+    # convivem, e por isso são dois campos: `qualidade_lance` continua dizendo
+    # a verdade sobre o lance, e isto diz a verdade sobre o tempo — que é o que
+    # estava sendo treinado naquele card.
+    fora_do_tempo: bool = False
     proxima_revisao_data: str
     repeticoes: int
 
@@ -358,6 +399,49 @@ class DisponibilidadeFocoResponse(BaseModel):
     """
 
     por_categoria: dict[str, int]
+
+
+class BlocoSessaoResponse(BaseModel):
+    """Um passo executável da sessão de treino focado (D-54).
+
+    Dois tipos, com origens deliberadamente diferentes:
+
+    - `estudo`: vem de um módulo prescrito pelo Agente 3 (livro/capítulo/
+      página). Conclui-se marcando como lido — é leitura, não dá para o
+      sistema verificar sozinho.
+    - `pratica`: NÃO vem do LLM. É montado pelo backend a partir da categoria
+      do gargalo, com exercícios reais do catálogo. Conclui-se sozinho quando
+      os exercícios são respondidos, e é isso que dá à sessão um fim objetivo
+      em vez de um botão de "eu acho que terminei".
+    """
+
+    indice: int
+    tipo: str
+    nome: str
+    conteudo: str | None = None
+    duracao_min: int | None = None
+    livro: str | None = None
+    capitulo: str | None = None
+    pagina_aprox: int | None = None
+    concluido: bool
+    # Só preenchidos quando tipo == 'pratica'.
+    categoria: str | None = None
+    exercicios_feitos: int | None = None
+    exercicios_total: int | None = None
+
+
+class ExecucaoSessaoResponse(BaseModel):
+    """Estado de execução de uma sessão de treino focado (D-54)."""
+
+    sessao_id: str
+    titulo: str
+    categoria_foco: str | None
+    data_prescrita: str
+    data_iniciada: str | None
+    data_concluida: str | None
+    duracao_total_min: int
+    blocos: list[BlocoSessaoResponse]
+    concluida: bool
 
 
 class ExplicarPosicaoRequest(BaseModel):
@@ -922,7 +1006,8 @@ def obter_fila_treino(user_id: str = Depends(verificar_sessao)) -> FilaTreinoRes
                 "id, origem, repeticoes, total_revisoes, "
                 "lances_criticos(numero_lance, fen_antes_lance, "
                 "partidas(cor_jogada, data_partida, plataforma)), "
-                "exercicios_taticos(fen, categoria_hexagono)"
+                "exercicios_taticos(fen, categoria_hexagono), "
+                "exercicios_posicionais(fen, categoria_hexagono, segundos_restantes)"
             )
             .eq("user_id", user_id)
             .lte("proxima_revisao_data", hoje.isoformat())
@@ -946,8 +1031,13 @@ def obter_fila_treino(user_id: str = Depends(verificar_sessao)) -> FilaTreinoRes
     for row in resp_pendentes.data or []:
         origem = row.get("origem") or "lance_critico"
 
-        if origem == "exercicio_tatico":
-            exercicio = row.get("exercicios_taticos") or {}
+        if origem in ("exercicio_tatico", "exercicio_posicional"):
+            chave = (
+                "exercicios_taticos"
+                if origem == "exercicio_tatico"
+                else "exercicios_posicionais"
+            )
+            exercicio = row.get(chave) or {}
             if isinstance(exercicio, list):
                 exercicio = exercicio[0] if exercicio else {}
             fen = exercicio.get("fen")
@@ -961,6 +1051,11 @@ def obter_fila_treino(user_id: str = Depends(verificar_sessao)) -> FilaTreinoRes
                     fen=fen,
                     origem=origem,
                     categoria=exercicio.get("categoria_hexagono"),
+                    # O relógio vem ANTES de responder porque nesses cards ele
+                    # É o exercício: a pressão de tempo é o que está sendo
+                    # treinado (D-55). A procedência da partida, essa sim, só
+                    # aparece depois - ver ResponderTreinoResponse.
+                    segundos_sugeridos=exercicio.get("segundos_restantes"),
                     repeticoes=row.get("repeticoes") or 0,
                     total_revisoes=row.get("total_revisoes") or 0,
                 )
@@ -999,6 +1094,43 @@ def obter_fila_treino(user_id: str = Depends(verificar_sessao)) -> FilaTreinoRes
     )
 
 
+def _limite_de_tempo_do_card(origem: str, posicional: dict[str, Any]) -> int | None:
+    """Segundos que o card concede, ou None quando ele não é cronometrado.
+
+    Só exercício posicional tem limite, e só quando o import guardou o relógio
+    - o que ele faz apenas na categoria GESTAO_DE_TEMPO (ver D-55).
+    """
+
+    if origem != "exercicio_posicional":
+        return None
+    limite = posicional.get("segundos_restantes")
+    return int(limite) if isinstance(limite, (int, float)) else None
+
+
+def _referencia_da_partida(posicional: dict[str, Any]) -> str | None:
+    """"GM Moranda, Wojciech × CM Klepek, Witold — Granada Open 2026 (2026)".
+
+    Montada com o que existir: broadcast costuma vir sem data ("????.??.??") e
+    às vezes sem um dos nomes. Devolve None quando não há nada a creditar, e aí
+    a tela simplesmente não mostra o bloco.
+    """
+
+    if not posicional:
+        return None
+    brancas = (posicional.get("brancas") or "").strip()
+    pretas = (posicional.get("pretas") or "").strip()
+    jogadores = " × ".join(parte for parte in (brancas, pretas) if parte)
+    evento = (posicional.get("evento") or "").strip()
+    data_partida = (str(posicional.get("data_partida") or "")).strip()
+    ano = data_partida[:4] if len(data_partida) >= 4 else ""
+
+    partes = [parte for parte in (jogadores, evento) if parte]
+    if not partes:
+        return None
+    referencia = " — ".join(partes)
+    return f"{referencia} ({ano})" if ano and ano not in referencia else referencia
+
+
 @app.post("/treino/{fila_id}/responder", response_model=ResponderTreinoResponse)
 def responder_treino(
     fila_id: int,
@@ -1024,7 +1156,9 @@ def responder_treino(
             .select(
                 "id, lance_id, origem, intervalo_dias, fator_facilidade, repeticoes, "
                 "total_revisoes, livro_citado, capitulo_citado, pagina_citada, "
-                "lances_criticos(fen_antes_lance), exercicios_taticos(fen)"
+                "lances_criticos(fen_antes_lance), exercicios_taticos(fen), "
+                "exercicios_posicionais(fen, brancas, pretas, evento, data_partida, "
+                "jogo_url, segundos_restantes)"
             )
             .eq("id", fila_id)
             .eq("user_id", user_id)
@@ -1043,7 +1177,13 @@ def responder_treino(
     fila_row = linhas_fila[0]
     origem = fila_row.get("origem") or "lance_critico"
 
-    if origem == "exercicio_tatico":
+    posicional: dict[str, Any] = {}
+    if origem == "exercicio_posicional":
+        posicional = fila_row.get("exercicios_posicionais") or {}
+        if isinstance(posicional, list):
+            posicional = posicional[0] if posicional else {}
+        fen = posicional.get("fen")
+    elif origem == "exercicio_tatico":
         exercicio = fila_row.get("exercicios_taticos") or {}
         if isinstance(exercicio, list):
             exercicio = exercicio[0] if exercicio else {}
@@ -1102,6 +1242,23 @@ def responder_treino(
 
     hoje = _hoje_america_sao_paulo()
     nota = nota_sm2_da_qualidade_lance(qualidade_lance)
+
+    # D-55: num card de gestão de tempo, decidir fora do prazo é a falha que o
+    # exercício mede. Sem isto o cronômetro seria enfeite - o SM-2 agendaria
+    # como se o tempo não existisse. A nota é rebaixada para a de uma resposta
+    # "difícil" (nunca elevada): o fator de facilidade cai e aperta todos os
+    # intervalos seguintes. A próxima data em si não muda, porque o SM-2 a
+    # calcula com o fator anterior. `qualidade_lance` continua intacto, porque
+    # o lance em si pode ter sido ótimo - são duas verdades diferentes.
+    limite_segundos = _limite_de_tempo_do_card(origem, posicional)
+    fora_do_tempo = (
+        limite_segundos is not None
+        and payload.segundos_gastos is not None
+        and payload.segundos_gastos > limite_segundos
+    )
+    if fora_do_tempo:
+        nota = min(nota, nota_sm2_da_qualidade_lance("SUBOTIMO"))
+
     agendamento = atualizar_agendamento(
         intervalo_dias=fila_row.get("intervalo_dias") or 0,
         fator_facilidade=fila_row.get("fator_facilidade") or 2.5,
@@ -1137,6 +1294,9 @@ def responder_treino(
         livro_citado=fila_row.get("livro_citado"),
         capitulo_citado=fila_row.get("capitulo_citado"),
         pagina_citada=fila_row.get("pagina_citada"),
+        partida_referencia=_referencia_da_partida(posicional),
+        partida_url=posicional.get("jogo_url"),
+        fora_do_tempo=fora_do_tempo,
         proxima_revisao_data=agendamento.proxima_revisao_data.isoformat(),
         repeticoes=agendamento.repeticoes,
     )
@@ -1153,27 +1313,161 @@ def disponibilidade_foco_treino(
 
     Declarada ANTES de `POST /treino/foco/{categoria}` por clareza de leitura;
     não há conflito de rota porque os métodos HTTP são diferentes.
+
+    Uma contagem `exact` por categoria, e não um select de todas as linhas:
+    o PostgREST corta a resposta em 1000 linhas por padrão, e com 1200
+    exercícios no catálogo essa versão anterior devolvia 300/300/120/280 para
+    quatro categorias que tinham 300 cada — errado em silêncio, sem erro
+    nenhum, e cada exercício novo importado piorava a distorção. Só apareceu
+    ao chamar o endpoint contra o banco real (D-54).
     """
     client = _state.get("supabase_client")
     if not client:
         raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
 
-    try:
-        resp = client.table("exercicios_taticos").select("categoria_hexagono").execute()
-    except Exception as error:
-        raise HTTPException(
-            status_code=500, detail=f"Falha ao consultar o catálogo de exercícios: {error}"
-        ) from error
-
     # Começa em 0 para as 6: uma categoria ausente no banco precisa aparecer
     # como 0 explícito, não sumir do mapa e virar `undefined` no frontend.
     por_categoria = {categoria: 0 for categoria in HEXAGON_CATEGORIES}
-    for row in resp.data or []:
-        categoria = row.get("categoria_hexagono")
-        if categoria in por_categoria:
-            por_categoria[categoria] += 1
+    for categoria in por_categoria:
+        for tabela, _coluna_fk, _origem in CATALOGOS_DE_EXERCICIO:
+            try:
+                resp = (
+                    client.table(tabela)
+                    .select("id", count="exact")
+                    .eq("categoria_hexagono", categoria)
+                    .limit(1)
+                    .execute()
+                )
+            except Exception as error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Falha ao consultar o catálogo de exercícios: {error}",
+                ) from error
+            por_categoria[categoria] += resp.count or 0
 
     return DisponibilidadeFocoResponse(por_categoria=por_categoria)
+
+
+# Os dois catálogos que alimentam o treino focado, e como cada um se liga à
+# fila. D-49 trouxe o primeiro (puzzles do Lichess, sempre táticos); D-55
+# trouxe o segundo (posições NÃO táticas de partidas OTB reais), que é o que
+# finalmente dá material a ESTRATEGIA e GESTAO_DE_TEMPO.
+CATALOGOS_DE_EXERCICIO: tuple[tuple[str, str, str], ...] = (
+    # (tabela, coluna de FK na fila, valor de `origem`)
+    ("exercicios_taticos", "exercicio_id", "exercicio_tatico"),
+    ("exercicios_posicionais", "posicional_id", "exercicio_posicional"),
+)
+
+
+def _selecionar_exercicios_para_fila(
+    client: Any, user_id: str, categoria: str, quantidade: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Sorteia exercícios dos catálogos que o usuário ainda não tem na fila.
+
+    Devolve (linhas prontas para insert, total de exercícios da categoria nos
+    catálogos). O segundo valor existe para o chamador distinguir os dois zeros
+    de significado oposto (D-52): catálogo vazio vs. usuário já tem todos.
+
+    Extraído do endpoint de foco no D-54 para a sessão de treino usar
+    exatamente o mesmo caminho - uma sessão é um "Focar" maior e com começo,
+    meio e fim, não um mecanismo paralelo. O D-55 fez o sorteio olhar os dois
+    catálogos de uma vez, num único `random.sample` sobre a lista combinada:
+    numa categoria com material dos dois tipos, o lote sai naturalmente
+    misturado em vez de esgotar um antes de tocar no outro.
+    """
+
+    candidatos: list[tuple[str, str]] = []
+    total_no_catalogo = 0
+
+    for tabela, coluna_fk, origem in CATALOGOS_DE_EXERCICIO:
+        try:
+            resp_ja_na_fila = (
+                client.table("fila_treino_espacado")
+                .select(coluna_fk)
+                .eq("user_id", user_id)
+                .eq("origem", origem)
+                .execute()
+            )
+            ja_na_fila = {
+                row[coluna_fk] for row in resp_ja_na_fila.data or [] if row.get(coluna_fk)
+            }
+
+            resp_candidatos = (
+                client.table(tabela)
+                .select("id")
+                .eq("categoria_hexagono", categoria)
+                .execute()
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=500, detail=f"Falha ao buscar exercícios da categoria: {error}"
+            ) from error
+
+        linhas_catalogo = resp_candidatos.data or []
+        total_no_catalogo += len(linhas_catalogo)
+        candidatos.extend(
+            (coluna_fk, row["id"]) for row in linhas_catalogo if row["id"] not in ja_na_fila
+        )
+
+    if not candidatos:
+        return [], total_no_catalogo
+
+    escolhidos = random.sample(candidatos, k=min(quantidade, len(candidatos)))
+
+    # Mesma citação pra todos os exercícios desta categoria neste lote - um
+    # único resolver_citacao (buscar_conceitos, sem custo de LLM), reaproveitado
+    # de popular_fila_treino_espacado.py (D-48).
+    citacao = resolver_citacao(client, categoria)
+    hoje = _hoje_america_sao_paulo()
+    origem_por_coluna = {coluna: origem for _, coluna, origem in CATALOGOS_DE_EXERCICIO}
+    linhas = [
+        {
+            "user_id": user_id,
+            coluna_fk: exercicio_id,
+            "origem": origem_por_coluna[coluna_fk],
+            "proxima_revisao_data": hoje.isoformat(),
+            "livro_citado": citacao.get("livro") if citacao else None,
+            "capitulo_citado": citacao.get("capitulo") if citacao else None,
+            "pagina_citada": citacao.get("pagina_aprox") if citacao else None,
+        }
+        for coluna_fk, exercicio_id in escolhidos
+    ]
+    return linhas, total_no_catalogo
+
+
+def _inserir_na_fila(client: Any, linhas: list[dict[str, Any]]) -> list[int]:
+    """Insere as linhas na fila e devolve os ids criados.
+
+    Um upsert por catálogo: cada um tem a sua unique (user_id, exercicio_id) ou
+    (user_id, posicional_id), e `on_conflict` só aceita uma.
+
+    `ignore_duplicates`: um duplo clique antes do botão desabilitar vira no-op,
+    não um 500 por violar a unique.
+    """
+
+    ids: list[int] = []
+    for _, coluna_fk, _origem in CATALOGOS_DE_EXERCICIO:
+        do_catalogo = [linha for linha in linhas if coluna_fk in linha]
+        if not do_catalogo:
+            continue
+        try:
+            resp = (
+                client.table("fila_treino_espacado")
+                .upsert(
+                    do_catalogo,
+                    on_conflict=f"user_id,{coluna_fk}",
+                    ignore_duplicates=True,
+                )
+                .execute()
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=500, detail=f"Falha ao adicionar exercícios à fila: {error}"
+            ) from error
+        ids.extend(
+            row["id"] for row in (resp.data or []) if isinstance(row.get("id"), int)
+        )
+    return ids
 
 
 @app.post("/treino/foco/{categoria}", response_model=FocoTreinoResponse)
@@ -1193,71 +1487,328 @@ def focar_categoria_treino(
     if not client:
         raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
 
-    try:
-        resp_ja_na_fila = (
-            client.table("fila_treino_espacado")
-            .select("exercicio_id")
-            .eq("user_id", user_id)
-            .eq("origem", "exercicio_tatico")
-            .execute()
-        )
-        ja_na_fila = {
-            row["exercicio_id"] for row in resp_ja_na_fila.data or [] if row.get("exercicio_id")
-        }
-
-        resp_candidatos = (
-            client.table("exercicios_taticos")
-            .select("id")
-            .eq("categoria_hexagono", categoria)
-            .execute()
-        )
-    except Exception as error:
-        raise HTTPException(
-            status_code=500, detail=f"Falha ao buscar exercícios da categoria: {error}"
-        ) from error
-
-    total_no_catalogo = len(resp_candidatos.data or [])
-    candidatos = [
-        row["id"] for row in resp_candidatos.data or [] if row["id"] not in ja_na_fila
-    ]
-    if not candidatos:
+    linhas, total_no_catalogo = _selecionar_exercicios_para_fila(
+        client, user_id, categoria, TREINO_FOCO_QTD_EXERCICIOS
+    )
+    if not linhas:
         return FocoTreinoResponse(
             adicionados=0,
             motivo="ja_na_fila" if total_no_catalogo else "sem_catalogo",
         )
 
-    escolhidos = random.sample(candidatos, k=min(TREINO_FOCO_QTD_EXERCICIOS, len(candidatos)))
+    _inserir_na_fila(client, linhas)
+    return FocoTreinoResponse(adicionados=len(linhas))
 
-    # Mesma citação pra todos os exercícios desta categoria neste lote - um
-    # único resolver_citacao (buscar_conceitos, sem custo de LLM), reaproveitado
-    # de popular_fila_treino_espacado.py (D-48).
-    citacao = resolver_citacao(client, categoria)
-    hoje = _hoje_america_sao_paulo()
-    linhas = [
-        {
-            "user_id": user_id,
-            "exercicio_id": exercicio_id,
-            "origem": "exercicio_tatico",
-            "proxima_revisao_data": hoje.isoformat(),
-            "livro_citado": citacao.get("livro") if citacao else None,
-            "capitulo_citado": citacao.get("capitulo") if citacao else None,
-            "pagina_citada": citacao.get("pagina_aprox") if citacao else None,
-        }
-        for exercicio_id in escolhidos
-    ]
+
+# ---------------------------------------------------------------------------
+# Sessão de treino focado (D-54) - execução do que o Agente 3 prescreve
+# ---------------------------------------------------------------------------
+
+
+def _categoria_do_gargalo(diagnostico_gargalo: str | None) -> str | None:
+    """Extrai a categoria do formato "CATEGORIA: título" que
+    `agente3_prescritor.salvar_sessao` grava em `diagnostico_gargalo`.
+
+    Versão tolerante de `medir_eficacia.categoria_do_diagnostico`, que levanta
+    ValueError: aqui um formato inesperado não pode derrubar a tela da sessão,
+    só desligar o bloco de prática. Derivar em vez de gravar uma coluna nova
+    faz as sessões antigas funcionarem sem backfill (ver sessoes_treino_execucao.sql).
+    """
+
+    categoria, separador, _ = (diagnostico_gargalo or "").partition(":")
+    categoria = categoria.strip().upper()
+    if not separador or categoria not in HEXAGON_CATEGORIES:
+        return None
+    return categoria
+
+
+def _modulos_da_sessao(modulos: Any) -> list[dict[str, Any]]:
+    """Normaliza o jsonb `modulos`, que é o model_dump de SprintTreino
+    ({titulo, duracao_total_min, modulos: [...]}). Aceitar também uma lista
+    crua espelha o que o frontend já tolerava e evita quebrar linhas gravadas
+    por versões diferentes do Agente 3."""
+
+    if isinstance(modulos, list):
+        return [modulo for modulo in modulos if isinstance(modulo, dict)]
+    if isinstance(modulos, dict):
+        internos = modulos.get("modulos")
+        if isinstance(internos, list):
+            return [modulo for modulo in internos if isinstance(modulo, dict)]
+    return []
+
+
+def _titulo_da_sessao(row: dict[str, Any]) -> str:
+    """Título da sprint; cai no `diagnostico_gargalo` inteiro se o jsonb não
+    tiver um (é ele que o dashboard já mostrava antes do D-54)."""
+
+    modulos = row.get("modulos")
+    if isinstance(modulos, dict) and isinstance(modulos.get("titulo"), str):
+        titulo = modulos["titulo"].strip()
+        if titulo:
+            return titulo
+    return str(row.get("diagnostico_gargalo") or "Sessão de treino")
+
+
+def _buscar_sessao(client: Any, sessao_id: str, user_id: str) -> dict[str, Any]:
+    """Carrega a sessão do próprio usuário ou levanta 404.
+
+    404 e nunca 403 (mesmo padrão IDOR-safe de D-29/D-30): não revela que a
+    sessão existe e pertence a outra conta.
+    """
 
     try:
-        # ignore_duplicates: um duplo clique em "Focar" antes do botão
-        # desabilitar vira no-op, não um 500 pela unique(user_id, exercicio_id).
-        client.table("fila_treino_espacado").upsert(
-            linhas, on_conflict="user_id,exercicio_id", ignore_duplicates=True
-        ).execute()
+        resp = (
+            client.table("sessoes_treino")
+            .select(
+                "id, diagnostico_gargalo, modulos, data_prescrita, data_iniciada, "
+                "data_concluida, progresso"
+            )
+            .eq("id", sessao_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
     except Exception as error:
         raise HTTPException(
-            status_code=500, detail=f"Falha ao adicionar exercícios à fila: {error}"
+            status_code=500, detail=f"Falha ao consultar a sessão de treino: {error}"
         ) from error
 
-    return FocoTreinoResponse(adicionados=len(linhas))
+    linhas = resp.data or []
+    if not linhas:
+        raise HTTPException(status_code=404, detail="Sessão de treino não encontrada.")
+    return linhas[0]
+
+
+def _contar_pratica_feita(client: Any, user_id: str, fila_ids: list[int]) -> int:
+    """Quantos exercícios do bloco de prática já foram respondidos.
+
+    Contado em tempo de leitura a partir de `total_revisoes`, em vez de
+    duplicado no `progresso`: quem responde é POST /treino/{id}/responder, que
+    não sabe (nem deveria saber) que aquele card pertence a uma sessão.
+    """
+
+    if not fila_ids:
+        return 0
+    try:
+        resp = (
+            client.table("fila_treino_espacado")
+            .select("id, total_revisoes")
+            .in_("id", fila_ids)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:
+        # Degradação silenciosa: sem a contagem a sessão ainda abre e os blocos
+        # de estudo continuam utilizáveis - melhor que 500 na tela inteira.
+        return 0
+    return sum(1 for row in resp.data or [] if (row.get("total_revisoes") or 0) > 0)
+
+
+def _montar_execucao(
+    client: Any, row: dict[str, Any], user_id: str
+) -> ExecucaoSessaoResponse:
+    """Monta o estado da sessão e a CONCLUI quando todos os blocos terminaram.
+
+    A conclusão automática mora aqui, num GET, de propósito: o último bloco a
+    fechar costuma ser o de prática, e quem o fecha é POST /treino/{id}/
+    responder, que nada sabe de sessões. Descobrir no próximo carregamento é o
+    que faz a sessão terminar sozinha - e é essa `data_concluida` que
+    `medir_eficacia.py` espera para medir o impacto do treino (antes do D-54
+    ela dependia de um botão manual, e por isso nunca foi preenchida).
+    """
+
+    progresso = row.get("progresso")
+    if not isinstance(progresso, dict):
+        progresso = {}
+    concluidos = {
+        indice
+        for indice in progresso.get("blocos_concluidos") or []
+        if isinstance(indice, int)
+    }
+    fila_ids = [item for item in progresso.get("fila_ids") or [] if isinstance(item, int)]
+
+    modulos = _modulos_da_sessao(row.get("modulos"))
+    blocos: list[BlocoSessaoResponse] = [
+        BlocoSessaoResponse(
+            indice=indice,
+            tipo="estudo",
+            nome=str(modulo.get("nome") or f"Módulo {indice + 1}"),
+            conteudo=modulo.get("conteudo"),
+            duracao_min=modulo.get("duracao_min"),
+            livro=modulo.get("livro"),
+            capitulo=modulo.get("capitulo"),
+            pagina_aprox=modulo.get("pagina_aprox"),
+            concluido=indice in concluidos,
+        )
+        for indice, modulo in enumerate(modulos)
+    ]
+
+    categoria = _categoria_do_gargalo(row.get("diagnostico_gargalo"))
+    iniciada = row.get("data_iniciada")
+    if categoria:
+        rotulo = ROTULOS_CATEGORIA.get(categoria, categoria)
+        feitos = _contar_pratica_feita(client, user_id, fila_ids) if iniciada else 0
+        total = len(fila_ids)
+        if not iniciada:
+            # Antes de iniciar ainda não existe lote sorteado: dizer "nenhum
+            # exercício" aqui seria falso (o catálogo tem material, a sessão é
+            # que não foi aberta).
+            nome_pratica = f"Prática: exercícios de {rotulo}"
+        elif total == 0:
+            nome_pratica = f"Prática: sem exercícios de catálogo em {rotulo}"
+        else:
+            nome_pratica = (
+                f"Prática: {total} "
+                f"{'exercício' if total == 1 else 'exercícios'} de {rotulo}"
+            )
+        blocos.append(
+            BlocoSessaoResponse(
+                indice=len(modulos),
+                tipo="pratica",
+                nome=nome_pratica,
+                # Sem material de catálogo o bloco nasce concluído em vez de
+                # travar a sessão para sempre - a honestidade fica no texto da
+                # tela, não num bloqueio (ver P-15). Mas só depois de iniciada:
+                # uma sessão fechada não tem bloco nenhum já cumprido.
+                concluido=bool(iniciada) and (total == 0 or feitos >= total),
+                categoria=categoria,
+                exercicios_feitos=feitos,
+                exercicios_total=total,
+            )
+        )
+
+    duracao = sum(bloco.duracao_min or 0 for bloco in blocos)
+    data_concluida = row.get("data_concluida")
+
+    tudo_feito = bool(blocos) and all(bloco.concluido for bloco in blocos)
+    if tudo_feito and iniciada and not data_concluida:
+        data_concluida = datetime.now(timezone.utc).isoformat()
+        try:
+            client.table("sessoes_treino").update(
+                {"data_concluida": data_concluida}
+            ).eq("id", row["id"]).eq("user_id", user_id).execute()
+        except Exception:
+            # Não falha a leitura: a tela mostra a sessão completa e a próxima
+            # abertura tenta gravar de novo.
+            data_concluida = row.get("data_concluida")
+
+    return ExecucaoSessaoResponse(
+        sessao_id=str(row["id"]),
+        titulo=_titulo_da_sessao(row),
+        categoria_foco=categoria,
+        data_prescrita=str(row.get("data_prescrita") or ""),
+        data_iniciada=str(iniciada) if iniciada else None,
+        data_concluida=str(data_concluida) if data_concluida else None,
+        duracao_total_min=duracao,
+        blocos=blocos,
+        concluida=bool(data_concluida),
+    )
+
+
+@app.get("/sessoes/{sessao_id}/execucao", response_model=ExecucaoSessaoResponse)
+def obter_execucao_sessao(
+    sessao_id: str, user_id: str = Depends(verificar_sessao)
+) -> ExecucaoSessaoResponse:
+    """Estado atual de uma sessão de treino focado (D-54)."""
+
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    return _montar_execucao(client, _buscar_sessao(client, sessao_id, user_id), user_id)
+
+
+@app.post("/sessoes/{sessao_id}/iniciar", response_model=ExecucaoSessaoResponse)
+def iniciar_sessao_treino(
+    sessao_id: str, user_id: str = Depends(verificar_sessao)
+) -> ExecucaoSessaoResponse:
+    """Abre a sessão e monta o bloco de prática com exercícios reais (D-54).
+
+    Idempotente: reabrir uma sessão já iniciada devolve o estado atual sem
+    enfileirar mais nada. Sem isso, cada visita à tela empilharia mais uma
+    dúzia de exercícios na fila do dia.
+    """
+
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    row = _buscar_sessao(client, sessao_id, user_id)
+    if row.get("data_iniciada"):
+        return _montar_execucao(client, row, user_id)
+
+    progresso = row.get("progresso") if isinstance(row.get("progresso"), dict) else {}
+    fila_ids: list[int] = []
+
+    categoria = _categoria_do_gargalo(row.get("diagnostico_gargalo"))
+    if categoria:
+        linhas, _ = _selecionar_exercicios_para_fila(
+            client, user_id, categoria, SESSAO_QTD_EXERCICIOS
+        )
+        if linhas:
+            fila_ids = _inserir_na_fila(client, linhas)
+
+    iniciada = datetime.now(timezone.utc).isoformat()
+    novo_progresso = {**progresso, "fila_ids": fila_ids}
+    novo_progresso.setdefault("blocos_concluidos", [])
+    try:
+        client.table("sessoes_treino").update(
+            {"data_iniciada": iniciada, "progresso": novo_progresso}
+        ).eq("id", sessao_id).eq("user_id", user_id).execute()
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao iniciar a sessão de treino: {error}"
+        ) from error
+
+    row = {**row, "data_iniciada": iniciada, "progresso": novo_progresso}
+    return _montar_execucao(client, row, user_id)
+
+
+@app.post(
+    "/sessoes/{sessao_id}/blocos/{indice}/concluir",
+    response_model=ExecucaoSessaoResponse,
+)
+def concluir_bloco_sessao(
+    sessao_id: str, indice: int, user_id: str = Depends(verificar_sessao)
+) -> ExecucaoSessaoResponse:
+    """Marca um bloco de estudo como lido (D-54).
+
+    Só blocos de estudo: o de prática fecha sozinho quando os exercícios são
+    respondidos, e deixá-lo marcável à mão devolveria à sessão exatamente o
+    "eu acho que terminei" que o D-54 veio remover.
+    """
+
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    row = _buscar_sessao(client, sessao_id, user_id)
+    modulos = _modulos_da_sessao(row.get("modulos"))
+    if indice < 0 or indice >= len(modulos):
+        raise HTTPException(
+            status_code=400, detail="Este bloco não existe ou não é de estudo."
+        )
+
+    progresso = row.get("progresso") if isinstance(row.get("progresso"), dict) else {}
+    concluidos = sorted(
+        {
+            valor
+            for valor in (progresso.get("blocos_concluidos") or [])
+            if isinstance(valor, int)
+        }
+        | {indice}
+    )
+    novo_progresso = {**progresso, "blocos_concluidos": concluidos}
+
+    try:
+        client.table("sessoes_treino").update({"progresso": novo_progresso}).eq(
+            "id", sessao_id
+        ).eq("user_id", user_id).execute()
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao salvar o progresso da sessão: {error}"
+        ) from error
+
+    return _montar_execucao(client, {**row, "progresso": novo_progresso}, user_id)
 
 
 @app.post("/explicar-posicao", response_model=ExplicarPosicaoResponse)
