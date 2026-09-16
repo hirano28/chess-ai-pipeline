@@ -112,8 +112,38 @@
                 [disabled]="oauthIniciando()"
                 class="btn btn-primario"
               >
-                {{ oauthIniciando() ? 'Iniciando conexão…' : 'Conectar com Lichess' }}
+                @if (oauthIniciando()) {
+                  <span class="pulso" aria-hidden="true"></span>
+                  <span>Iniciando conexão…</span>
+                } @else {
+                  <span>Conectar com Lichess</span>
+                }
               </button>
+            } @else if (confirmandoDesconexao()) {
+              <div class="aviso aviso-latao w-full flex-col items-start gap-3 sm:flex-row sm:items-center">
+                <span class="flex-1">
+                  Desvincular sua conta interrompe a sincronização automática dos puzzles do
+                  Lichess. Seus dados já importados continuam aqui.
+                </span>
+                <div class="flex shrink-0 gap-2">
+                  <button type="button" (click)="cancelarDesconexao()" class="btn btn-secundario btn-pequeno">
+                    Manter conectado
+                  </button>
+                  <button
+                    type="button"
+                    (click)="desconectarLichess()"
+                    [disabled]="oauthDesconectando()"
+                    class="btn btn-perigo btn-pequeno"
+                  >
+                    @if (oauthDesconectando()) {
+                      <span class="pulso" aria-hidden="true"></span>
+                      <span>Desconectando…</span>
+                    } @else {
+                      <span>Sim, desconectar</span>
+                    }
+                  </button>
+                </div>
+              </div>
             } @else {
               <button
                 type="button"
@@ -121,16 +151,21 @@
                 [disabled]="oauthIniciando()"
                 class="btn btn-secundario"
               >
-                {{ oauthIniciando() ? 'Redirecionando…' : 'Reconectar conta' }}
+                @if (oauthIniciando()) {
+                  <span class="pulso" aria-hidden="true"></span>
+                  <span>Redirecionando…</span>
+                } @else {
+                  <span>Reconectar conta</span>
+                }
               </button>
 
               <button
                 type="button"
-                (click)="desconectarLichess()"
+                (click)="pedirConfirmacaoDesconectar()"
                 [disabled]="oauthDesconectando()"
                 class="btn btn-perigo"
               >
-                {{ oauthDesconectando() ? 'Desconectando…' : 'Desconectar' }}
+                Desconectar
               </button>
             }
           </div>

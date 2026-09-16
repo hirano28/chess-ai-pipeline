@@ -3,6 +3,7 @@ import {
   AnaliseHexagonoCompleta,
   SupabaseService
 } from '../../services/supabase.service';
+import { SegmentoTexto, segmentosDeNegrito } from '../../shared/texto';
 
 @Component({
   selector: 'app-narrativa-analise',
@@ -23,6 +24,12 @@ export class NarrativaAnaliseComponent implements OnInit {
 
   ngOnInit(): void {
     void this.carregarAnalise();
+  }
+
+  /** Wrapper fino sobre o helper compartilhado, só para o template chamá-lo.
+   * O Gemini usa `**negrito**` na narrativa e os asteriscos apareciam crus. */
+  segmentos(paragrafo: string): SegmentoTexto[] {
+    return segmentosDeNegrito(paragrafo);
   }
 
   paragrafosDaNarrativa(narrativa: string): string[] {

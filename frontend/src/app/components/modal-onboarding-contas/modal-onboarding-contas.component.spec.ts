@@ -132,5 +132,37 @@ describe('ModalOnboardingContasComponent (D-36)', () => {
 
     expect(salvarSpy).not.toHaveBeenCalled();
   });
+
+  it('Esc fecha o modal — sem isso não havia saída pelo teclado', () => {
+    component.visivel.set(true);
+
+    component.aoPressionarEsc();
+
+    expect(component.visivel()).toBe(false);
+  });
+
+  it('Esc não fecha no meio de um salvamento', () => {
+    component.visivel.set(true);
+    component.salvando.set(true);
+
+    component.aoPressionarEsc();
+
+    expect(component.visivel()).toBe(true);
+  });
+
+  it('clique no scrim fecha, clique dentro do cartão não', () => {
+    component.visivel.set(true);
+    const scrim = document.createElement('div');
+    const cartao = document.createElement('div');
+
+    // Clique originado no próprio scrim.
+    component.aoClicarNoFundo({ target: scrim, currentTarget: scrim } as unknown as MouseEvent);
+    expect(component.visivel()).toBe(false);
+
+    component.visivel.set(true);
+    // Clique que borbulhou de dentro do cartão: não deve fechar.
+    component.aoClicarNoFundo({ target: cartao, currentTarget: scrim } as unknown as MouseEvent);
+    expect(component.visivel()).toBe(true);
+  });
 });
 

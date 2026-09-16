@@ -94,4 +94,37 @@ describe('LoginComponent', () => {
     expect(component.erro()).toBeNull();
     expect(component.confirmacaoPendente()).toBe(false);
   });
+
+  it('alterna a visibilidade da senha e o tipo do campo acompanha', () => {
+    fixture.detectChanges();
+    const campo = () => fixture.nativeElement.querySelector('#campo-senha') as HTMLInputElement;
+
+    expect(campo().type).toBe('password');
+
+    component.alternarVisibilidadeSenha();
+    fixture.detectChanges();
+    expect(component.senhaVisivel()).toBe(true);
+    expect(campo().type).toBe('text');
+
+    component.alternarVisibilidadeSenha();
+    fixture.detectChanges();
+    expect(campo().type).toBe('password');
+  });
+
+  it('explica por que o botão está desabilitado, sem acusar quem nem começou', () => {
+    // Campos intocados: nada de erro prematuro.
+    component.email.set('');
+    component.senha.set('');
+    expect(component.motivoFormularioInvalido).toBe('Informe seu e-mail para continuar.');
+
+    component.email.set('a@b.com');
+    expect(component.motivoFormularioInvalido).toBeNull();
+
+    component.senha.set('123');
+    expect(component.motivoFormularioInvalido).toContain('6 caracteres');
+
+    component.senha.set('123456');
+    expect(component.motivoFormularioInvalido).toBeNull();
+    expect(component.formularioValido).toBe(true);
+  });
 });

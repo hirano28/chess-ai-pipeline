@@ -119,7 +119,25 @@ describe('HistoricoAnaliseComponent', () => {
       'app-tabuleiro-preview img'
     ) as HTMLImageElement;
     // De pretas, o canto superior esquerdo é h1 (torre branca); de brancas seria a8.
-    expect(primeiraPeca.getAttribute('alt')).toBe('wR');
+    // O alt é vazio de propósito (o tabuleiro inteiro é um só role="img"),
+    // então quem identifica a peça aqui é o arquivo do SVG.
+    expect(primeiraPeca.getAttribute('src')).toContain('wR.svg');
+  });
+
+  it('a miniatura é um único role="img" rotulado, não 32 imagens soltas', () => {
+    component.itens = [
+      { ...itemComStatus, fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }
+    ];
+    fixture.detectChanges();
+
+    const tabuleiro = fixture.nativeElement.querySelector(
+      'app-tabuleiro-preview [role="img"]'
+    ) as HTMLElement;
+    expect(tabuleiro.getAttribute('aria-label')).toContain('32 peças');
+    const imagensComAlt = fixture.nativeElement.querySelectorAll(
+      'app-tabuleiro-preview img[alt]:not([alt=""])'
+    );
+    expect(imagensComAlt.length).toBe(0);
   });
 
   it('deve emitir atualizarClicado ao clicar em "Atualizar lista"', () => {

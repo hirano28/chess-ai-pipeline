@@ -20,9 +20,29 @@ export class LoginComponent {
   readonly carregando = signal(false);
   readonly erro = signal<string | null>(null);
   readonly confirmacaoPendente = signal(false);
+  readonly senhaVisivel = signal(false);
 
   get formularioValido(): boolean {
     return this.email().trim().length > 0 && this.senha().length >= 6;
+  }
+
+  /** Por que o botão está desabilitado. Botão morto sem explicação é o
+   * clássico beco sem saída de formulário — aqui o motivo é sempre um só. */
+  get motivoFormularioInvalido(): string | null {
+    if (this.email().trim().length === 0) {
+      return 'Informe seu e-mail para continuar.';
+    }
+    if (this.senha().length === 0) {
+      return null;
+    }
+    if (this.senha().length < 6) {
+      return 'A senha precisa ter pelo menos 6 caracteres.';
+    }
+    return null;
+  }
+
+  alternarVisibilidadeSenha(): void {
+    this.senhaVisivel.update((visivel) => !visivel);
   }
 
   alternarModo(modo: Modo): void {

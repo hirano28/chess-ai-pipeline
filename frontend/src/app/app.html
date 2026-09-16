@@ -4,6 +4,13 @@
   seria oferecer 5 links que voltam todos para a mesma tela.
 -->
 @if (authService.autenticado()) {
+  <!--
+    Primeiro ponto de tabulação da página: sem ele, quem navega por teclado
+    atravessa os 6 links da navegação, o e-mail e o "Sair" a cada troca de tela
+    antes de chegar no conteúdo.
+  -->
+  <a href="#conteudo" class="link-pular">Pular para o conteúdo</a>
+
   <header class="sticky top-0 z-40 border-b border-linha bg-ardosia-900/80 backdrop-blur-xl">
     <div
       class="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-1 px-5 py-3 sm:px-8 lg:px-12"
@@ -35,8 +42,13 @@
         <span class="font-display text-lg font-semibold tracking-tight">Hexágono</span>
       </a>
 
+      <!--
+        No celular a navegação rola na horizontal com a barra escondida, então
+        "Analisador" e "Perfil" ficavam fora da tela sem nenhuma pista de que
+        havia mais. `.nav-rolavel` desvanece a borda direita para sinalizar isso.
+      -->
       <nav
-        class="order-3 -mx-1 flex w-full items-center gap-1 overflow-x-auto sem-barra pb-1 sm:order-none sm:mx-0 sm:w-auto sm:pb-0"
+        class="nav-rolavel order-3 -mx-1 flex w-full items-center gap-1 overflow-x-auto sem-barra pb-1 sm:order-none sm:mx-0 sm:w-auto sm:pb-0"
         aria-label="Navegação principal"
       >
         <a
@@ -85,8 +97,11 @@
         </a>
       </nav>
 
-      <div class="ml-auto flex shrink-0 items-center gap-2.5">
-        <span class="hidden text-xs text-bruma-500 md:inline" [title]="authService.usuario()?.email">
+      <div class="ml-auto flex min-w-0 shrink items-center gap-2.5">
+        <span
+          class="hidden max-w-[18ch] truncate text-xs text-bruma-500 md:inline"
+          [title]="authService.usuario()?.email"
+        >
           {{ authService.usuario()?.email }}
         </span>
         <button type="button" class="btn btn-secundario btn-pequeno" (click)="sair()" title="Encerrar sessão">
@@ -97,5 +112,7 @@
   </header>
 }
 
-<router-outlet />
+<div id="conteudo" tabindex="-1">
+  <router-outlet />
+</div>
 <app-modal-onboarding-contas />

@@ -332,9 +332,32 @@ class ResponderTreinoResponse(BaseModel):
 
 
 class FocoTreinoResponse(BaseModel):
-    """Resposta de POST /treino/foco/{categoria} (D-49)."""
+    """Resposta de POST /treino/foco/{categoria} (D-49).
+
+    `motivo` só é preenchido quando `adicionados == 0`, para o frontend poder
+    explicar QUAL dos dois zeros aconteceu em vez de mandar o usuário para uma
+    fila que não mudou (D-52):
+
+    - `sem_catalogo`: a categoria não tem nenhum exercício importado. Hoje é o
+      caso real de ESTRATEGIA e GESTAO_DE_TEMPO — ver o achado honesto no D-49
+      sobre o Lichess não ter tema equivalente a relógio.
+    - `ja_na_fila`: existe catálogo, mas o usuário já tem todos na fila dele.
+    """
 
     adicionados: int
+    motivo: str | None = None
+
+
+class DisponibilidadeFocoResponse(BaseModel):
+    """Quantos exercícios de catálogo existem por categoria do Hexágono (D-53).
+
+    Sempre traz as 6 chaves de `HEXAGON_CATEGORIES`, com 0 nas que não têm
+    nenhum exercício importado. Existe para a tela não oferecer um botão
+    "Focar" que ela já sabe que não vai levar a lugar nenhum: avisar depois do
+    clique (D-52) foi o remendo, não oferecer o beco é a correção.
+    """
+
+    por_categoria: dict[str, int]
 
 
 class ExplicarPosicaoRequest(BaseModel):
@@ -1119,6 +1142,40 @@ def responder_treino(
     )
 
 
+@app.get("/treino/foco/disponibilidade", response_model=DisponibilidadeFocoResponse)
+def disponibilidade_foco_treino(
+    user_id: str = Depends(verificar_sessao),
+) -> DisponibilidadeFocoResponse:
+    """Contagem de exercícios de catálogo por categoria do Hexágono (D-53).
+
+    Catálogo é global (sem `user_id`, mesmo padrão de `indice_conceitual`), então
+    a contagem é a mesma para todo mundo — a sessão aqui só protege o acesso.
+
+    Declarada ANTES de `POST /treino/foco/{categoria}` por clareza de leitura;
+    não há conflito de rota porque os métodos HTTP são diferentes.
+    """
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resp = client.table("exercicios_taticos").select("categoria_hexagono").execute()
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar o catálogo de exercícios: {error}"
+        ) from error
+
+    # Começa em 0 para as 6: uma categoria ausente no banco precisa aparecer
+    # como 0 explícito, não sumir do mapa e virar `undefined` no frontend.
+    por_categoria = {categoria: 0 for categoria in HEXAGON_CATEGORIES}
+    for row in resp.data or []:
+        categoria = row.get("categoria_hexagono")
+        if categoria in por_categoria:
+            por_categoria[categoria] += 1
+
+    return DisponibilidadeFocoResponse(por_categoria=por_categoria)
+
+
 @app.post("/treino/foco/{categoria}", response_model=FocoTreinoResponse)
 def focar_categoria_treino(
     categoria: str,
@@ -1159,11 +1216,15 @@ def focar_categoria_treino(
             status_code=500, detail=f"Falha ao buscar exercícios da categoria: {error}"
         ) from error
 
+    total_no_catalogo = len(resp_candidatos.data or [])
     candidatos = [
         row["id"] for row in resp_candidatos.data or [] if row["id"] not in ja_na_fila
     ]
     if not candidatos:
-        return FocoTreinoResponse(adicionados=0)
+        return FocoTreinoResponse(
+            adicionados=0,
+            motivo="ja_na_fila" if total_no_catalogo else "sem_catalogo",
+        )
 
     escolhidos = random.sample(candidatos, k=min(TREINO_FOCO_QTD_EXERCICIOS, len(candidatos)))
 

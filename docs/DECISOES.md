@@ -2543,6 +2543,185 @@ em telas estreitas) — não dá para validar de fora do navegador.
 
 ---
 
+### D-52 — Auditoria de UX e acessibilidade da aplicação inteira
+
+Varredura das 15 telas/componentes + `styles.css` + casca do app, corrigindo o
+que era defeito real. O design system em si já estava maduro (tokens, `.selo`,
+`.aviso`, `.esqueleto`, `.pulso`, `:focus-visible` global, `prefers-reduced-
+motion`) — o que faltava estava nas bordas.
+
+**1. "Focar em X" era um beco sem saída silencioso (o achado mais grave).**
+`hexagono-radar.focar()` fazia `await treinoService.focarCategoria(...)` e
+**descartava o retorno inteiro**, navegando para `/treino` em qualquer caso.
+Consequência: erro de rede ou sessão expirada levava o usuário para uma fila
+inalterada, sem mensagem nenhuma. Pior, conferido contra o banco de produção:
+`exercicios_taticos` tem 300 exercícios em CALCULO, TATICA, FINAIS e
+ESTRUTURA_DE_PEOES, e **zero em ESTRATEGIA e GESTAO_DE_TEMPO**. Dois dos seis
+botões da tela principal não faziam nada, sem avisar.
+
+O D-49 já documentava o buraco de `GESTAO_DE_TEMPO` (o Lichess não tem tema
+equivalente a relógio); **`ESTRATEGIA` estar igualmente vazia não estava
+documentado em lugar nenhum** — só apareceu agora, ao consultar o banco real.
+
+Correções: `FocoTreinoResponse` ganhou `motivo` (`sem_catalogo` | `ja_na_fila`),
+porque `adicionados: 0` conflatava duas situações que dizem coisas opostas ao
+usuário ("não temos material" vs "você já pegou tudo") — dizer a errada seria
+mentir. O componente passou a usar o resultado, só navega quando algo de fato
+entrou na fila, e explica o que houve nos outros casos.
+
+**2. O radar escrevia `ESTRUTURA_DE_PEOES` e `GESTAO_DE_TEMPO` crus** nos
+rótulos dos eixos, enquanto os botões logo abaixo, no mesmo cartão, diziam
+"Estrutura de Peões" e "Gestão de Tempo". O mapa `ROTULOS_CATEGORIA_HEXAGONO`
+já existia e já estava importado no componente.
+
+**3. Modal de onboarding sem saída pelo teclado.** `role="dialog"
+aria-modal="true"` sem Esc, sem clique no scrim e sem foco inicial. Adicionados
+os três (Esc e scrim ignorados durante o salvamento, para não descartar o que
+está em voo). Trap de foco completo ficou de fora de propósito: exige bem mais
+código e o caso prático está coberto.
+
+**4. Miniatura de tabuleiro era ruído para leitor de tela.** Cada preview
+entregava 64 casas e até 32 `<img alt="wR">` — alt críptico que não ajuda
+ninguém a entender a posição, e agora multiplicado por linha de histórico
+(D-51). Virou **um** `role="img"` com rótulo que diz o que dá para saber sem
+interpretar a posição ("Posição de xadrez com 32 peças, vez das brancas, vista
+do lado das brancas"), com as casas em `aria-hidden`. Deliberadamente não
+tenta descrever a posição peça a peça nem avaliá-la.
+
+**5. Duas ações irreversíveis sem confirmação.** "Desconectar" do Lichess
+(revoga o OAuth, encostado no "Reconectar") e "Reiniciar análise" do Analisador
+(descarta o progresso e **consome mais uma análise do limite diário** criado no
+D-50). Ambas passaram a pedir confirmação inline, sem `window.confirm` — o app
+não usa diálogo nativo em lugar nenhum.
+
+**6. Link "pular para o conteúdo".** Quem navega por teclado atravessava 6
+links de navegação + e-mail + "Sair" a cada troca de tela antes de chegar no
+conteúdo. Classe `.link-pular` (invisível até receber foco) + `#conteudo` em
+volta do `router-outlet`.
+
+**7. Login:** o botão desabilitado não dizia por quê (a dica de 6 caracteres
+era só placeholder, some ao digitar) e não havia como conferir a senha
+digitada. Adicionados o motivo em texto e o botão mostrar/ocultar. O motivo
+fica em branco enquanto o campo de senha está intocado — não acusa quem ainda
+nem começou.
+
+**8. `100vh` → `100dvh`** em `body`, `.pagina` e na tela de login: no celular,
+`100vh` ignora a barra de endereço e cria uma faixa de rolagem que não existe.
+
+**9. Consistência:** os botões de OAuth do Perfil usavam texto puro
+("Iniciando conexão…") enquanto todo o resto do app usa o `.pulso` — mesma
+classe de inconsistência corrigida no D-50 com o spinner do Analisador.
+
+**Verificado de verdade:** servidor local + sessão real. `POST /treino/foco/
+GESTAO_DE_TEMPO` e `.../ESTRATEGIA` devolveram `{"adicionados":0,"motivo":
+"sem_catalogo"}`; `.../TATICA` devolveu `{"adicionados":8,"motivo":null}`.
+
+**10. Conferência visual no navegador (e o que só ela encontrou).** Com
+autorização do usuário, Playwright foi instalado **fora do projeto** (num
+diretório temporário da sessão, sem tocar `package.json` nem o `node_modules`
+do frontend) e usado para abrir o app real — backend local + `ng serve` +
+sessão real injetada no `localStorage` — e fotografar 14 telas, em 1440px e em
+390px. Três defeitos só apareceram aí, nenhum deles detectável lendo código:
+
+- **A narrativa exibia markdown cru.** O Gemini usa `**negrito**` e a tela
+  mostrava os asteriscos: "a \*\*Tática\*\* permanece como o seu gargalo". Isso
+  estava em produção, nas duas telas que renderizam narrativa (Hexágono e
+  Analisador), e é o texto mais lido do produto. Helper novo
+  `shared/texto.ts` (`segmentosDeNegrito`) devolve segmentos, e o template
+  renderiza `<strong>` — **sem `innerHTML`**, então nada que venha do modelo é
+  interpretado como marcação. Só negrito é tratado: é a única marcação que
+  apareceu de verdade, e asterisco solto ou par não fechado fica como está.
+- **Os cartões de ponto crítico ficaram apertados no desktop.** A miniatura
+  que o D-51 acabou de adicionar, somada ao `lg:grid-cols-3`, espremia as tags
+  de falha numa tira de ~150px, quebrando "ABERTURA DE LINHAS DESFAVORAVEL" em
+  duas linhas. No celular (1 coluna) já estava ótimo — era um problema
+  exclusivo do desktop. Passou a `sm:grid-cols-2`.
+- **A navegação no celular escondia metade dos itens.** O trilho rola na
+  horizontal com a barra de rolagem escondida (`sem-barra`), então
+  "Analisador" e "Perfil" ficavam fora da tela sem nenhuma pista de que
+  existiam. `.nav-rolavel` desvanece a borda direita, só abaixo de `sm:`.
+
+Confirmado nas imagens que o resto funciona: rótulos amigáveis nos eixos do
+radar, o aviso do "Focar" aparecendo **sem sair da página**, o link de pular
+surgindo no primeiro Tab, a confirmação inline de desconectar, o campo de
+senha com olho e o motivo do botão desabilitado, e as miniaturas do D-51
+legíveis e distintas entre si na lista de partidas.
+
+**Testes:** 2 novos no backend (604 → **606**), 20 novos no frontend
+(179 → **199**, 26 arquivos: + `shared/texto.spec.ts`). `ng build` limpo.
+
+**Consequência a resolver fora do código:** ESTRATEGIA e GESTAO_DE_TEMPO
+continuam sem catálogo. A UI agora é honesta sobre isso, mas o buraco de
+conteúdo permanece — ver P-15 em `ESTADO.md`.
+
+---
+
+### D-53 — Não oferecer o beco sem saída, e tornar a conferência visual repetível
+
+Continuação direta do D-52, com autonomia dada pelo usuário para decidir e
+implementar sem consultar a cada passo.
+
+**1. O "Focar" em categoria sem material deixou de existir.** O D-52 fez o
+botão explicar, depois do clique, que aquela categoria não tem exercício. Isso
+era o remendo: a correção é não oferecer. Endpoint novo `GET /treino/foco/
+disponibilidade` devolve a contagem de `exercicios_taticos` por categoria — as
+6 chaves sempre presentes, com 0 explícito nas vazias (sumir do mapa viraria
+`undefined` no frontend e o botão voltaria a parecer disponível). O Hexágono
+só renderiza botão para categoria com material e explica a ausência das outras
+em uma linha, apontando para o Treino Diário, que é onde elas de fato se
+treinam. Se a consulta falhar, **nenhum** botão é escondido: supor "não tem
+material" sem saber seria pior que deixar tentar, e o aviso do D-52 continua
+como rede de segurança.
+
+**Por que não foi mapeado tema nenhum para ESTRATEGIA.** A tentação era
+preencher o buraco do P-15 acrescentando temas ao
+`TEMA_LICHESS_PARA_CATEGORIA`. Revisado o conjunto de temas do Lichess, não há
+nenhum que signifique estratégia: `quietMove` e `defensiveMove` são os mais
+próximos, e ainda assim descrevem um lance dentro de uma sequência tática.
+Puzzle é tática por construção. Mapear um deles para ESTRATEGIA seria
+reetiquetar tática como estratégia — exatamente a cobertura fingida que o D-49
+recusou fazer para GESTAO_DE_TEMPO. O buraco de conteúdo continua aberto e
+honesto no P-15; o que mudou é que a interface parou de fingir que ele não
+existe.
+
+**2. Conferência visual virou ferramenta do projeto.** No D-52 o Playwright foi
+instalado num diretório temporário e o script morreu com a sessão. Como ele
+encontrou três defeitos que 194 testes verdes não pegaram, virou parte do
+repositório:
+
+- `backend/common/gerar_sessao_local.py` — emite uma sessão real via magic link
+  (Admin API), sem precisar da senha de ninguém. Fecha uma lacuna que existia
+  desde o D-25: sem chave estática, todo teste manual precisava de um token e
+  cada sessão de trabalho reescrevia o mesmo script descartável. O `CLAUDE.md`
+  chegava a mandar "ver os scripts de validação usados no D-48/D-49 como
+  referência" — scripts que nunca foram commitados.
+- `frontend/tools/capturar-telas.mjs` (`npm run telas`) — fotografa as 7 telas
+  em 1440px e 390px. É ferramenta de **captura, não de teste**: não afirma nada
+  sobre o que viu. Essa escolha é deliberada — a primeira versão, cheia de
+  asserções sobre a UI, quebrou na primeira mudança de tela (quando o botão
+  "Focar em Gestão de Tempo" deixou de existir, por causa do item 1 acima). Um
+  script de screenshot que não roda em CI e afirma coisas apodrece; um que só
+  fotografa, não. Quem olha as imagens é quem julga.
+- `playwright` entrou como `devDependency` do frontend. Não há CI de frontend
+  neste repo, então não há custo de pipeline.
+
+**3. Dois defeitos visuais achados usando a ferramenta recém-commitada:**
+
+- **`.metrica-valor` e `.metrica-rotulo` não eram `block`.** Todos os call
+  sites usam `<span>`, que é inline, então número e rótulo ficavam colados na
+  mesma linha — "0FEITAS HOJE", "35TOTAL HOJE" — e o `margin-top` do rótulo
+  nunca teve efeito. Afetava as 3 telas que usam `.metrica` (Treino Diário,
+  Sessões de Treino, Puzzles Insights). Corrigido no token, não nos call sites.
+- **O Laboratório desenhava um tabuleiro vazio de ~230px** antes de o usuário
+  digitar qualquer coisa. O Explicador já guardava isso com um `@if`; o
+  Laboratório não. Agora guarda.
+
+**Testes:** 5 novos no backend (606 → **611**), 2 novos no frontend
+(199 → **201**). `ng build` limpo. Conferido no navegador que o Hexágono
+mostra 4 botões + a nota de ausência, e que as métricas empilham direito.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

@@ -124,4 +124,24 @@ describe('PerfilUsuarioComponent (D-28, D-35)', () => {
     expect(component.oauthStatus()?.conectado).toBe(false);
     expect(component.oauthMensagemSucesso()).toContain('desvinculada');
   });
+
+  it('desconectar passa por confirmação em vez de revogar no primeiro clique', async () => {
+    const desconectarSpy = vi.spyOn(lichessOauthService, 'desconectar').mockResolvedValue(true);
+    component.oauthStatus.set({ conectado: true });
+
+    component.pedirConfirmacaoDesconectar();
+
+    expect(component.confirmandoDesconexao()).toBe(true);
+    expect(desconectarSpy).not.toHaveBeenCalled();
+
+    component.cancelarDesconexao();
+    expect(component.confirmandoDesconexao()).toBe(false);
+    expect(desconectarSpy).not.toHaveBeenCalled();
+
+    component.pedirConfirmacaoDesconectar();
+    await component.desconectarLichess();
+
+    expect(desconectarSpy).toHaveBeenCalledTimes(1);
+    expect(component.confirmandoDesconexao()).toBe(false);
+  });
 });

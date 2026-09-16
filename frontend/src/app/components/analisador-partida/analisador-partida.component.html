@@ -174,14 +174,31 @@
             Você pode fechar esta aba ou recarregar a página com segurança. A análise fica vinculada ao
             seu histórico e pode ser consultada ou retomada a qualquer momento.
           </p>
-          <div class="mt-4 flex flex-wrap items-center gap-3">
-            <button type="button" (click)="estado.set('INICIAL')" class="btn btn-secundario btn-pequeno">
-              Voltar ao início / ver histórico
-            </button>
-            <button type="button" (click)="reprocessarPartidaAtual()" class="btn btn-perigo btn-pequeno">
-              Reiniciar análise
-            </button>
-          </div>
+          @if (confirmandoReinicio()) {
+            <div class="aviso aviso-latao mt-4 flex-col items-start gap-3 text-left">
+              <span>
+                Reiniciar descarta o progresso desta análise, recomeça do zero e consome mais uma
+                das suas análises do dia.
+              </span>
+              <div class="flex flex-wrap gap-2">
+                <button type="button" (click)="cancelarReinicio()" class="btn btn-secundario btn-pequeno">
+                  Continuar esperando
+                </button>
+                <button type="button" (click)="reprocessarPartidaAtual()" class="btn btn-perigo btn-pequeno">
+                  Sim, reiniciar
+                </button>
+              </div>
+            </div>
+          } @else {
+            <div class="mt-4 flex flex-wrap items-center gap-3">
+              <button type="button" (click)="estado.set('INICIAL')" class="btn btn-secundario btn-pequeno">
+                Voltar ao início / ver histórico
+              </button>
+              <button type="button" (click)="pedirConfirmacaoReinicio()" class="btn btn-perigo btn-pequeno">
+                Reiniciar análise
+              </button>
+            </div>
+          }
         </div>
       </section>
     }
@@ -293,7 +310,15 @@
 
           <div class="prosa">
             @for (paragrafo of resumo()?.narrativa?.split('\n\n'); track $index) {
-              <p>{{ paragrafo }}</p>
+              <p>
+                @for (trecho of segmentos(paragrafo); track $index) {
+                  @if (trecho.negrito) {
+                    <strong class="font-semibold text-marfim">{{ trecho.texto }}</strong>
+                  } @else {
+                    <span>{{ trecho.texto }}</span>
+                  }
+                }
+              </p>
             }
           </div>
         </section>
@@ -305,7 +330,9 @@
               Pontos críticos identificados ({{ (resumo()?.pontos_criticos)!.length }})
             </h3>
 
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <!-- 2 colunas, não 3: com a miniatura ao lado (D-51), a 3ª coluna
+                 espremia as tags de falha numa tira estreita de ~150px. -->
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
               @for (pc of resumo()?.pontos_criticos; track pc.numero_lance) {
                 <div class="cartao p-4 transition-colors hover:border-linha-forte">
                   <div class="flex items-start justify-between gap-2">

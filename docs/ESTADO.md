@@ -16,8 +16,8 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **604**, todos passando, em 35 módulos |
-| Testes de frontend (Vitest) | **179**, todos passando, em 25 arquivos |
+| Testes de backend | **611**, todos passando, em 35 módulos |
+| Testes de frontend (Vitest) | **201**, todos passando, em 26 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
 `.github/workflows/deploy-backend.yml` lista os 35 módulos de teste do backend
@@ -135,6 +135,43 @@ diretamente comparáveis: aqui é % de categoria TATICA, lá era % de uma tag
 específica).
 
 ## 4. Pendências
+
+### P-15 — Duas categorias do Hexágono não têm exercício de catálogo 🟡
+
+`verificado_em: 16/09/2026` (consulta direta a `exercicios_taticos` no projeto
+`pmzmershonrqzwbmhaco` + chamada real a `POST /treino/foco/{categoria}`).
+
+| Categoria | Exercícios no catálogo |
+|---|---|
+| CALCULO | 300 |
+| TATICA | 300 |
+| FINAIS | 300 |
+| ESTRUTURA_DE_PEOES | 300 |
+| **ESTRATEGIA** | **0** |
+| **GESTAO_DE_TEMPO** | **0** |
+
+`GESTAO_DE_TEMPO` era esperado e está documentado no D-49 (puzzle de Lichess é
+posição estática, não existe tema de relógio). **`ESTRATEGIA` estar vazia não
+era conhecido** — apareceu só na auditoria de UX do D-52. A causa provável é o
+`TEMA_LICHESS_PARA_CATEGORIA` de `backend/rag/importar_exercicios_taticos.py`
+não mapear nenhum tema para ESTRATEGIA; confirmar antes de agir.
+
+O sintoma de interface está resolvido: o D-52 fez o botão explicar depois do
+clique, e o D-53 removeu o botão de vez — o Hexágono só oferece "Focar" nas 4
+categorias com material e explica a ausência das outras em uma linha, apontando
+para o Treino Diário. **O buraco de conteúdo continua aberto**: metade da
+taxonomia do produto não tem treino focado de catálogo.
+
+Descartado no D-53, depois de revisar os temas do Lichess: **não dá para
+remapear**. Não existe tema que signifique estratégia — `quietMove` e
+`defensiveMove` são os mais próximos e ainda assim descrevem um lance dentro de
+uma sequência tática. Puzzle é tática por construção. Mapear um deles para
+ESTRATEGIA seria reetiquetar tática como estratégia, a mesma cobertura fingida
+que o D-49 recusou para GESTAO_DE_TEMPO.
+
+Resolver de verdade exige **outra fonte de material** (estudos do Lichess,
+posições de livro já indexadas em `indice_conceitual`, ou curadoria manual) —
+decisão de produto, não de código. Enquanto isso, a interface está honesta.
 
 ### P-1 — Chaves de API expostas, rotação nunca feita 🔴
 
@@ -607,6 +644,27 @@ pontos críticos de uma partida real vieram todos com FEN. Testes: 600 →
 humana:** o visual em si no navegador (tamanho/legibilidade da miniatura na
 linha, card de ponto crítico em tela estreita).
 
+**Auditoria de UX e acessibilidade da aplicação inteira (16/09/2026, D-52).**
+Varredura das 15 telas + `styles.css` + casca do app. O achado grave foi o
+botão "Focar" do Hexágono descartando o retorno de `focarCategoria()` e
+navegando para `/treino` em qualquer caso — inclusive nas duas categorias que
+não têm exercício nenhum (ver P-15) e em erro de sessão. Também corrigidos:
+rótulos crus (`ESTRUTURA_DE_PEOES`) no radar, modal sem Esc/scrim/foco
+inicial, miniatura de tabuleiro despejando 32 `alt="wR"` em leitor de tela,
+"Desconectar" e "Reiniciar análise" sem confirmação, ausência de link "pular
+para o conteúdo", login sem mostrar-senha e sem dizer por que o botão está
+desabilitado, `100vh` no lugar de `100dvh`. Testes: 604 → **606** no backend,
+179 → **199** no frontend.
+
+**A conferência visual foi feita de verdade**, com Playwright instalado fora
+do projeto (ver "Verificação visual" na seção 6): 14 telas fotografadas em
+1440px e 390px, com backend local e sessão real. Três defeitos só apareceram
+olhando — o mais grave é que **a narrativa do Agente 2 exibia markdown cru**
+(`**Tática**` com os asteriscos à mostra) nas duas telas que a renderizam,
+comportamento que está em produção hoje. Também corrigidos ali: cartões de
+ponto crítico espremidos no desktop pela miniatura do D-51, e navegação no
+celular escondendo "Analisador"/"Perfil" sem pista de rolagem.
+
 ### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
 
 Não era decisão deliberada, era lacuna: `deploy-backend.yml` só propagava
@@ -666,6 +724,41 @@ do dashboard desde D-23 (Fase B efetivamente concluída; `/treino` somou-se
 `app.routes.ts`.
 
 ## 6. Como re-verificar
+
+### Verificação visual
+
+Teste unitário não pega defeito visual: o markdown cru na narrativa (D-52)
+passou por 199 testes verdes e só apareceu quando alguém olhou a tela. As
+ferramentas para isso estão no repositório desde o D-53:
+
+```bash
+# 1. uma vez: baixar o Chromium que o Playwright usa
+cd frontend && npx playwright install chromium
+
+# 2. subir os dois servidores (environment.development.ts já aponta a API
+#    para localhost:8000, então o `ng serve` fala com o backend local)
+.venv/Scripts/python.exe -m uvicorn backend.api.api_server:app --port 8000
+cd frontend && npm start
+
+# 3. gerar uma sessão real (magic link via Admin API, sem precisar de senha)
+.venv/Scripts/python.exe backend/common/gerar_sessao_local.py \
+    edson.hirano.dev@gmail.com sessao.json
+
+# 4. fotografar as 7 telas em 1440px e 390px
+cd frontend && npm run telas -- ../sessao.json ../telas
+```
+
+**Atenção ao e-mail:** os dados de partida pertencem a
+`edson.hirano.dev@gmail.com`, não a `edson.hirano28@gmail.com`. Gerar a sessão
+para o e-mail errado devolve históricos vazios e parece bug de código.
+
+Olhar as duas larguras importa: dos três defeitos achados no D-52, um era
+exclusivo do desktop (cartões espremidos) e outro exclusivo do celular
+(navegação sem pista de rolagem).
+
+`capturar-telas.mjs` é ferramenta de **captura, não de teste** — não afirma
+nada sobre o que fotografou, e por isso não entra em CI nem quebra quando a UI
+muda. O julgamento é de quem olha.
 
 ```sql
 -- volume por tabela e cobertura do pipeline

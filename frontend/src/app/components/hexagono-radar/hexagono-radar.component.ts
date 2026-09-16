@@ -81,6 +81,13 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
   readonly categorias = CATEGORIAS;
   readonly rotulosCategoria = ROTULOS_CATEGORIA_HEXAGONO;
   readonly focandoCategoria = signal<string | null>(null);
+  /** Retorno do último "Focar": antes o resultado era descartado e o usuário
+   * caía numa /treino inalterada sem entender por quê (D-52). */
+  readonly avisoFoco = signal<{ texto: string; tipo: 'erro' | 'info' } | null>(null);
+  /** Contagem de exercícios de catálogo por categoria (D-53). `null` enquanto
+   * não carregou ou se a consulta falhou — nesse caso nenhum botão é bloqueado,
+   * porque supor "não tem material" sem saber seria pior que deixar tentar. */
+  readonly catalogoPorCategoria = signal<Record<string, number> | null>(null);
 
   private readonly supabaseService = inject(SupabaseService);
   private readonly treinoService = inject(TreinoService);
@@ -102,6 +109,27 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     void this.carregarAnalise();
+    void this.carregarDisponibilidadeFoco();
+  }
+
+  /** true quando já sabemos que a categoria não tem exercício de catálogo. */
+  semCatalogo(categoria: Categoria): boolean {
+    const catalogo = this.catalogoPorCategoria();
+    return catalogo !== null && (catalogo[categoria] ?? 0) === 0;
+  }
+
+  /** Quantas categorias estão sem material, para a nota de rodapé do cartão. */
+  categoriasSemCatalogo(): Categoria[] {
+    return CATEGORIAS.filter((categoria) => this.semCatalogo(categoria));
+  }
+
+  private async carregarDisponibilidadeFoco(): Promise<void> {
+    const resultado = await this.treinoService.disponibilidadeFoco();
+    // Falha silenciosa de propósito: sem a contagem, os botões continuam
+    // clicáveis e o usuário cai no aviso do D-52. Degrada, não quebra.
+    if (resultado.success && resultado.porCategoria) {
+      this.catalogoPorCategoria.set(resultado.porCategoria);
+    }
   }
 
   ngOnDestroy(): void {
@@ -119,9 +147,56 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
       return;
     }
     this.focandoCategoria.set(categoria);
-    await this.treinoService.focarCategoria(categoria);
-    this.focandoCategoria.set(null);
-    await this.router.navigateByUrl('/treino');
+    this.avisoFoco.set(null);
+
+    try {
+      const resultado = await this.treinoService.focarCategoria(categoria);
+
+      if (!resultado.success) {
+        this.avisoFoco.set({
+          texto: resultado.error ?? 'Não foi possível montar o treino focado agora.',
+          tipo: 'erro'
+        });
+        return;
+      }
+
+      // Navegar com 0 exercícios adicionados jogaria o usuário numa fila que
+      // não mudou, sem explicação nenhuma — pior que não navegar.
+      if (!resultado.adicionados) {
+        this.avisoFoco.set({
+          texto: this.mensagemDeFocoVazio(categoria, resultado.motivo ?? null),
+          tipo: 'info'
+        });
+        return;
+      }
+
+      const rotulo = this.rotulosCategoria[categoria] ?? categoria;
+      const plural = resultado.adicionados === 1 ? 'exercício' : 'exercícios';
+      this.avisoFoco.set({
+        texto: `${resultado.adicionados} ${plural} de ${rotulo} na fila de hoje.`,
+        tipo: 'info'
+      });
+      await this.router.navigateByUrl('/treino');
+    } finally {
+      this.focandoCategoria.set(null);
+    }
+  }
+
+  /** Os dois zeros possíveis dizem coisas opostas ao usuário: um é "não temos
+   * material", o outro é "você já pegou tudo". Tratar como a mesma coisa
+   * mentiria em um dos dois casos. */
+  private mensagemDeFocoVazio(
+    categoria: Categoria,
+    motivo: 'sem_catalogo' | 'ja_na_fila' | null
+  ): string {
+    const rotulo = this.rotulosCategoria[categoria] ?? categoria;
+    if (motivo === 'ja_na_fila') {
+      return `Você já tem todos os exercícios de ${rotulo} na sua fila — nada novo a adicionar.`;
+    }
+    return (
+      `Ainda não há exercícios de catálogo para ${rotulo}. ` +
+      'Essa categoria só é treinada pelos seus próprios lances críticos, no Treino Diário.'
+    );
   }
 
   private async carregarAnalise(): Promise<void> {
@@ -183,7 +258,9 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
     this.chart = new Chart(canvas, {
       type: 'radar',
       data: {
-        labels: [...CATEGORIAS],
+        // Rótulos amigáveis, os mesmos dos botões "Focar" logo abaixo — o
+        // gráfico escrevia ESTRUTURA_DE_PEOES / GESTAO_DE_TEMPO cru.
+        labels: CATEGORIAS.map((categoria) => this.rotulosCategoria[categoria] ?? categoria),
         datasets: [
           {
             label,

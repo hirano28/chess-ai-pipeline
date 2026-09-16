@@ -261,7 +261,22 @@ depende de nenhum secret.
 Secrets do GitHub Actions: os mesmos acima (exceto `STOCKFISH_PATH`, que não
 é secret) mais `GCP_SA_KEY`.
 
-## 8. Troubleshooting — erros já vistos neste projeto
+## 8. Ferramentas de verificação local (D-53)
+
+Duas ferramentas para exercitar a aplicação de verdade, em vez de só rodar
+teste unitário. O procedimento completo está em `docs/ESTADO.md` §6.
+
+| Comando | O que faz |
+|---|---|
+| `python backend/common/gerar_sessao_local.py <email> [saida.json]` | Emite uma sessão real do Supabase Auth via magic link (Admin API), sem precisar da senha. Sem argumento de saída, imprime só o `access_token` — útil para `curl -H "Authorization: Bearer ..."`. **O token é credencial válida: não cole em log, issue nem commit.** |
+| `cd frontend && npm run telas -- <sessao.json> [pasta]` | Fotografa as 7 telas em 1440px e 390px, com a sessão injetada. Requer `npx playwright install chromium` na primeira vez, e os dois servidores no ar. |
+
+`npm run telas` é captura, não teste: não afirma nada sobre o que fotografou e
+não roda em CI. Serve para alguém olhar — foi assim que apareceram o markdown
+cru na narrativa e as métricas coladas ("0FEITAS HOJE"), ambos com a suíte
+inteira verde.
+
+## 9. Troubleshooting — erros já vistos neste projeto
 
 | Sintoma | Causa | Correção |
 |---|---|---|

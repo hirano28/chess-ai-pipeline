@@ -41,7 +41,15 @@
     @if (analise()!.narrativa) {
       <div class="prosa mt-6 surgir">
         @for (paragrafo of paragrafosDaNarrativa(analise()!.narrativa!); track $index) {
-          <p>{{ paragrafo }}</p>
+          <p>
+            @for (trecho of segmentos(paragrafo); track $index) {
+              @if (trecho.negrito) {
+                <strong class="font-semibold text-marfim">{{ trecho.texto }}</strong>
+              } @else {
+                <span>{{ trecho.texto }}</span>
+              }
+            }
+          </p>
         }
       </div>
     } @else {

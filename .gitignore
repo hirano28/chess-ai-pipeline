@@ -11,3 +11,8 @@ env.yaml
 .vscode/
 frontend/dist/
 backend/partidas_pgn/
+# Artefatos das ferramentas de verificação visual (D-53): sessão real e
+# screenshots são locais e descartáveis — sessao*.json contém credencial.
+sessao*.json
+/telas/
+frontend/telas/

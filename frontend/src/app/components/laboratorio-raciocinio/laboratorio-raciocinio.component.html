@@ -122,7 +122,12 @@
             (input)="posicao.set($any($event.target).value)"
           ></textarea>
 
-          <app-tabuleiro-preview class="mt-4 block" [fen]="fenPreview()" />
+          <!-- Só desenha quando há posição: um tabuleiro vazio de 230px antes
+               de o usuário digitar qualquer coisa é ruído, não informação.
+               Mesma guarda que o Explicador já fazia. -->
+          @if (fenPreview()) {
+            <app-tabuleiro-preview class="mt-4 block" [fen]="fenPreview()" />
+          }
 
           @if (linkLichess(); as urlLichess) {
             <p class="mt-3 text-center">

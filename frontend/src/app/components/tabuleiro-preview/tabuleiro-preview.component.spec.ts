@@ -65,5 +65,37 @@ describe('TabuleiroPreviewComponent', () => {
     expect(component.casas[56].rankLabel).toBe('1');
     expect(component.casas[56].fileLabel).toBe('a');
   });
+
+  it('descreve o tabuleiro inteiro num rótulo só, com contagem, vez e perspectiva', () => {
+    component.fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    fixture.detectChanges();
+
+    const descricao = component.descricaoAcessivel();
+    expect(descricao).toContain('32 peças');
+    expect(descricao).toContain('vez das brancas');
+    expect(descricao).toContain('vista do lado das brancas');
+  });
+
+  it('a descrição acompanha o giro do tabuleiro', () => {
+    component.fen = '8/8/8/8/8/8/8/4K2k b - - 0 1';
+    fixture.detectChanges();
+
+    expect(component.descricaoAcessivel()).toContain('vista do lado das brancas');
+
+    component.alternarOrientacao();
+    fixture.detectChanges();
+
+    const descricao = component.descricaoAcessivel();
+    expect(descricao).toContain('2 peças');
+    expect(descricao).toContain('vez das pretas');
+    expect(descricao).toContain('vista do lado das pretas');
+  });
+
+  it('FEN vazia é anunciada como tabuleiro vazio, não como posição', () => {
+    component.fen = '';
+    fixture.detectChanges();
+
+    expect(component.descricaoAcessivel()).toBe('Tabuleiro vazio (nenhuma posição carregada).');
+  });
 });
 

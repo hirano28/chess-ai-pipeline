@@ -1,11 +1,12 @@
 @if (visivel()) {
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-ardosia-950/85 p-4 backdrop-blur-sm sm:p-6"
+    class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-ardosia-950/85 p-4 backdrop-blur-sm sm:p-6"
     role="dialog"
     aria-modal="true"
     aria-labelledby="onboarding-titulo"
+    (click)="aoClicarNoFundo($event)"
   >
-    <div class="cartao surgir relative w-full max-w-lg shadow-elevado">
+    <div class="cartao surgir relative my-auto w-full max-w-lg shadow-elevado">
       <button
         type="button"
         (click)="fechar()"
@@ -50,6 +51,7 @@
               id="onboarding-lichess"
               type="text"
               autocomplete="off"
+              autofocus
               class="campo"
               placeholder="ex.: laisxadrez"
               [value]="lichessUsername()"

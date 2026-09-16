@@ -88,7 +88,9 @@
 
   body {
     margin: 0;
-    min-height: 100vh;
+    /* dvh acompanha a barra de endereço no celular; 100vh fica maior que a
+       área visível e cria uma faixa de rolagem que não existe de verdade */
+    min-height: 100dvh;
     background-color: var(--color-ardosia-900);
     /* duas luzes fracas no topo dão profundidade sem custar nenhum asset */
     background-image:
@@ -169,7 +171,7 @@
   /* --- casca da página --------------------------------------------------- */
 
   .pagina {
-    min-height: 100vh;
+    min-height: 100dvh;
     padding: 2.5rem 1.25rem 5rem;
   }
   @media (min-width: 640px) {
@@ -653,7 +655,11 @@
     background-color: var(--color-ardosia-850);
     padding: 0.875rem 1rem;
   }
+  /* `display: block` não é detalhe: os call sites usam <span>, que é inline —
+     sem isto, valor e rótulo ficavam colados na mesma linha ("0FEITAS HOJE")
+     e o margin-top do rótulo não tinha efeito nenhum. */
   .metrica-valor {
+    display: block;
     font-family: var(--font-display);
     font-size: 1.75rem;
     font-weight: 600;
@@ -662,6 +668,7 @@
     color: var(--color-marfim);
   }
   .metrica-rotulo {
+    display: block;
     margin-top: 0.25rem;
     font-size: 0.6875rem;
     font-weight: 600;
@@ -704,6 +711,39 @@
   }
 
   /* --- navegação ---------------------------------------------------------- */
+
+  /* atalho de teclado: invisível até receber foco, aí vira um botão comum */
+  .link-pular {
+    position: fixed;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 100;
+    transform: translateY(-160%);
+    border-radius: var(--radius-controle);
+    background-color: var(--color-latao-500);
+    padding: 0.625rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-ardosia-900);
+    box-shadow: var(--shadow-elevado);
+    transition: transform 150ms ease;
+  }
+  .link-pular:focus-visible {
+    transform: none;
+  }
+
+  /* Trilho horizontal com barra escondida: sem uma pista visual, os itens
+     fora da tela simplesmente não existem para quem está no celular. A
+     máscara desvanece a borda direita, sinalizando que há mais para o lado.
+     Só no celular — a partir de sm: a navegação cabe inteira e não rola. */
+  .nav-rolavel {
+    mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+  }
+  @media (min-width: 640px) {
+    .nav-rolavel {
+      mask-image: none;
+    }
+  }
 
   .nav-link {
     position: relative;

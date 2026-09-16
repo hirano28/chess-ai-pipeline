@@ -1,4 +1,4 @@
-<main class="flex min-h-screen items-center justify-center px-5 py-12 sm:px-8">
+<main class="flex min-h-[100dvh] items-center justify-center px-5 py-12 sm:px-8">
   <section class="w-full max-w-md">
     <div class="mb-8 flex flex-col items-center text-center">
       <span class="text-latao-500" aria-hidden="true">
@@ -78,15 +78,41 @@
 
           <div class="mb-6">
             <label class="rotulo" for="campo-senha">Senha</label>
-            <input
-              id="campo-senha"
-              type="password"
-              [attr.autocomplete]="modo() === 'login' ? 'current-password' : 'new-password'"
-              class="campo"
-              placeholder="Mínimo 6 caracteres"
-              [value]="senha()"
-              (input)="senha.set($any($event.target).value)"
-            />
+            <div class="relative">
+              <input
+                id="campo-senha"
+                [type]="senhaVisivel() ? 'text' : 'password'"
+                [attr.autocomplete]="modo() === 'login' ? 'current-password' : 'new-password'"
+                class="campo pr-12"
+                placeholder="Mínimo 6 caracteres"
+                [value]="senha()"
+                (input)="senha.set($any($event.target).value)"
+              />
+              <button
+                type="button"
+                class="absolute inset-y-0 right-0 flex items-center rounded-r-[var(--radius-controle)] px-3 text-bruma-500 transition-colors hover:text-marfim"
+                [attr.aria-label]="senhaVisivel() ? 'Ocultar senha' : 'Mostrar senha'"
+                [attr.aria-pressed]="senhaVisivel()"
+                (click)="alternarVisibilidadeSenha()"
+              >
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.7"
+                    d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
+                  />
+                  <circle cx="12" cy="12" r="3" stroke-width="1.7" />
+                  @if (!senhaVisivel()) {
+                    <path stroke-linecap="round" stroke-width="1.7" d="m4 20 16-16" />
+                  }
+                </svg>
+              </button>
+            </div>
+
+            @if (motivoFormularioInvalido; as motivo) {
+              <p class="ajuda text-latao-400">{{ motivo }}</p>
+            }
           </div>
 
           <button type="submit" class="btn btn-primario btn-largo" [disabled]="!formularioValido || carregando()">

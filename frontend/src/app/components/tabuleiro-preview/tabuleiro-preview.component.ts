@@ -77,6 +77,29 @@ export class TabuleiroPreviewComponent implements OnInit, OnChanges {
     }
   }
 
+  /**
+   * Rótulo único do tabuleiro para leitor de tela. Descreve o que dá para
+   * saber sem interpretar a posição (contagem de peças, de quem é a vez,
+   * perspectiva) — bem mais útil que 32 "wR"/"bP" soltos, e honesto: não
+   * finge avaliar a posição.
+   */
+  descricaoAcessivel(): string {
+    const pecas = this.casas.filter((casa) => casa.peca).length;
+    if (pecas === 0) {
+      return 'Tabuleiro vazio (nenhuma posição carregada).';
+    }
+
+    const vez = this.vezDeJogar();
+    const partes = [`Posição de xadrez com ${pecas} peças`];
+    if (vez) {
+      partes.push(`vez das ${vez === 'BRANCAS' ? 'brancas' : 'pretas'}`);
+    }
+    partes.push(
+      `vista do lado das ${this.orientacaoAtiva() === 'BRANCAS' ? 'brancas' : 'pretas'}`
+    );
+    return `${partes.join(', ')}.`;
+  }
+
   alternarOrientacao(): void {
     this.orientacaoAtiva.set(this.orientacaoAtiva() === 'BRANCAS' ? 'PRETAS' : 'BRANCAS');
     this.casas = this.parseFen(this.fen);

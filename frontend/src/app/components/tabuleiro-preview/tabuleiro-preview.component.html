@@ -35,13 +35,21 @@
     </div>
   }
 
+  <!--
+    O tabuleiro é UM elemento para quem usa leitor de tela. Sem isto, cada
+    miniatura despejava 64 casas e até 32 imagens com alt críptico ("wR",
+    "bP") — ruído que não ajuda ninguém a entender a posição.
+  -->
   <div
     class="grid w-full select-none grid-cols-8 overflow-hidden rounded-lg border border-linha-forte shadow-cartao"
+    role="img"
+    [attr.aria-label]="descricaoAcessivel()"
   >
     @for (casa of casas; track $index) {
       <div
         class="relative flex aspect-square items-center justify-center p-0.5"
         [class]="casa.clara ? 'bg-casa-clara' : 'bg-casa-escura'"
+        aria-hidden="true"
       >
         @if (casa.rankLabel) {
           <span
@@ -64,7 +72,7 @@
         @if (casa.peca) {
           <img
             [src]="piecesBaseUrl + '/' + casa.peca + '.svg'"
-            [alt]="casa.peca"
+            alt=""
             class="h-full w-full select-none"
             draggable="false"
           />

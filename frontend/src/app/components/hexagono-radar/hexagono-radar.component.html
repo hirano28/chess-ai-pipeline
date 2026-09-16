@@ -103,19 +103,48 @@
       </p>
       <div class="mt-4 flex flex-wrap gap-2">
         @for (categoria of categorias; track categoria) {
-          <button
-            type="button"
-            class="btn btn-secundario btn-pequeno"
-            [disabled]="focandoCategoria() === categoria"
-            (click)="focar(categoria)"
-          >
-            @if (focandoCategoria() === categoria) {
-              <span class="pulso" aria-hidden="true"></span>
-            }
-            <span>Focar em {{ rotulosCategoria[categoria] }}</span>
-          </button>
+          @if (!semCatalogo(categoria)) {
+            <button
+              type="button"
+              class="btn btn-secundario btn-pequeno"
+              [disabled]="focandoCategoria() !== null"
+              (click)="focar(categoria)"
+            >
+              @if (focandoCategoria() === categoria) {
+                <span class="pulso" aria-hidden="true"></span>
+              }
+              <span>Focar em {{ rotulosCategoria[categoria] }}</span>
+            </button>
+          }
         }
       </div>
+
+      @if (categoriasSemCatalogo(); as indisponiveis) {
+        @if (indisponiveis.length > 0) {
+          <p class="legenda mt-3">
+            Sem exercícios de catálogo para
+            @for (categoria of indisponiveis; track categoria) {
+              <strong class="font-medium text-bruma-300">{{ rotulosCategoria[categoria] }}</strong
+              >{{ $last ? '' : ', ' }}
+            }
+            — {{ indisponiveis.length === 1 ? 'essa categoria se treina' : 'essas categorias se treinam' }}
+            pelos seus próprios lances críticos, no
+            <a routerLink="/treino" class="text-latao-500 underline hover:text-latao-400">Treino Diário</a>.
+          </p>
+        }
+      }
+
+      @if (avisoFoco(); as aviso) {
+        <div
+          class="aviso mt-4 surgir"
+          [class.aviso-erro]="aviso.tipo === 'erro'"
+          [class.aviso-info]="aviso.tipo === 'info'"
+          [attr.role]="aviso.tipo === 'erro' ? 'alert' : 'status'"
+        >
+          <span aria-hidden="true">{{ aviso.tipo === 'erro' ? '!' : 'ⓘ' }}</span>
+          <span>{{ aviso.texto }}</span>
+        </div>
+      }
     </section>
 
     <app-repertorio-insights />

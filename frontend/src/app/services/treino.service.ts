@@ -62,6 +62,18 @@ export interface ResponderTreinoResult {
 export interface FocoTreinoResult {
   success: boolean;
   adicionados?: number;
+  /** Só vem quando `adicionados === 0`: 'sem_catalogo' (categoria sem nenhum
+   * exercício importado) ou 'ja_na_fila' (o usuário já tem todos). D-52. */
+  motivo?: 'sem_catalogo' | 'ja_na_fila' | null;
+  error?: string;
+  sessaoExpirada?: boolean;
+}
+
+/** Resposta de disponibilidadeFoco() (D-53). */
+export interface DisponibilidadeFocoResult {
+  success: boolean;
+  /** Contagem por categoria; sempre com as 6 chaves quando `success`. */
+  porCategoria?: Record<string, number>;
   error?: string;
   sessaoExpirada?: boolean;
 }
@@ -143,18 +155,41 @@ export class TreinoService {
     }
   }
 
+  /** Quantos exercícios de catálogo existem por categoria (D-53). Serve para a
+   * tela não oferecer "Focar" numa categoria que não tem material nenhum. */
+  async disponibilidadeFoco(): Promise<DisponibilidadeFocoResult> {
+    try {
+      const resposta = await firstValueFrom(
+        this.http.get<{ por_categoria: Record<string, number> }>(
+          `${this.apiUrl}/treino/foco/disponibilidade`,
+          { headers: await this.headersComSessao() }
+        )
+      );
+      return { success: true, porCategoria: resposta.por_categoria };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        return { success: false, error: MENSAGEM_SESSAO_EXPIRADA, sessaoExpirada: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
   /** Injeta exercícios do catálogo tático (D-49) na fila de hoje, focados
    * numa categoria fraca do Hexágono. */
   async focarCategoria(categoria: string): Promise<FocoTreinoResult> {
     try {
       const resposta = await firstValueFrom(
-        this.http.post<{ adicionados: number }>(
+        this.http.post<{ adicionados: number; motivo?: 'sem_catalogo' | 'ja_na_fila' | null }>(
           `${this.apiUrl}/treino/foco/${categoria}`,
           {},
           { headers: await this.headersComSessao() }
         )
       );
-      return { success: true, adicionados: resposta.adicionados };
+      return {
+        success: true,
+        adicionados: resposta.adicionados,
+        motivo: resposta.motivo ?? null
+      };
     } catch (cause: unknown) {
       if (this.isUnauthorized(cause)) {
         return { success: false, error: MENSAGEM_SESSAO_EXPIRADA, sessaoExpirada: true };

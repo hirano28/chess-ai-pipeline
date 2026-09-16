@@ -268,6 +268,20 @@ describe('AnalisadorPartidaComponent', () => {
     ).toBe('PRETAS');
     expect(component.orientacaoDaPosicao(null)).toBe('BRANCAS');
   });
+
+  it('reiniciar análise pede confirmação antes de descartar o progresso', async () => {
+    const reprocessarSpy = vi.spyOn(revisaoService, 'reprocessarPartida');
+    component.partidaId.set('p-1');
+
+    component.pedirConfirmacaoReinicio();
+
+    expect(component.confirmandoReinicio()).toBe(true);
+    expect(reprocessarSpy).not.toHaveBeenCalled();
+
+    component.cancelarReinicio();
+    expect(component.confirmandoReinicio()).toBe(false);
+    expect(reprocessarSpy).not.toHaveBeenCalled();
+  });
 });
 
 

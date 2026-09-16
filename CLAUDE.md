@@ -38,9 +38,15 @@ de verdade em vez de só rodar teste unitário:
 - A API não usa mais chave estática (o esquema `X-API-Key` foi removido numa
   auditoria pós-D-49, código morto desde o D-25): toda rota exige uma sessão
   real do Supabase Auth (`Authorization: Bearer <token>`). Para testar
-  manualmente, gere um token de sessão via magic link (Admin API,
-  `SUPABASE_SERVICE_ROLE_KEY` do `.env`) — ver os scripts de validação
-  usados nas sessões de D-48/D-49 como referência.
+  manualmente:
+  `python backend/common/gerar_sessao_local.py <email>` imprime um token
+  válido (magic link via Admin API, sem precisar de senha).
+- Defeito visual não aparece em teste unitário. Para olhar as telas de
+  verdade: `cd frontend && npm run telas -- <sessao.json> <pasta>` fotografa
+  tudo em desktop e celular. Ver `docs/ESTADO.md` §6.
+- **Os dados de partida pertencem a `edson.hirano.dev@gmail.com`**, não a
+  `edson.hirano28@gmail.com` (as duas contas existem no Supabase Auth). Gerar
+  sessão para o e-mail errado devolve históricos vazios e parece bug de código.
 
 ## Acesso ao banco
 

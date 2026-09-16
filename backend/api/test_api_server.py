@@ -3068,13 +3068,101 @@ class FocarCategoriaTreinoTest(unittest.TestCase):
 
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(resposta.json()["adicionados"], 0)
+        self.assertEqual(resposta.json()["motivo"], "ja_na_fila")
         mocks["fila_treino_espacado"].upsert.assert_not_called()
+
+    def test_categoria_sem_catalogo_se_distingue_de_fila_cheia(self) -> None:
+        """Os dois zeros são situações diferentes e a tela precisa dizer qual
+        foi (D-52): ESTRATEGIA e GESTAO_DE_TEMPO não têm exercício nenhum
+        importado, então 'você já treinou todos' seria mentira."""
+        self._mockar_tabelas(ja_na_fila=[], candidatos=[])
+
+        resposta = self.client.post("/treino/foco/GESTAO_DE_TEMPO", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()["adicionados"], 0)
+        self.assertEqual(resposta.json()["motivo"], "sem_catalogo")
+
+    def test_sucesso_nao_devolve_motivo(self) -> None:
+        self._mockar_tabelas(ja_na_fila=[], candidatos=[{"id": "ex-1"}])
+
+        resposta = self.client.post("/treino/foco/TATICA", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.json()["adicionados"], 1)
+        self.assertIsNone(resposta.json()["motivo"])
 
     def test_sem_sessao_recebe_401(self) -> None:
         with gate_de_sessao_real():
             resposta = self.client.post("/treino/foco/TATICA")
 
         self.assertEqual(resposta.status_code, 401)
+
+
+class DisponibilidadeFocoTreinoTest(unittest.TestCase):
+    """GET /treino/foco/disponibilidade (D-53): quantos exercícios de catálogo
+    existem por categoria, para a tela não oferecer botão sem material."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _mockar_catalogo(self, linhas: list[dict[str, Any]]) -> None:
+        mock_client = MagicMock()
+        resp = MagicMock()
+        resp.data = linhas
+        mock_client.table.return_value.select.return_value.execute.return_value = resp
+        api_server._state["supabase_client"] = mock_client
+
+    def test_conta_por_categoria(self) -> None:
+        self._mockar_catalogo(
+            [{"categoria_hexagono": "TATICA"}] * 3
+            + [{"categoria_hexagono": "FINAIS"}] * 2
+        )
+
+        resposta = self.client.get("/treino/foco/disponibilidade", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        por_categoria = resposta.json()["por_categoria"]
+        self.assertEqual(por_categoria["TATICA"], 3)
+        self.assertEqual(por_categoria["FINAIS"], 2)
+
+    def test_categoria_sem_exercicio_vem_como_zero_explicito(self) -> None:
+        """Sumir do mapa viraria `undefined` no frontend e o botão voltaria a
+        parecer disponível — as 6 categorias precisam estar sempre presentes."""
+        self._mockar_catalogo([{"categoria_hexagono": "TATICA"}])
+
+        resposta = self.client.get("/treino/foco/disponibilidade", headers=HEADERS_SESSAO)
+
+        por_categoria = resposta.json()["por_categoria"]
+        self.assertEqual(sorted(por_categoria), sorted(api_server.HEXAGON_CATEGORIES))
+        self.assertEqual(por_categoria["ESTRATEGIA"], 0)
+        self.assertEqual(por_categoria["GESTAO_DE_TEMPO"], 0)
+
+    def test_ignora_categoria_desconhecida_vinda_do_banco(self) -> None:
+        self._mockar_catalogo(
+            [{"categoria_hexagono": "CATEGORIA_QUE_NAO_EXISTE"}, {"categoria_hexagono": "TATICA"}]
+        )
+
+        por_categoria = self.client.get(
+            "/treino/foco/disponibilidade", headers=HEADERS_SESSAO
+        ).json()["por_categoria"]
+
+        self.assertNotIn("CATEGORIA_QUE_NAO_EXISTE", por_categoria)
+        self.assertEqual(por_categoria["TATICA"], 1)
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/treino/foco/disponibilidade")
+
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_sem_banco_recebe_503(self) -> None:
+        resposta = self.client.get("/treino/foco/disponibilidade", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 503)
 
 
 if __name__ == "__main__":

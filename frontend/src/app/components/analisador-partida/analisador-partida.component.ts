@@ -16,6 +16,7 @@ import {
 } from '../../services/teoria-finais.service';
 import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-preview.component';
 import { orientacaoDoFen } from '../../shared/fen';
+import { SegmentoTexto, segmentosDeNegrito } from '../../shared/texto';
 
 export const STORAGE_KEY_PARTIDA_ATIVA = 'chess_analisador_partida_ativa';
 
@@ -45,6 +46,7 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
   readonly resumo = signal<ResumoPartidaData | null>(null);
   readonly erro = signal<string | null>(null);
   readonly segundosProcessamento = signal(0);
+  readonly confirmandoReinicio = signal(false);
   readonly teoriaAbertura = signal<TeoriaAbertura | null>(null);
 
   // Histórico de análises
@@ -209,7 +211,18 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** "Reiniciar" fica ao lado de "Voltar ao início" e é irreversível: descarta
+   * o progresso e gasta mais uma análise do limite diário. Pede confirmação. */
+  pedirConfirmacaoReinicio(): void {
+    this.confirmandoReinicio.set(true);
+  }
+
+  cancelarReinicio(): void {
+    this.confirmandoReinicio.set(false);
+  }
+
   async reprocessarPartidaAtual(): Promise<void> {
+    this.confirmandoReinicio.set(false);
     const id = this.partidaId();
     if (!id) {
       return;
@@ -365,6 +378,12 @@ export class AnalisadorPartidaComponent implements OnInit, OnDestroy {
 
   formatarTag(tag: string): string {
     return tag.replace(/_/g, ' ').toUpperCase();
+  }
+
+  /** Wrapper fino sobre o helper compartilhado, só para o template chamá-lo.
+   * A narrativa do Gemini vem com `**negrito**` e os asteriscos apareciam crus. */
+  segmentos(paragrafo: string): SegmentoTexto[] {
+    return segmentosDeNegrito(paragrafo);
   }
 
   /**

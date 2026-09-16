@@ -33,6 +33,7 @@ export class PerfilUsuarioComponent implements OnInit {
   readonly oauthCarregando = signal(true);
   readonly oauthIniciando = signal(false);
   readonly oauthDesconectando = signal(false);
+  readonly confirmandoDesconexao = signal(false);
   readonly oauthMensagemSucesso = signal<string | null>(null);
   readonly oauthMensagemErro = signal<string | null>(null);
 
@@ -126,11 +127,25 @@ export class PerfilUsuarioComponent implements OnInit {
     }
   }
 
+  /** Pede confirmação antes de revogar: um clique sem volta, num botão
+   * vermelho encostado no "Reconectar", derrubava a sincronização de puzzles
+   * sem perguntar nada. */
+  pedirConfirmacaoDesconectar(): void {
+    this.oauthMensagemErro.set(null);
+    this.oauthMensagemSucesso.set(null);
+    this.confirmandoDesconexao.set(true);
+  }
+
+  cancelarDesconexao(): void {
+    this.confirmandoDesconexao.set(false);
+  }
+
   async desconectarLichess(): Promise<void> {
     if (this.oauthDesconectando()) {
       return;
     }
 
+    this.confirmandoDesconexao.set(false);
     this.oauthDesconectando.set(true);
     this.oauthMensagemErro.set(null);
     this.oauthMensagemSucesso.set(null);

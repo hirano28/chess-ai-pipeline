@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 import { SupabaseService } from '../../services/supabase.service';
@@ -27,6 +27,22 @@ export class ModalOnboardingContasComponent implements OnInit {
 
   get formularioValido(): boolean {
     return this.lichessUsername().trim().length > 0 || this.chesscomUsername().trim().length > 0;
+  }
+
+  /** Esc fecha o modal — um `role="dialog"` sem saída pelo teclado prende
+   * quem não usa mouse. Só responde quando o modal está de fato aberto. */
+  @HostListener('document:keydown.escape')
+  aoPressionarEsc(): void {
+    if (this.visivel() && !this.salvando()) {
+      this.fechar();
+    }
+  }
+
+  /** Clique no scrim (e só nele, não no cartão) fecha, como em qualquer modal. */
+  aoClicarNoFundo(evento: MouseEvent): void {
+    if (evento.target === evento.currentTarget && !this.salvando()) {
+      this.fechar();
+    }
   }
 
   async ngOnInit(): Promise<void> {
