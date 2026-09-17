@@ -4241,6 +4241,56 @@ confirmada por query direta contra o Supabase de produção
 
 ---
 
+### D-76 — "Los 100 Finales que Hay que Saber" processado só para a busca vetorial, sem citação
+
+**Contexto:** depois do D-75, `FINAIS` (14 conceitos) passou a ser a
+categoria mais fraca entre as que ainda têm chance real de melhorar via
+livro (`ESTRUTURA_DE_PEOES`, em 4, não tem mais candidato na biblioteca,
+ver D-74). Testei 4 candidatos de finais: "Técnicas de Finais em Xadrez"
+(Euwe/Hooper, 263 páginas) e "Teoria dos Finais de Partida" (Averbach, 98
+páginas) são 100% imagem, sem camada de texto; "Dvoretsky — Endgame
+Analysis" (131 páginas) tem texto nativo mas é uma compilação de exemplos
+anotados, sem títulos de capítulo reconhecíveis; "Essential Chess Endings"
+(162 páginas) e "Reuben Fine — Basic Chess Endings" (604 páginas) também
+são 100% imagem. "Los 100 Finales que Hay que Saber" (Jesús de la Villa,
+191 páginas) foi o único com texto nativo limpo.
+
+**Achado no `--preview`:** esse livro organiza os finais individuais como
+"Final 71. O rei cortado na oitava", não como "CAPÍTULO N" — formato que
+`detect_chapter()` não reconhece. O que ele capturou foi só 4 marcadores
+de seção de nível bem mais alto (que por acaso batem no padrão
+`numbered_chapter_number`, ex. `"4. Dama contra peão"`), um deles
+("4. Dama contra peão") absorvendo 124 dos 167 chunks, páginas 50–191 —
+uma citação nesse nível seria tecnicamente real (é um título de seção
+verdadeiro do livro) mas grosseira demais para servir de referência útil
+por final individual. Também capturou 13 chunks de lixo de fonte de
+diagrama (`"XIIIIIIIIY XIIIIIIIIY"`, o mesmo tipo de artefato do 5334 no
+D-72, só que aqui misturado com conteúdo real em vez de ser o livro
+inteiro).
+
+**Decisão, com o usuário:** apresentei 3 caminhos (processar só para RAG
+vetorial descartando a citação; investir em reconhecer o padrão "Final N."
+no `detect_chapter()`; partir para OCR pesado num livro com capítulo mais
+limpo). O usuário escolheu processar mesmo assim, só para a busca
+vetorial — os 167 chunks têm conteúdo real e valioso (o RAG semântico não
+depende de capítulo), só não geram citação nova em `indice_conceitual`.
+Não rodei `sugerir_indice_conceitual.py`/`importar_indice_conceitual.py`
+para este livro, de propósito. Zerei (`NULL`) o `capitulo` só do chunk de
+lixo de diagrama, por precaução — mesmo sem citação automática, esse
+campo pode aparecer em resultados de busca semântica exibidos ao usuário,
+e `"XIIIIIIIIY XIIIIIIIIY"` como "fonte" ficaria visivelmente quebrado.
+Mantive os 4 marcadores de seção reais como estão (incluindo o grosseiro
+`"4. Dama contra peão"`) — são títulos verdadeiros do livro, só de baixa
+resolução, categoria diferente do lixo de fonte.
+
+**Verificação real:** `--preview` gratuito primeiro (167 chunks). Depois,
+processamento completo contra produção (`pmzmershonrqzwbmhaco`):
+`livros_chunks` 1187→1354 (confirmado por query). `indice_conceitual`
+inalterado em 274 (confirmado por query, nenhuma sugestão gerada de
+propósito).
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

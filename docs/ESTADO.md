@@ -93,8 +93,8 @@ pendência P-11 abaixo).
 | `perfis_usuario` | 2 (o dono do acervo + uma conta sem partida ingerida). É a tabela que prova que o multi-tenant do D-28 não é hipótese |
 | `puzzle_atividade` | 660, em 41 dias distintos |
 | `tempos_lance` | 16.161, cobrindo 228 partidas (4.847 do Lichess + 11.314 do Chess.com via backfill D-43) |
-| `livros_chunks` | 1187 (807 anteriores + 380 de "Segredos da Moderna Estratégia", John Watson, D-74) |
-| `indice_conceitual` | 274 (216 anteriores + 58 de "Segredos da Moderna Estratégia", D-74) |
+| `livros_chunks` | 1354 (1187 anteriores + 167 de "Los 100 Finales que Hay que Saber", Jesús de la Villa, D-76 — só RAG vetorial, sem capítulo citável) |
+| `indice_conceitual` | 274 (216 anteriores + 58 de "Segredos da Moderna Estratégia", D-74; sem alteração no D-76) |
 | `anotacoes_pensamento` | 23, cobrindo 3 partidas |
 | `revisoes_pensamento` | 23, todas em 1 único dia |
 | `revisao_exercicio_avulso` | 17 |
@@ -867,6 +867,9 @@ Hexágono deixou de ignorar conceitos salvos em formato de tag
 (`fraqueza_estrutural_de_peoes`), destravando conceitos que já estavam no
 banco desde antes: TATICA 8→38, ESTRATEGIA 11→36, CALCULO 14→32 (FINAIS e
 GESTAO_DE_TEMPO inalterados, ESTRUTURA_DE_PEOES continua em 4 — ver D-75);
+e "Los 100 Finales que Hay que Saber" de Jesús de la Villa (D-76, 167
+chunks só na busca vetorial — o livro nomeia finais como "Final 71. ..."
+em vez de capítulo, então não gerou citação nova em `indice_conceitual`);
 Laboratório de Raciocínio com notação PT/EN, reconhecimento de posição por foto, preview do tabuleiro e
 histórico navegável dos exercícios salvos; Explicador de Posição com
 persistência automática e histórico navegável; Analisador de Partida com
