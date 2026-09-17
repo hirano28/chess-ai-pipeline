@@ -1,0 +1,370 @@
+{
+  "livro": "Segredos da Moderna Estratégia",
+  "capitulos": [
+    {
+      "capitulo": "Desenvolvimento do Centro",
+      "pagina_min": 43,
+      "pagina_max": 52,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Julgar posições apenas por princípios clássicos e dogmas de abertura, em vez de análise concreta, conduz a conclusões equivocadas."
+        },
+        {
+          "conceito": "peão envenenado",
+          "resumo_curto": "A excursão da dama para capturar peões de flanco na abertura é viável quando sustentada por cálculo tático preciso e pressão sobre debilidades adversárias."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Lançar ofensivas imediatas confiando unicamente na vantagem de desenvolvimento pode fracassar diante de uma defesa concreta e bem calculada."
+        }
+      ]
+    },
+    {
+      "capitulo": "A Massa de Peões Móveis Centrais",
+      "pagina_min": 53,
+      "pagina_max": 127,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "peões centrais móveis",
+          "resumo_curto": "A mobilidade da massa de peões centrais cria forte controle territorial e restringe a atividade das peças adversárias."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "O avanço dos peões centrais tende ao fracasso quando realizado sem a preparação e o apoio das peças posicionadas atrás deles."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "A eficácia das rupturas centrais depende diretamente da harmonia e da prontidão das peças menores em ocupar as casas desobstruídas."
+        }
+      ]
+    },
+    {
+      "capitulo": "Tarrasch Francesa",
+      "pagina_min": 129,
+      "pagina_max": 130,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "peão da dama isolado",
+          "resumo_curto": "O texto debate o balanço estratégico entre a atividade dinâmica de peças e as fraquezas estruturais nos finais típicos dessa formação."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "O trecho destaca a superestimação histórica de Tarrasch ao julgar que o peão isolado garantia vantagem posicional incontestável para as pretas."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "A tentativa descuidada das brancas de manobrar com 18.Cc1? falha imediatamente perante o golpe tático 18...Ce3!."
+        }
+      ]
+    },
+    {
+      "capitulo": "Defesa Tarrasch",
+      "pagina_min": 131,
+      "pagina_max": 169,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "O texto analisa as vulnerabilidades e as formas de pressionar o peão da dama isolado característico da Defesa Tarrasch."
+        },
+        {
+          "conceito": "transição estrutural de peões",
+          "resumo_curto": "Mostra como forçar a transformação do peão isolado em uma dupla de peões débeis por meio de trocas estratégicas."
+        },
+        {
+          "conceito": "profilaxia posicional",
+          "resumo_curto": "Ilustra o uso de lances úteis de espera para prevenir contrajogos adversários antes de consolidar o plano de ataque."
+        }
+      ]
+    },
+    {
+      "capitulo": "A Defesa Nimzo-Reidian",
+      "pagina_min": 171,
+      "pagina_max": 171,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Deslocar o monarca de uma ala sob pressão para um setor mais protegido neutraliza as ameaças adversárias."
+        },
+        {
+          "conceito": "passeio do rei",
+          "resumo_curto": "Manobra profilática em que o rei atravessa o tabuleiro para escapar de perigos ou preparar contra-ataques."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Avançar peões ofensivamente sem a devida consolidação fragiliza a própria estrutura e gera contra-jogo para o oponente."
+        }
+      ]
+    },
+    {
+      "capitulo": "Aventuras do Rei",
+      "pagina_min": 173,
+      "pagina_max": 180,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Evacuar o rei para uma ala segura viabiliza o avanço agressivo de peões no flanco oposto sem sofrer contra-ataques."
+        },
+        {
+          "conceito": "marcha do rei",
+          "resumo_curto": "A transposição do rei pelo tabuleiro no meio-jogo serve para reposicioná-lo ativamente em casas de maior harmonia posicional."
+        },
+        {
+          "conceito": "abertura de segunda frente",
+          "resumo_curto": "Criar um novo foco de ruptura e ataque em uma ala diferente sobrecarrega os recursos defensivos do adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "Troca, Antigo e",
+      "pagina_min": 182,
+      "pagina_max": 185,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "troca de peças",
+          "resumo_curto": "Apresenta critérios clássicos e modernos para justificar trocas vantajosas, visando controle territorial ou posicional."
+        },
+        {
+          "conceito": "estratégia de superproteção",
+          "resumo_curto": "Consiste em defender repetidamente um peão ou ponto forte central para consolidar o domínio da posição."
+        },
+        {
+          "conceito": "controle de casas",
+          "resumo_curto": "Demonstra como abrir mão de peças para assegurar o domínio sobre casas de determinada cor ou no centro."
+        }
+      ]
+    },
+    {
+      "capitulo": "Revolução Moderna",
+      "pagina_min": 189,
+      "pagina_max": 203,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "teoria de aberturas",
+          "resumo_curto": "O avanço do conhecimento das linhas iniciais transforma a dinâmica da partida, exigindo novas abordagens para evitar desfechos estéreis."
+        },
+        {
+          "conceito": "repertório de aberturas",
+          "resumo_curto": "A dependência de uma gama excessivamente restrita de aberturas favorece a repetição de posições conhecidas e aumenta a probabilidade de empates."
+        },
+        {
+          "conceito": "morte por empate",
+          "resumo_curto": "Hipótese histórica que supunha que o aperfeiçoamento da técnica e da análise teórica esgotaria a capacidade de desequilíbrio no xadrez."
+        }
+      ]
+    },
+    {
+      "capitulo": "A Morte da Regra Geral: Exemplos da Prática",
+      "pagina_min": 204,
+      "pagina_max": 211,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Julgar a posição apenas por dogmas clássicos de desenvolvimento ignora os fatores concretos e dinâmicos do jogo moderno."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Aceitar peões atrasados e casas débeis é viável quando compensado por atividade de peças ou concessões estratégicas do adversário."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Lançar investidas agressivas sem coordenação suficiente e subestimando os recursos defensivos do adversário conduz a desastres táticos."
+        }
+      ]
+    },
+    {
+      "capitulo": "Descrição Versus Realidade",
+      "pagina_min": 212,
+      "pagina_max": 238,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Avançar peões à frente do rei rocado pode expor o monarca, sendo aceitável apenas com centro estável ou vantagem de espaço."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "Mover peões defensivos como h6 cria ganchos que facilitam rupturas do oponente para abrir colunas de ataque contra o rei."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Peões atrasados ou debilidades na estrutura só são toleráveis se houver compensação dinâmica ou peças ativas para sustentá-los."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Confiar dogmaticamente em regras gerais sem calcular as particularidades e detalhes concretos de cada lance leva a conclusões errôneas."
+        }
+      ]
+    },
+    {
+      "capitulo": "O Sacrifício do Peão Posicional",
+      "pagina_min": 239,
+      "pagina_max": 269,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "sacrifício posicional de peão",
+          "resumo_curto": "Consiste em entregar material sem cálculo tático imediato para obter compensação estratégica duradoura, como atividade de peças e controle de linhas."
+        },
+        {
+          "conceito": "passividade_excessiva",
+          "resumo_curto": "Ocorre quando a retenção de material extra força as peças a posturas puramente defensivas, cedendo a iniciativa ao adversário."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Evidencia que peões avançados ou maiorias paralisadas podem se tornar alvos vulneráveis sob a pressão das peças inimigas no meio-jogo."
+        }
+      ]
+    },
+    {
+      "capitulo": "Do Flanco Para o",
+      "pagina_min": 270,
+      "pagina_max": 286,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque de flanco",
+          "resumo_curto": "Avanços agressivos de peões nas alas na abertura podem ser perigosos e eficazes mesmo sem a prévia estabilização do centro."
+        },
+        {
+          "conceito": "contra-ataque no centro",
+          "resumo_curto": "A resposta clássica de reagir no centro contra um ataque lateral nem sempre é suficiente contra iniciativas táticas dinâmicas."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Aplicar regras teóricas clássicas de forma dogmática pode levar a graves erros de julgamento no xadrez moderno."
+        }
+      ]
+    },
+    {
+      "capitulo": "A Nova Moralidade",
+      "pagina_min": 288,
+      "pagina_max": 325,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "bispo mau",
+          "resumo_curto": "Bispos limitados pelos próprios peões centrais perdem mobilidade, mas ainda podem ser úteis se posicionados fora da cadeia de peões ou na defesa de finais."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Julgar a qualidade de uma peça apenas pela cor das casas dos peões, sem considerar dinamismo e vantagens estruturais globais, leva a conclusões errôneas."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "A estrutura e a cor dos peões centrais determinam o alcance das peças menores e ditam a necessidade de jogar ativamente para romper a posição."
+        }
+      ]
+    },
+    {
+      "capitulo": "As Peças Menores",
+      "pagina_min": 328,
+      "pagina_max": 349,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "bispo versus cavalo",
+          "resumo_curto": "O valor relativo desse desequilíbrio depende de abrir a posição para o bispo ou encontrar bases sólidas e jogo concreto para o cavalo."
+        },
+        {
+          "conceito": "posto avançado",
+          "resumo_curto": "O lado que joga com o cavalo deve buscar casas fortes permanentes para compensar o maior alcance do bispo adversário."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Debilitar a cadeia de peões do oponente serve para restringir a mobilidade do bispo inimigo e criar alvos acessíveis ao cavalo."
+        }
+      ]
+    },
+    {
+      "capitulo": "Espaço/Centro para os Bispos: Uma Negociação Obscura",
+      "pagina_min": 350,
+      "pagina_max": 356,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "vantagem de espaço",
+          "resumo_curto": "A expansão e o controle de espaço com peões servem para amarrar e suprimir a mobilidade do par de bispos adversário."
+        },
+        {
+          "conceito": "par de bispos",
+          "resumo_curto": "A força dos bispos depende da abertura de linhas, podendo ser anulada quando o oponente estabelece forte controle central e restrição posicional."
+        },
+        {
+          "conceito": "avaliacao posicional incorreta",
+          "resumo_curto": "Superestimar o valor estático do par de bispos sem considerar o atraso no desenvolvimento e a falta de espaço leva a posições inferiores."
+        }
+      ]
+    },
+    {
+      "capitulo": "Revertendo a Sabedoria",
+      "pagina_min": 357,
+      "pagina_max": 465,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Acreditar rigidamente que o lado com cavalos deve sempre fechar a posição ignora fatores dinâmicos e temporais da abertura."
+        },
+        {
+          "conceito": "par de bispos",
+          "resumo_curto": "O jogador que enfrenta o par de bispos pode buscar abrir o jogo cedo para explorar vantagens temporárias de desenvolvimento."
+        },
+        {
+          "conceito": "abertura de linhas",
+          "resumo_curto": "Abrir linhas centrais rapidamente permite aos cavalos forçar concessões na estrutura de peões e criar postos avançados permanentes."
+        }
+      ]
+    },
+    {
+      "capitulo": "É a Oportunidade",
+      "pagina_min": 467,
+      "pagina_max": 469,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "quebra de simetria",
+          "resumo_curto": "As negras aproveitam as informações cedidas pelos lances das brancas para desequilibrar posições simétricas sem ficar em desvantagem."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "A criação de um peão da dama isolado gera um embate estratégico entre dinamismo tático ativo e debilidade estática de longo prazo."
+        },
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "Gastar tempos movendo a mesma peça duas vezes na abertura permite ao adversário assumir a iniciativa ou igualar o desenvolvimento com facilidade."
+        }
+      ]
+    },
+    {
+      "capitulo": "Os Mistérios do Momento: O Que É uma Vantagem?",
+      "pagina_min": 470,
+      "pagina_max": 490,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "A perda do ímpeto ofensivo frequentemente transfere a iniciativa de forma perigosa para o contra-ataque adversário."
+        },
+        {
+          "conceito": "potencial dinâmico",
+          "resumo_curto": "A força de uma posição nem sempre segue a lógica linear, podendo ser acumulada por meio de recursos defensivos e lances de recuo."
+        },
+        {
+          "conceito": "julgamento intuitivo",
+          "resumo_curto": "A habilidade de avaliar com precisão se a posição resultante no fim de variantes calculadas em profundidade será favorável."
+        }
+      ]
+    },
+    {
+      "capitulo": "A Abertura Moderna Reconsiderada",
+      "pagina_min": 493,
+      "pagina_max": 537,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Aceitar peões dobrados ou enfraquecidos em troca de dinamismo ativo e controle de linhas abertas para as peças."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Iniciar ofensivas ou sacrifícios arriscados na ala do rei sem a devida coordenação e preparação das peças."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Julgar mal o equilíbrio entre concessões estruturais estáticas e compensações dinâmicas na posição."
+        }
+      ]
+    }
+  ]
+}

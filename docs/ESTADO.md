@@ -93,8 +93,8 @@ pendência P-11 abaixo).
 | `perfis_usuario` | 2 (o dono do acervo + uma conta sem partida ingerida). É a tabela que prova que o multi-tenant do D-28 não é hipótese |
 | `puzzle_atividade` | 660, em 41 dias distintos |
 | `tempos_lance` | 16.161, cobrindo 228 partidas (4.847 do Lichess + 11.314 do Chess.com via backfill D-43) |
-| `livros_chunks` | 807 (800 anteriores + 6 de "Estrutura e Desenvolvimento dos Peões", Bolívar Gonzalez + 1 de "Estrutura de Peões", Xadrez Escolar/Gazel, D-73) |
-| `indice_conceitual` | 216 (sem alteração no D-73 — os 2 livros novos não têm capítulo detectável, ver D-73 em `DECISOES.md`) |
+| `livros_chunks` | 1187 (807 anteriores + 380 de "Segredos da Moderna Estratégia", John Watson, D-74) |
+| `indice_conceitual` | 274 (216 anteriores + 58 de "Segredos da Moderna Estratégia", D-74) |
 | `anotacoes_pensamento` | 23, cobrindo 3 partidas |
 | `revisoes_pensamento` | 23, todas em 1 único dia |
 | `revisao_exercicio_avulso` | 17 |
@@ -853,13 +853,14 @@ nesse formato — o que quebraria com `--update-env-vars` inline).
 ## 5. O que está validado e funcionando
 
 Ingestão Lichess + Chess.com; Stockfish com detecção de `PICO` e `EROSAO`;
-Agentes 1, 2 e 3; RAG com 6 livros/materiais processados ("Meu Sistema" de
+Agentes 1, 2 e 3; RAG com 7 livros/materiais processados ("Meu Sistema" de
 Nimzowitsch, "Xadrez Vitorioso: Táticas" de Seirawan/Silman, "How to Reassess
 Your Chess" de Jeremy Silman, "How to Calculate Chess Tactics" de Valeri Beim
-(D-72), e dois materiais curtos sobre estrutura de peões — aula da FEXPAR
-(Bolívar Gonzalez) e slides do Xadrez Escolar (Frederico Gazel), D-73 —
-que reforçam a busca vetorial mas ainda não geraram citação em
-`indice_conceitual` por não terem capítulo detectável);
+(D-72), dois materiais curtos sobre estrutura de peões — aula da FEXPAR
+(Bolívar Gonzalez) e slides do Xadrez Escolar (Frederico Gazel), D-73 — que
+reforçam a busca vetorial mas ainda não geraram citação em
+`indice_conceitual` por não terem capítulo detectável, e "Segredos da
+Moderna Estratégia" de John Watson (D-74, 380 chunks, 58 conceitos);
 Laboratório de Raciocínio com notação PT/EN, reconhecimento de posição por foto, preview do tabuleiro e
 histórico navegável dos exercícios salvos; Explicador de Posição com
 persistência automática e histórico navegável; Analisador de Partida com

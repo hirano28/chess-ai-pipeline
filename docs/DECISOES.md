@@ -4086,6 +4086,87 @@ processar `indice_conceitual` para eles.
 
 ---
 
+### D-74 — Google Drive Desktop resolve o limite de 10MB; "Segredos da Moderna Estratégia" processado e um bug de citação por TOC corrigido na revisão manual
+
+**Contexto:** continuação do D-73. O conector MCP do Google Drive só baixa
+arquivo de até 10MB, o que bloqueava a maior parte da biblioteca (a maioria
+dos livros bons passa disso, incluindo o candidato mais forte de estrutura
+de peões). O usuário instalou o Google Drive para Windows (Google Drive
+Desktop) e montou a pasta como unidade local (`G:\Meu Drive\...`) — a partir
+daí, qualquer arquivo passou a ser acessível via sistema de arquivos comum
+(`Copy-Item`/PowerShell), sem limite de tamanho.
+
+**Priorização por dado real, não achismo:** antes de escolher o próximo
+livro, rodei a mesma query de `buscar_conceitos` (por categoria do
+Hexágono) direto no Supabase de produção, contando quantos conceitos
+citáveis cada categoria já tem: TATICA 8, ESTRATEGIA 9, FINAIS 14,
+ESTRUTURA_DE_PEOES 4, GESTAO_DE_TEMPO 11, CALCULO 11. Confirma o gargalo
+apontado no D-72: ESTRUTURA_DE_PEOES continua de longe o mais fraco.
+
+**Achado que muda o plano — "PEÕES NA SÉTIMA" não é sobre peões:** o título
+sugeria um livro de teoria de estrutura de peões, mas rodar o OCR completo
+(146 páginas, grátis, só extração local) revelou que é uma coletânea de
+memórias/história do xadrez brasileiro (capítulos como "BOBBY FISCHER — O
+SPUTNIK DO XADREZ", "SINOPSE DA HISTÓRIA DO XADREZ NO BRASIL", perfis de
+Petrosian, Tartakover, Rossolimo, Trompowsky). Verificado o restante da
+biblioteca: não existe nenhum outro candidato real de teoria de estrutura
+de peões nela. Consultado o usuário, que decidiu descartar esse livro (não
+processar) e seguir para o próximo gargalo mais forte disponível.
+
+**Livro escolhido:** "Segredos da Moderna Estratégia" (John Watson, tradução
+PT-BR), 540 páginas, texto nativo (sem necessidade de OCR), 380 chunks.
+Escolhido entre 4 candidatos com texto nativo confirmado (também
+disponíveis: "Arte do Ataque no Xadrez" de Vukovic, "Positional Decision
+Making in Chess" de Gelfand, "The Complete Manual of Positional Chess" de
+Sakaev/Landa) por já ter capítulos numerados reais no sumário.
+
+**Um bug real de citação, achado na revisão manual antes do import:** o
+`detect_chapter()` capturou como "capítulo" uma linha do **sumário** do
+livro (`CAPÍTULO 7: BISPOS VERSUS CAVALOS 2: PARES DE PEÇAS`, que aparece
+listada no sumário nas primeiras páginas) e atribuiu a ela os 33 chunks
+seguintes (páginas 10–42) — que na verdade são a dedicatória, a introdução
+e o conteúdo real do Capítulo 1 (clássico vs. hipermoderno, centro e
+tempos), **nada relacionado a bispos e cavalos**. Uma citação assim seria
+ativamente enganosa. Comparando a extração real de texto (via `pdfplumber`,
+sem custo) contra cada um dos 23 "capítulos" que `sugerir_indice_conceitual.py`
+gerou, encontrei mais 3 casos análogos (páginas de ficha catalográfica, e
+dois títulos cujo intervalo de página na verdade pertencia à seção
+seguinte) — todos os 4 tiveram o `capitulo` zerado (`NULL`) em
+`livros_chunks` e as sugestões correspondentes removidas do JSON antes do
+import, em vez de inventar um título "corrigido" sem prova. Outros 9
+títulos estavam apenas truncados por quebra de linha (ex.: `"A MASSA DE
+PEÕES"` → `"A Massa de Peões Móveis Centrais"`, confirmado lendo a página
+real) e foram corrigidos com o texto verificado, nunca com título inventado
+— quando a continuação truncada não pôde ser confirmada no texto extraído,
+o fragmento ficou como estava (ex.: `"Do Flanco Para o"`), em vez de eu
+completar a frase por conta própria. Isso não é o mesmo bug do D-72 (aquele
+era sobre cabeçalho de página repetido); esse é sobre o sumário do livro
+sendo confundido com o início real de um capítulo — mecanismo diferente,
+mesma categoria de risco (R2 do `AGENTS.md`). Não alterei `detect_chapter()`
+desta vez — é uma particularidade de layout deste livro (sumário detalhado
+com títulos de capítulo completos), não um padrão genérico como o do D-72.
+
+**Achado que fica para depois, quantificado agora:** ao conferir a
+contagem por categoria depois do import, ESTRATEGIA subiu 9→11,
+GESTAO_DE_TEMPO 11→13, CALCULO 11→14 — mas os 58 conceitos novos deveriam
+ter batido muito mais forte que isso (vários são literalmente sobre
+fraqueza de peões, ex. `fraqueza_estrutural_de_peoes`, mas `ILIKE
+'%estrutura de peões%'` não bate em texto sem acento e com underscore).
+Confirma, com número concreto agora, o gap de acentuação/formatação entre
+o que o Gemini sugere e o que `CATEGORY_SEARCH_TERMS` busca (apontado no
+D-72, ainda não corrigido).
+
+**Verificação real:** `--preview` gratuito primeiro (380 chunks, 23
+capítulos). Processamento completo contra produção
+(`pmzmershonrqzwbmhaco`): `livros_chunks` 807→1187 (confirmado por query).
+`sugerir_indice_conceitual.py` gerou 70 sugestões brutas em 23 capítulos;
+depois da revisão manual (4 capítulos descartados, 9 títulos corrigidos),
+58 conceitos entraram em `indice_conceitual` (216→274, confirmado por
+query). Contagem por categoria refeita depois do import para medir o
+impacto real.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a
