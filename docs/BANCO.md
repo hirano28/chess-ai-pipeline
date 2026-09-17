@@ -222,8 +222,12 @@ mapeamento tag → categoria.
   precisa ser o de erosão.
 - **`queda_win_percent` é a métrica de gravidade correta** (ver `D-1` em
   `DECISOES.md`). `gravidade_cpl` continua gravada por compatibilidade
-  histórica. Atenção: `agente2_analista.py` ainda agrega por `gravidade_cpl` —
-  ver pendência em `ESTADO.md`.
+  histórica. O aviso que ficava aqui — "`agente2_analista.py` ainda agrega por
+  `gravidade_cpl`" — era **falso** e saiu na varredura de 16/09/2026: o Agente 2
+  agrega por `queda_win_percent` em todos os pontos (`gravity_by_tag`,
+  `category_gravity`, `recent_cat_gravity`). Confirme com
+  `grep -n "gravidade_cpl" backend/agentes/agente2_analista.py`, que não
+  devolve nada.
 - **ECO só existe para Lichess.** A coleta do Chess.com não preenche
   `eco_abertura`; existe `backend/ingestao/backfill_eco_abertura.py` para isso.
 - **Não apague partida antiga sem anotação.** Ela segue válida para a estatística

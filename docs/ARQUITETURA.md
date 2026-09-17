@@ -282,7 +282,11 @@ Convenções do frontend que não são óbvias:
   `https://chess-ai-pipeline.vercel.app`
 - **Backend**: Cloud Run, serviço `laboratorio-xadrez`, região `us-east1`,
   projeto GCP `gen-lang-client-0828609060`.
-  `https://laboratorio-xadrez-kltmum75rq-ue.a.run.app`
+  O Cloud Run expõe **duas URLs para o mesmo serviço**, e as duas respondem:
+  `https://laboratorio-xadrez-kltmum75rq-ue.a.run.app` e
+  `https://laboratorio-xadrez-1062351210243.us-east1.run.app`. A segunda é a
+  que o frontend de produção usa (`environment.ts`), então é ela que importa
+  ao reproduzir um problema que o usuário relatou.
 - **CI/CD do backend**: `.github/workflows/deploy-backend.yml`, disparado por push
   na `main` que toque `backend/**` ou `Dockerfile`. Roda os testes, autentica no
   GCP com a service account `github-deployer` (secret `GCP_SA_KEY`), builda com

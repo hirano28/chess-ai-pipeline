@@ -81,8 +81,17 @@ não mais por contagem manual de `TimeControl`.
 | **Total** | **240** |
 
 **59% do corpus analisado é blitz**, e outros 28% são partidas do Lichess sem
-header de `TimeControl` — cadência que o PGN simplesmente não informa, e que o
-D-57 grava como `DESCONHECIDA` em vez de chutar. Não há nenhuma partida
+header de `TimeControl`, gravadas como `DESCONHECIDA` em vez de chute.
+
+> **Correção de 16/09/2026 sobre a causa.** Este parágrafo dizia que era
+> "cadência que o PGN simplesmente não informa". Errado. A varredura mediu
+> `DESCONHECIDA` por plataforma: são **67 de 67 partidas do Lichess** — 100%,
+> não uma amostra aleatória —, contra **0 de 161** do Chess.com. A causa é
+> nossa: `build_pgn()` em `coletar_partidas.py` reconstrói o PGN a partir do
+> ndjson com 6 tags, e `TimeControl` não é uma delas. A resposta do Lichess já
+> traz `clock` e `speed`; nós descartamos. Por isso `tempo_base_segundos` está
+> nulo em 67/67 do Lichess e preenchido em 161/161 do Chess.com. É correção de
+> ingestão, não limitação da fonte — ver a Fase 1 do planejamento. Não há nenhuma partida
 clássica no acervo. Qualquer conclusão sobre "o gargalo do jogador" continua
 misturada com o efeito do relógio; a diferença desde o D-57 é que agora **dá
 para filtrar**, e o Hexágono exibe a ressalva acima do diagnóstico em vez de

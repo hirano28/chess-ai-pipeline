@@ -3083,6 +3083,60 @@ certo.
 
 ---
 
+### D-61 — A automação passa a avisar quando quebra, e o deploy passa a provar o que subiu
+
+**O incidente.** Em 15/09/2026 o commit `53f19d2` fixou `numpy==2.5.2`, que
+exige Python ≥ 3.12. Os três workflows e o `Dockerfile` pinavam 3.11. Desde
+então **toda** execução de CI morria no passo *Instalar dependências Python*,
+antes de rodar um teste sequer. Passou despercebido por dois dias porque o venv
+local é 3.12.6: os 726 testes rodavam verdes aqui enquanto nada subia lá.
+
+O estrago, medido antes da correção:
+
+- backend de produção congelado no commit `9ae7e6a` (D-49) — **D-50 a D-59
+  estavam no git e nunca foram ao ar**;
+- **frontend e backend divergentes em produção**: a Vercel publica a cada push
+  e já servia a rota `/sessao/:id`, enquanto o backend respondia 404 em
+  `/sessoes/{id}/execucao` e `/partidas/composicao`. A tela existia e quebrava;
+- **nenhuma partida coletada desde 15/09 23:20**;
+- o pipeline semanal falharia na segunda seguinte pelo mesmo motivo.
+
+**A correção de fundo foi alinhar os quatro lugares em 3.12**, não rebaixar o
+`numpy`: produção deve rodar o que foi testado, e não uma combinação que
+ninguém exercita. As 18 dependências fixadas estão instaladas nessas versões
+exatas sob 3.12.6 com a suíte verde — prova empírica melhor que um dry-run de
+resolvedor.
+
+**Mas o defeito não foi o pin.** Foi ninguém ter percebido. Os três workflows
+já escreviam um resumo detalhado no `GITHUB_STEP_SUMMARY` — que só existe para
+quem abre a página do run. **Alerta que exige alguém ir olhar não é alerta.**
+
+Cada workflow ganhou um passo final que abre uma issue rotulada
+`falha-automacao`, ou comenta na que já estiver aberta. Issue em vez de e-mail
+ou webhook: não exige secret novo nem serviço externo, e fica aberta até alguém
+fechar — sobrevive a não ser lida na hora.
+
+Duas sutilezas que `if: failure()` sozinho não cobriria:
+
+1. **Falha parcial silenciosa.** No pipeline diário quase toda etapa de coleta
+   tem `continue-on-error: true`. É a decisão certa (a queda do Chess.com não
+   pode matar a coleta do Lichess), mas cria um job verde que coletou zero
+   partida. A condição do alerta testa o `outcome` de cada etapa, não só o
+   status do job.
+2. **Health check que não prova nada.** `/health` responder 200 não diz que o
+   commit subiu — responde 200 igual numa revisão antiga, e foi exatamente
+   assim que o backend ficou dois dias parado com o check verde. O passo agora
+   compara a imagem que o Cloud Run está **de fato servindo** com a tag deste
+   commit, e falha alto quando divergem.
+
+**Lição de método, registrada porque foi minha:** relatei "726 testes OK, build
+limpo" como se fosse verificação de entrega. Era verificação **local**. Entre o
+teste verde e o usuário existem CI, deploy e produção, e nenhum dos três tinha
+sido olhado. O `CLAUDE.md` deste repositório já pedia "prefira verificar de
+verdade"; verificar de verdade inclui perguntar se o que passou chegou.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a
