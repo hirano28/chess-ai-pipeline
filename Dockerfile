@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Stockfish via apt: no Debian slim o binário fica em /usr/games/stockfish
 # (mesmo caminho já validado no workflow do GitHub Actions).
