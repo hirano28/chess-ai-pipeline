@@ -30,6 +30,7 @@ python -m unittest \
   backend.agentes.test_agente2_analista \
   backend.agentes.test_agente3_prescritor \
   backend.agentes.test_analisar_pgn_avulso \
+  backend.agentes.test_consulta_ao_vivo \
   backend.agentes.test_explicador_posicao \
   backend.agentes.test_gerar_perguntas_pendentes \
   backend.agentes.test_gerar_resumo_partida \
@@ -197,7 +198,8 @@ commitados.
 `LIMITE_DIARIO_ANALISAR_PGN`, `LIMITE_DIARIO_EXPLICAR_POSICAO`,
 `LIMITE_DIARIO_REVISAR_AVULSO`, `LIMITE_DIARIO_RECONHECER_POSICAO`,
 `LIMITE_DIARIO_REPROCESSAR`, `LIMITE_DIARIO_TREINO_RESPONDER`,
-`LIMITE_DIARIO_TREINO_TRECHO`,
+`LIMITE_DIARIO_TREINO_TRECHO`, `LIMITE_DIARIO_CONSULTA_AO_VIVO`,
+`CONSULTA_AO_VIVO_USUARIOS`, `CONSULTA_MAX_POR_PARTIDA`,
 `LIMITE_DIARIO_IMPORTAR_PARTIDAS`, `IMPORTACAO_MAX_PARTIDAS`,
 `LICHESS_OAUTH_CLIENT_ID`, `LICHESS_OAUTH_REDIRECT_URI`,
 `LICHESS_OAUTH_SCOPES`, `FRONTEND_URL`, `TREINO_NOVOS_POR_DIA`,
@@ -327,6 +329,19 @@ precisar de deploy) e continuam candidatos para quando a configuração mudar.
 card de trecho gasta 8 requisições; contá-lo na mesma cota faria um trecho
 parecer 8 revisões. Continua sendo freio de abuso contra o `engine_lock` (R3),
 não do uso normal.
+
+**Consulta ao vivo (D-67).** `CONSULTA_AO_VIVO_USUARIOS` é a lista, separada
+por vírgula, dos `auth.users.id` que podem usar a feature — hoje, só as duas
+contas do dono do projeto. **Fecha por padrão**: ausente ou vazia, ninguém
+acessa. Em produção ela vem da **Variable** (não Secret) de mesmo nome do
+repositório, lida pelo `deploy-backend.yml`; é Variable porque são ids, não
+credenciais, e um Secret mascararia os dígitos nos logs (o problema da C4).
+Para liberar ou retirar alguém: `gh variable set CONSULTA_AO_VIVO_USUARIOS
+--body "<id1>,<id2>"` e um novo deploy. Localmente, exporte a variável antes do
+`uvicorn`. `CONSULTA_MAX_POR_PARTIDA` (default 3) é o teto de consultas por
+partida espelhada — o freio de uso, que obriga a escolher os momentos de dúvida.
+`LIMITE_DIARIO_CONSULTA_AO_VIVO` (default 15) é o freio de gasto do dia: cada
+consulta é Stockfish mais uma chamada ao Gemini (duas no pior caso).
 
 **Validade das perguntas pendentes (D-64).** `PERGUNTA_VALIDADE_DIAS`
 (default 14) governa as duas pontas de `gerar_perguntas_pendentes.py`: não

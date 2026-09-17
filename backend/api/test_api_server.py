@@ -49,6 +49,7 @@ _LIMITES_DIARIOS_DEPENDENCIES = (
     api_server.verificar_limite_reprocessar,
     api_server.verificar_limite_treino_responder,
     api_server.verificar_limite_treino_trecho,
+    api_server.verificar_limite_consulta_ao_vivo,
 )
 
 
@@ -4576,3 +4577,235 @@ class StatusImportacaoEndpointTest(unittest.TestCase):
         self.assertTrue(corpo["tem_hexagono"])
         self.assertFalse(corpo["em_andamento"])
         self.assertTrue(corpo["pronto"])
+
+
+PARTIDA_ESPELHO = "0b8f3c1e-5d2a-4e6b-9c7d-1a2b3c4d5e6f"
+
+
+def _resultado_consulta_fake() -> dict[str, Any]:
+    return {
+        "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+        "fen_inicial": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "lances_san": ["e4", "e5", "Nf3", "Nc6"],
+        "numero_lance": 3,
+        "cor_jogador": "BRANCAS",
+        "pensamento": {"situacao": "Não sei o que fazer", "candidatos": None, "trava": None},
+        "camada_pensar": {
+            "leitura_da_posicao": "Centro em tensão.",
+            "sobre_o_seu_raciocinio": "Faltou olhar o peão de e5.",
+            "perguntas_guia": ["O que o adversário ameaça?"],
+            "planos": [{"titulo": "Centro", "explicacao": "Ganhar espaço."}],
+        },
+        "camada_ideias": {"ideias": [{"lance": "Bb5", "ideia": "Pressiona c6."}]},
+        "camada_motor": {
+            "melhor_lance": "Bb5",
+            "avaliacao": "+0.40",
+            "win_percent_jogador": 53.7,
+            "linhas": [{"lance": "Bb5", "avaliacao": "+40", "sequencia": ["Bb5", "a6"]}],
+        },
+        "gerado_por": "gemini",
+    }
+
+
+class ConsultaAoVivoTest(unittest.TestCase):
+    """D-67: consulta durante uma partida espelhada, exclusiva do dono."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["engine"] = MagicMock()
+        api_server._state["engine_lock"] = threading.Lock()
+        api_server._state["logger"] = logging.getLogger("teste_consulta")
+        api_server._state["gemini_client"] = MagicMock()
+        self.client = TestClient(api_server.app)
+        self.ambiente = patch.dict(
+            os.environ,
+            {"CONSULTA_AO_VIVO_USUARIOS": USER_ID_TESTE, "CONSULTA_MAX_POR_PARTIDA": "3"},
+        )
+        self.ambiente.start()
+
+    def tearDown(self) -> None:
+        self.ambiente.stop()
+        api_server._state.clear()
+
+    def _cliente(self, feitas: int = 0, falha_insert: bool = False) -> MagicMock:
+        mock_client = MagicMock()
+        contagem = (
+            mock_client.table.return_value.select.return_value.eq.return_value.eq
+            .return_value.execute.return_value
+        )
+        contagem.data = [{"id": f"c{i}"} for i in range(feitas)]
+        contagem.count = feitas
+        insert = mock_client.table.return_value.insert.return_value.execute
+        if falha_insert:
+            insert.side_effect = RuntimeError("banco fora")
+        else:
+            insert.return_value.data = [
+                {"id": "consulta-1", "criado_em": "2026-09-17T14:00:00+00:00"}
+            ]
+        api_server._state["supabase_client"] = mock_client
+        return mock_client
+
+    def _payload(self, **extras: Any) -> dict[str, Any]:
+        payload = {
+            "partida_espelho_id": PARTIDA_ESPELHO,
+            "lances": ["e4", "e5", "Nf3", "Nc6"],
+            "cor_jogador": "BRANCAS",
+            "plataforma": "LICHESS",
+            "adversario": "Stockfish nível 4",
+            "pensamento": {"situacao": "Não sei o que fazer"},
+        }
+        payload.update(extras)
+        return payload
+
+    def test_acesso_diz_se_a_sessao_esta_liberada(self) -> None:
+        corpo = self.client.get("/consulta-ao-vivo/acesso", headers=HEADERS_SESSAO).json()
+        self.assertTrue(corpo["habilitado"])
+        self.assertEqual(corpo["limite_por_partida"], 3)
+
+        with patch.dict(os.environ, {"CONSULTA_AO_VIVO_USUARIOS": "outra-pessoa"}):
+            corpo = self.client.get("/consulta-ao-vivo/acesso", headers=HEADERS_SESSAO).json()
+        self.assertFalse(corpo["habilitado"])
+
+    def test_quem_nao_esta_liberado_recebe_404_sem_gastar_nada(self) -> None:
+        """404, nunca 403: para os outros a feature não existe. E a checagem vem
+        antes do limite diário, então a chamada barrada não consome cota."""
+        mock_client = self._cliente()
+        with patch.dict(os.environ, {"CONSULTA_AO_VIVO_USUARIOS": ""}), \
+                gate_de_limite_diario_real(api_server.verificar_limite_consulta_ao_vivo), \
+                patch.object(api_server, "consultar_posicao") as consultar:
+            resposta = self.client.post(
+                "/consulta-ao-vivo", json=self._payload(), headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 404)
+        consultar.assert_not_called()
+        mock_client.rpc.assert_not_called()
+        mock_client.table.assert_not_called()
+
+    def test_listar_partida_tambem_e_404_para_quem_nao_esta_liberado(self) -> None:
+        self._cliente()
+        with patch.dict(os.environ, {"CONSULTA_AO_VIVO_USUARIOS": ""}):
+            resposta = self.client.get(
+                f"/consulta-ao-vivo/partida/{PARTIDA_ESPELHO}", headers=HEADERS_SESSAO
+            )
+        self.assertEqual(resposta.status_code, 404)
+
+    def test_consulta_devolve_as_tres_camadas_e_grava(self) -> None:
+        mock_client = self._cliente(feitas=1)
+        with patch.object(
+            api_server, "consultar_posicao", return_value=_resultado_consulta_fake()
+        ) as consultar:
+            resposta = self.client.post(
+                "/consulta-ao-vivo", json=self._payload(), headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        corpo = resposta.json()
+        self.assertEqual(corpo["id"], "consulta-1")
+        self.assertEqual(corpo["consultas_restantes"], 1)  # 3 - 1 feita - esta
+        self.assertEqual(corpo["camada_pensar"]["leitura_da_posicao"], "Centro em tensão.")
+        self.assertEqual(corpo["camada_motor"]["melhor_lance"], "Bb5")
+        self.assertEqual(corpo["pensamento"]["situacao"], "Não sei o que fazer")
+
+        self.assertEqual(consultar.call_args.args[3], ["e4", "e5", "Nf3", "Nc6"])
+        self.assertEqual(consultar.call_args.kwargs["adversario"], "Stockfish nível 4")
+
+        (gravado,), _ = mock_client.table.return_value.insert.call_args
+        self.assertEqual(gravado["user_id"], USER_ID_TESTE)
+        self.assertEqual(gravado["partida_espelho_id"], PARTIDA_ESPELHO)
+        self.assertEqual(gravado["numero_lance"], 3)
+        self.assertIn("camada_motor", gravado["resposta"])
+        self.assertEqual(gravado["pensamento_situacao"], "Não sei o que fazer")
+
+    def test_teto_da_partida_barra_antes_do_motor(self) -> None:
+        self._cliente(feitas=3)
+        with patch.object(api_server, "consultar_posicao") as consultar:
+            resposta = self.client.post(
+                "/consulta-ao-vivo", json=self._payload(), headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 429)
+        self.assertIn("todas as consultas desta partida (3 de 3)", resposta.json()["detail"])
+        consultar.assert_not_called()
+
+    def test_posicao_invalida_ou_vez_do_adversario_vira_400(self) -> None:
+        self._cliente()
+        with patch.object(
+            api_server,
+            "consultar_posicao",
+            side_effect=ValueError("A vez é do adversário."),
+        ):
+            resposta = self.client.post(
+                "/consulta-ao-vivo", json=self._payload(), headers=HEADERS_SESSAO
+            )
+        self.assertEqual(resposta.status_code, 400)
+        self.assertIn("adversário", resposta.json()["detail"])
+
+    def test_identificador_e_escolhas_invalidas_viram_400(self) -> None:
+        self._cliente()
+        with patch.object(api_server, "consultar_posicao") as consultar:
+            for payload in (
+                self._payload(partida_espelho_id="nao-e-uuid"),
+                self._payload(plataforma="XADREZ.NET"),
+                self._payload(cor_jogador="VERDES"),
+            ):
+                resposta = self.client.post(
+                    "/consulta-ao-vivo", json=payload, headers=HEADERS_SESSAO
+                )
+                self.assertEqual(resposta.status_code, 400, payload)
+        consultar.assert_not_called()
+
+    def test_falha_ao_gravar_nao_tira_a_ajuda_do_jogador(self) -> None:
+        """Ele está com o relógio correndo: perder o histórico é menos grave do
+        que perder a resposta."""
+        self._cliente(falha_insert=True)
+        with patch.object(
+            api_server, "consultar_posicao", return_value=_resultado_consulta_fake()
+        ):
+            resposta = self.client.post(
+                "/consulta-ao-vivo", json=self._payload(), headers=HEADERS_SESSAO
+            )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertIsNone(resposta.json()["id"])
+
+    def test_listar_consultas_da_partida(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        resultado = _resultado_consulta_fake()
+        linha = {
+            "id": "consulta-1",
+            "partida_espelho_id": PARTIDA_ESPELHO,
+            "numero_lance": 3,
+            "fen": resultado["fen"],
+            "cor_jogador": "BRANCAS",
+            "lances_san": resultado["lances_san"],
+            "pensamento_situacao": None,
+            "pensamento_candidatos": None,
+            "pensamento_trava": None,
+            "resposta": {
+                chave: resultado[chave]
+                for chave in ("camada_pensar", "camada_ideias", "camada_motor", "gerado_por")
+            },
+            "gerado_por": "gemini",
+            "criado_em": "2026-09-17T14:00:00+00:00",
+        }
+        (
+            mock_client.table.return_value.select.return_value.eq.return_value.eq
+            .return_value.order.return_value.execute.return_value.data
+        ) = [linha]
+
+        resposta = self.client.get(
+            f"/consulta-ao-vivo/partida/{PARTIDA_ESPELHO}", headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        corpo = resposta.json()
+        self.assertEqual(len(corpo), 1)
+        self.assertEqual(corpo[0]["consultas_restantes"], 2)
+        eq_dono = mock_client.table.return_value.select.return_value.eq
+        eq_dono.assert_called_once_with("user_id", USER_ID_TESTE)
+
+    def test_sem_sessao_nao_passa(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.post("/consulta-ao-vivo", json=self._payload())
+        self.assertEqual(resposta.status_code, 401)

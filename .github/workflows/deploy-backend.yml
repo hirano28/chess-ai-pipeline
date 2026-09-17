@@ -53,6 +53,7 @@ jobs:
             backend.agentes.test_agente2_analista \
             backend.agentes.test_agente3_prescritor \
             backend.agentes.test_analisar_pgn_avulso \
+            backend.agentes.test_consulta_ao_vivo \
             backend.agentes.test_explicador_posicao \
             backend.agentes.test_gerar_perguntas_pendentes \
             backend.agentes.test_gerar_resumo_partida \
@@ -136,6 +137,11 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DEFAULT_USER_ID: ${{ secrets.DEFAULT_USER_ID }}
+          # D-67: quem pode usar a consulta ao vivo. Variable, não Secret: são
+          # ids de usuário, não credenciais, e um Secret mascararia os dígitos
+          # nos logs (o mesmo problema da C4). Opcional de propósito: ausente,
+          # a feature fica fechada para todos — o servidor fecha por padrão.
+          CONSULTA_AO_VIVO_USUARIOS: ${{ vars.CONSULTA_AO_VIVO_USUARIOS }}
         run: |
           ARQUIVO_ENV="$RUNNER_TEMP/cloud-run-env.yaml"
           FALTANTES=""
@@ -153,6 +159,7 @@ jobs:
             echo "SUPABASE_SERVICE_ROLE_KEY: \"${SUPABASE_SERVICE_ROLE_KEY}\""
             echo "GEMINI_API_KEY: \"${GEMINI_API_KEY}\""
             echo "DEFAULT_USER_ID: \"${DEFAULT_USER_ID}\""
+            echo "CONSULTA_AO_VIVO_USUARIOS: \"${CONSULTA_AO_VIVO_USUARIOS}\""
           } > "$ARQUIVO_ENV"
           echo "CLOUD_RUN_ENV_FILE=$ARQUIVO_ENV" >> "$GITHUB_ENV"
 

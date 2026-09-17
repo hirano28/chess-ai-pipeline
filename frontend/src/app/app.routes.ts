@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './guards/auth.guard';
+import { consultaAoVivoGuard } from './guards/consulta-ao-vivo.guard';
 
 // authGuard ligado nas rotas do dashboard (Fase B efetivamente concluída —
 // ver D-23 em docs/DECISOES.md).
@@ -38,6 +39,12 @@ export const routes: Routes = [
 		path: 'analisador',
 		loadComponent: () => import('./components/analisador-partida/analisador-partida.component').then((m) => m.AnalisadorPartidaComponent),
 		canActivate: [authGuard],
+	},
+	{
+		// D-67: exclusiva do dono do projeto; o segundo guard pergunta ao servidor.
+		path: 'consulta-ao-vivo',
+		loadComponent: () => import('./components/consulta-ao-vivo/consulta-ao-vivo.component').then((m) => m.ConsultaAoVivoComponent),
+		canActivate: [authGuard, consultaAoVivoGuard],
 	},
 	{
 		path: 'perfil',

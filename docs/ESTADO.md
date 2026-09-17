@@ -31,36 +31,32 @@ A segunda linha é o canário desde o D-61: qualquer falha ou cancelamento de
 workflow abre uma issue com esse rótulo. Issue aberta = automação quebrada,
 independentemente do que as seções seguintes digam.
 
-> ### 🔴 Incidente aberto em 17/09/2026 — Gemini sem cota
+> ### ✅ Incidente de 17/09/2026 — Gemini sem cota (resolvido no mesmo dia)
 >
-> O projeto do Gemini **estourou o teto mensal de gastos**. Toda chamada
-> responde `429 RESOURCE_EXHAUSTED: "Your project has exceeded its monthly
-> spending cap"`. Confirmado às 03:53 UTC com o Agente 1 (0 de 4 lances
-> diagnosticados) e o Agente 2 (narrativa vazia nas 2 análises gravadas).
+> O projeto do Gemini estourou o teto mensal de gastos (`429 RESOURCE_EXHAUSTED`)
+> depois que a recuperação do D-61 processou 29 partidas acumuladas de uma vez.
+> O dono subiu o teto em https://ai.studio/spend; as chamadas voltaram a
+> responder — confirmado de novo na verificação do D-67, com a consulta ao vivo
+> gerada pelo modelo. Se voltar a acontecer: o Stockfish e a estatística seguem
+> funcionando, e o que para é tudo que depende do modelo (Agentes 1–3, resumos,
+> Laboratório, Explicador, Analisador, consulta ao vivo).
+
+> ### ✅ Incidente de 14/09 a 17/09/2026 — Explicador travado
 >
-> **Efeito enquanto durar:** o Stockfish e toda a estatística continuam
-> funcionando — coleta, análise de lances, hexágono, fila de treino. O que
-> para é tudo que depende do modelo: diagnóstico de lances novos (Agente 1),
-> narrativa do hexágono, sprint do Agente 3, resumos de partida, e na API o
-> Laboratório, o Explicador e o Analisador. O pipeline diário **vai falhar**
-> no passo do Agente 1 e abrir a issue `falha-automacao` — é o alerta do D-61
-> funcionando, não um segundo defeito.
->
-> **Correção:** subir o teto (ou esperar o ciclo virar) em
-> https://ai.studio/spend — só o dono do projeto Google tem acesso. Depois,
-> rodar `agente1_linter.py` e `agente2_analista.py` à mão para preencher o que
-> ficou para trás, ou esperar o pipeline diário e o semanal fazerem isso.
->
-> **Provável causa:** a recuperação do D-61 processou 29 partidas acumuladas
-> de uma vez — dezenas de chamadas de Agente 1 e de resumo num único dia. O
-> teto mensal existe justamente para conter esse tipo de pico, e ele conteve.
+> Desde que o default de `STOCKFISH_SEARCHTIME_MS` virou 0 (commit `1c221c6`,
+> 14/09), `analisar_posicao_com_engine` passava `searchtime=0` ao Stockfish, que
+> busca sem fim nesse caso. Toda chamada ao Explicador travava **segurando o
+> `engine_lock`**, o que também fazia Treino, trecho e Laboratório esperarem 60 s
+> e responderem 503 enquanto isso. A última explicação gravada é de 11/09.
+> Ninguém notou porque o dublê de teste aceitava qualquer `searchtime`. Achado
+> ao verificar o D-67, que reaproveita a mesma função; corrigido em `1e47cbf`.
 
 ## 1. Testes e build
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **861**, todos passando, em 40 módulos |
-| Testes de frontend (Vitest) | **268**, todos passando, em 28 arquivos |
+| Testes de backend | **901**, todos passando, em 41 módulos |
+| Testes de frontend (Vitest) | **303**, todos passando, em 33 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
 `.github/workflows/deploy-backend.yml` lista os **37** módulos de teste do

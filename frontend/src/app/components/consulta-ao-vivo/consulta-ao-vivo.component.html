@@ -1,0 +1,291 @@
+<main class="pagina">
+  <section class="conteudo max-w-5xl">
+    <header>
+      <p class="sobrelinha">Partida em andamento</p>
+      <h1 class="titulo-pagina">Consulta ao vivo</h1>
+      <p class="subtitulo">
+        Espelhe aqui, lance a lance, a partida que você está jogando contra um bot. Quando travar,
+        peça ajuda para pensar: primeiro vêm as perguntas e os planos, depois as ideias candidatas, e
+        só por último — se você pedir — o lance do motor.
+      </p>
+    </header>
+
+    <!--
+      No celular a ordem é tabuleiro → consulta → lances: durante a partida o
+      que se usa é jogar e pedir ajuda, e rolar até o fim da página para achar
+      o botão seria o pior lugar para ele. No desktop, duas colunas.
+    -->
+    <div class="grid items-start gap-5 lg:grid-cols-2">
+      <!-- Coluna esquerda: `contents` no celular deixa os dois cartões entrarem
+           direto na grade (e na ordem acima); no desktop é uma coluna própria,
+           sem esticar junto com a altura da consulta. -->
+      <div class="contents lg:col-start-1 lg:row-start-1 lg:flex lg:flex-col lg:gap-5">
+      <!-- Tabuleiro -->
+      <section class="cartao order-1 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-1.5" role="group" aria-label="Com que cor você joga">
+            @for (cor of ['BRANCAS', 'PRETAS']; track cor) {
+              <button
+                type="button"
+                class="btn btn-pequeno"
+                [class]="partida().cor === cor ? 'btn-primario' : 'btn-secundario'"
+                [attr.aria-pressed]="partida().cor === cor"
+                (click)="definirCor($any(cor))"
+              >
+                Jogo de {{ rotuloCor($any(cor)) }}
+              </button>
+            }
+          </div>
+          <span class="selo" [class]="vezDoJogador() ? 'selo-latao' : 'selo-neutro'">
+            {{ fimDeJogo() ? 'Partida terminada' : vezDoJogador() ? 'Sua vez' : 'Vez do adversário' }}
+          </span>
+        </div>
+
+        <app-tabuleiro-interativo
+          class="block"
+          [fen]="fen()"
+          [orientacao]="partida().cor"
+          [ultimoLance]="ultimoLance()"
+          [bloqueado]="consultando() || fimDeJogo()"
+          (lanceJogado)="jogarDoTabuleiro($event)"
+        />
+
+        <div class="flex gap-2">
+          <label class="sr-only" for="campo-lance-espelho">Digitar lance</label>
+          <input
+            id="campo-lance-espelho"
+            type="text"
+            class="campo"
+            placeholder="Ou digite: Cf3, exd5, O-O"
+            [value]="lanceDigitado()"
+            [disabled]="consultando() || fimDeJogo()"
+            (input)="lanceDigitado.set($any($event.target).value)"
+            (keydown.enter)="jogarDoTexto()"
+          />
+          <button type="button" class="btn btn-secundario" [disabled]="!lanceDigitado().trim()" (click)="jogarDoTexto()">
+            Jogar
+          </button>
+          <button
+            type="button"
+            class="btn btn-secundario"
+            [disabled]="partida().lances.length === 0 || consultando()"
+            (click)="desfazer()"
+            title="Desfazer o último lance"
+          >
+            Desfazer
+          </button>
+        </div>
+
+        @if (erroLance()) {
+          <div class="aviso aviso-erro" role="alert">
+            <span aria-hidden="true">!</span>
+            <span>{{ erroLance() }}</span>
+          </div>
+        }
+      </section>
+
+      <!-- Lances e configuração -->
+      <section class="cartao order-3 space-y-4">
+        <div class="painel">
+          <p class="metrica-rotulo mt-0">Lances</p>
+          @if (listaDeLances().length === 0) {
+            <p class="mt-1.5 text-sm text-bruma-500">Nenhum lance espelhado ainda.</p>
+          } @else {
+            <ol class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-sm tabular-nums text-bruma-200">
+              @for (par of listaDeLances(); track $index) {
+                <li>
+                  <span class="text-bruma-500">{{ par.numero }}.</span>
+                  {{ par.brancas ?? '…' }} {{ par.pretas ?? '' }}
+                </li>
+              }
+            </ol>
+          }
+        </div>
+
+        <details class="painel" [open]="configurando()" (toggle)="configurando.set($any($event.target).open)">
+          <summary class="cursor-pointer text-sm font-medium text-bruma-200">Configurar partida</summary>
+          <div class="mt-3 space-y-3">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label class="rotulo" for="campo-plataforma">Plataforma</label>
+                <select
+                  id="campo-plataforma"
+                  class="campo"
+                  [value]="partida().plataforma"
+                  (change)="definirPlataforma($any($event.target).value)"
+                >
+                  <option value="LICHESS">Lichess</option>
+                  <option value="CHESSCOM">Chess.com</option>
+                  <option value="OUTRA">Outra</option>
+                </select>
+              </div>
+              <div>
+                <label class="rotulo" for="campo-adversario">Adversário</label>
+                <input
+                  id="campo-adversario"
+                  type="text"
+                  class="campo"
+                  maxlength="80"
+                  placeholder="Ex.: Stockfish nível 4"
+                  [value]="partida().adversario"
+                  (input)="definirAdversario($any($event.target).value)"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label class="rotulo" for="campo-pgn">Retomar de um PGN ou FEN</label>
+              <textarea
+                id="campo-pgn"
+                class="campo min-h-24"
+                placeholder="Cole o PGN da partida (ou uma FEN) para alcançar o site sem clicar lance por lance."
+                [value]="textoPgn()"
+                (input)="textoPgn.set($any($event.target).value)"
+              ></textarea>
+              @if (erroPgn()) {
+                <p class="mt-1 text-xs text-perigo" role="alert">{{ erroPgn() }}</p>
+              }
+              <button type="button" class="btn btn-secundario btn-pequeno mt-2" [disabled]="!textoPgn().trim()" (click)="aplicarPgn()">
+                Aplicar
+              </button>
+            </div>
+
+            <button type="button" class="btn btn-secundario btn-pequeno" (click)="comecarNovaPartida()">
+              Começar partida nova
+            </button>
+          </div>
+        </details>
+      </section>
+      </div>
+
+      <!-- Consulta -->
+      <section class="order-2 space-y-4 lg:col-start-2 lg:row-start-1">
+        <div class="cartao space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-base font-semibold text-marfim">Travou?</h2>
+            <span class="legenda">
+              Restam {{ consultasRestantes() }} de {{ limitePorPartida() }} nesta partida
+            </span>
+          </div>
+
+          @if (!mostrarPensamento()) {
+            <button type="button" class="text-sm text-latao-500 underline hover:text-latao-400" (click)="mostrarPensamento.set(true)">
+              Dizer o que estou pensando (opcional, mas deixa a resposta muito melhor)
+            </button>
+          } @else {
+            <div class="space-y-2">
+              <label class="rotulo" for="campo-situacao">O que acho que está acontecendo</label>
+              <textarea id="campo-situacao" class="campo min-h-16" maxlength="1500"
+                [value]="situacao()" (input)="situacao.set($any($event.target).value)"></textarea>
+              <label class="rotulo" for="campo-candidatos">Lances que considerei</label>
+              <textarea id="campo-candidatos" class="campo min-h-12" maxlength="1500"
+                [value]="candidatos()" (input)="candidatos.set($any($event.target).value)"></textarea>
+              <label class="rotulo" for="campo-trava">O que me trava</label>
+              <textarea id="campo-trava" class="campo min-h-12" maxlength="1500"
+                [value]="trava()" (input)="trava.set($any($event.target).value)"></textarea>
+            </div>
+          }
+
+          @if (motivoSemConsulta()) {
+            <p class="legenda">{{ motivoSemConsulta() }}</p>
+          }
+
+          @if (erroConsulta()) {
+            <div class="aviso aviso-erro" role="alert">
+              <span aria-hidden="true">!</span>
+              <span>{{ erroConsulta() }}</span>
+            </div>
+          }
+
+          <button type="button" class="btn btn-primario btn-largo" [disabled]="!podeConsultar()" (click)="consultar()">
+            @if (consultando()) {
+              <span class="pulso" aria-hidden="true"></span>
+              <span>Pensando na posição…</span>
+            } @else {
+              <span>Estou em dúvida — me ajude a pensar</span>
+            }
+          </button>
+        </div>
+
+        @for (consulta of consultas(); track consulta.chave) {
+          <article class="cartao space-y-4" [attr.aria-label]="'Consulta do lance ' + consulta.dados.numero_lance">
+            <div class="flex items-center justify-between gap-2">
+              <span class="selo selo-neutro">Lance {{ consulta.dados.numero_lance }}</span>
+              @if (consulta.dados.gerado_por === 'fallback') {
+                <span class="legenda">Resposta simplificada (IA indisponível)</span>
+              }
+            </div>
+
+            <div class="space-y-3">
+              <p class="text-sm leading-6 text-bruma-200">{{ consulta.dados.camada_pensar.leitura_da_posicao }}</p>
+
+              @if (consulta.dados.camada_pensar.sobre_o_seu_raciocinio) {
+                <div class="painel">
+                  <p class="metrica-rotulo mt-0">Sobre o seu raciocínio</p>
+                  <p class="mt-1.5 text-sm leading-6 text-bruma-200">{{ consulta.dados.camada_pensar.sobre_o_seu_raciocinio }}</p>
+                </div>
+              }
+
+              @if (consulta.dados.camada_pensar.perguntas_guia.length > 0) {
+                <div>
+                  <p class="metrica-rotulo mt-0">Pergunte-se</p>
+                  <ul class="mt-1.5 list-disc space-y-1 pl-5 text-sm leading-6 text-bruma-200">
+                    @for (pergunta of consulta.dados.camada_pensar.perguntas_guia; track $index) {
+                      <li>{{ pergunta }}</li>
+                    }
+                  </ul>
+                </div>
+              }
+
+              @if (consulta.dados.camada_pensar.planos.length > 0) {
+                <div>
+                  <p class="metrica-rotulo mt-0">Planos possíveis</p>
+                  <ul class="mt-1.5 space-y-2 text-sm leading-6 text-bruma-200">
+                    @for (plano of consulta.dados.camada_pensar.planos; track $index) {
+                      <li><strong class="text-marfim">{{ plano.titulo }}.</strong> {{ plano.explicacao }}</li>
+                    }
+                  </ul>
+                </div>
+              }
+            </div>
+
+            @if (nivel(consulta.chave) < 2) {
+              <button type="button" class="btn btn-secundario btn-largo" (click)="revelar(consulta.chave, 2)">
+                Ainda travado: ver ideias candidatas
+              </button>
+            } @else {
+              <div class="painel">
+                <p class="metrica-rotulo mt-0">Ideias candidatas <span class="normal-case text-bruma-500">(em ordem alfabética)</span></p>
+                <ul class="mt-1.5 space-y-1.5 text-sm leading-6 text-bruma-200">
+                  @for (ideia of consulta.dados.camada_ideias.ideias; track ideia.lance) {
+                    <li><strong class="tabular-nums text-marfim">{{ ideia.lance }}</strong> — {{ ideia.ideia ?? 'sem descrição' }}</li>
+                  }
+                </ul>
+              </div>
+
+              @if (nivel(consulta.chave) < 3) {
+                <button type="button" class="btn btn-secundario btn-largo" (click)="revelar(consulta.chave, 3)">
+                  Mostrar o lance do motor
+                </button>
+              } @else {
+                <div class="painel">
+                  <p class="metrica-rotulo mt-0">Motor</p>
+                  <p class="mt-1 text-sm text-bruma-200">
+                    Melhor lance: <strong class="text-marfim">{{ consulta.dados.camada_motor.melhor_lance ?? '—' }}</strong>
+                    · {{ consulta.dados.camada_motor.avaliacao }}
+                    · {{ consulta.dados.camada_motor.win_percent_jogador }}% para você
+                  </p>
+                  <ul class="mt-2 space-y-1 text-xs tabular-nums text-bruma-400">
+                    @for (linha of consulta.dados.camada_motor.linhas; track $index) {
+                      <li>{{ linha.avaliacao }} · {{ linha.sequencia.join(' ') || linha.lance }}</li>
+                    }
+                  </ul>
+                </div>
+              }
+            }
+          </article>
+        }
+      </section>
+    </div>
+  </section>
+</main>

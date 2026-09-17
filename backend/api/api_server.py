@@ -57,6 +57,13 @@ from backend.agentes.analisar_pgn_avulso import (  # noqa: E402
     parse_pgn,
     resolver_cor,
 )
+from backend.agentes.consulta_ao_vivo import (  # noqa: E402
+    PLATAFORMAS as PLATAFORMAS_CONSULTA,
+    consultar_posicao,
+    limite_por_partida as limite_consultas_por_partida,
+    normalizar_escolha,
+    usuarios_com_acesso as usuarios_com_acesso_consulta,
+)
 from backend.agentes.explicador_posicao import (  # noqa: E402
     ExplicacaoPosicao,
     explicar_posicao,
@@ -174,6 +181,10 @@ LIMITES_DIARIOS_ENV: dict[str, tuple[str, int]] = {
     # cedo demais; o teto próprio é maior pelo mesmo motivo, e continua sendo
     # um freio de abuso contra o engine_lock (R3), não do uso normal.
     "treino-trecho": ("LIMITE_DIARIO_TREINO_TRECHO", 400),
+    # D-67: cada consulta ao vivo é Stockfish + uma chamada ao Gemini (duas no
+    # pior caso). O teto por partida (CONSULTA_MAX_POR_PARTIDA) é o freio de
+    # uso; este é o freio de gasto do dia.
+    "consulta-ao-vivo": ("LIMITE_DIARIO_CONSULTA_AO_VIVO", 15),
     # D-65: a importação sob demanda dispara coleta + Stockfish + Agente 1 de
     # várias partidas de uma vez. É a rota mais cara que existe, por isso o
     # menor teto — ela serve ao onboarding ("quero ver meu Hexágono agora"),
@@ -623,6 +634,91 @@ class ExplicarPosicaoRequest(BaseModel):
     lado: str | None = None
 
 
+class PensamentoConsulta(BaseModel):
+    """O que o jogador diz estar pensando. Tudo opcional (D-67)."""
+
+    situacao: str | None = None
+    candidatos: str | None = None
+    trava: str | None = None
+
+
+class ConsultaAoVivoRequest(BaseModel):
+    """Uma consulta durante a partida espelhada (D-67).
+
+    Manda os LANCES, não a posição: o servidor reconstrói a posição, sabe o
+    número do lance e guarda a partida inteira para casar depois com a real.
+    """
+
+    partida_espelho_id: str
+    lances: list[str] = Field(default_factory=list, max_length=600)
+    fen_inicial: str | None = None
+    cor_jogador: str
+    plataforma: str = "LICHESS"
+    adversario: str | None = Field(default=None, max_length=80)
+    pensamento: PensamentoConsulta | None = None
+
+
+class PlanoConsultaResponse(BaseModel):
+    titulo: str
+    explicacao: str
+
+
+class CamadaPensar(BaseModel):
+    """Camada 1: sem nenhum lance concreto."""
+
+    leitura_da_posicao: str
+    sobre_o_seu_raciocinio: str | None = None
+    perguntas_guia: list[str] = Field(default_factory=list)
+    planos: list[PlanoConsultaResponse] = Field(default_factory=list)
+
+
+class IdeiaCandidataResponse(BaseModel):
+    lance: str
+    ideia: str | None = None
+
+
+class CamadaIdeias(BaseModel):
+    """Camada 2: candidatos em ordem alfabética, que esconde o ranking do motor."""
+
+    ideias: list[IdeiaCandidataResponse] = Field(default_factory=list)
+
+
+class LinhaMotor(BaseModel):
+    lance: str
+    avaliacao: str
+    sequencia: list[str] = Field(default_factory=list)
+
+
+class CamadaMotor(BaseModel):
+    """Camada 3: o veredito do Stockfish. A tela só mostra com clique explícito."""
+
+    melhor_lance: str | None = None
+    avaliacao: str
+    win_percent_jogador: float
+    linhas: list[LinhaMotor] = Field(default_factory=list)
+
+
+class ConsultaAoVivoResponse(BaseModel):
+    id: str | None = None
+    partida_espelho_id: str
+    numero_lance: int
+    fen: str
+    cor_jogador: str
+    lances_san: list[str] = Field(default_factory=list)
+    pensamento: PensamentoConsulta | None = None
+    camada_pensar: CamadaPensar
+    camada_ideias: CamadaIdeias
+    camada_motor: CamadaMotor
+    gerado_por: str
+    consultas_restantes: int
+    criado_em: str | None = None
+
+
+class AcessoConsultaAoVivoResponse(BaseModel):
+    habilitado: bool
+    limite_por_partida: int
+
+
 class IniciarOauthLichessResponse(BaseModel):
     """URL de autorização do Lichess para o frontend redirecionar (D-33).
 
@@ -1019,6 +1115,7 @@ verificar_limite_reconhecer_posicao = limite_diario("reconhecer-posicao")
 verificar_limite_reprocessar = limite_diario("reprocessar")
 verificar_limite_treino_responder = limite_diario("treino-responder")
 verificar_limite_treino_trecho = limite_diario("treino-trecho")
+verificar_limite_consulta_ao_vivo = limite_diario("consulta-ao-vivo")
 verificar_limite_importar = limite_diario("importar-partidas")
 
 
@@ -2386,6 +2483,204 @@ def listar_explicacoes_recentes(
         ) from error
 
     return [ExplicacaoPosicaoRecenteItem(**row) for row in resp.data or []]
+
+
+def verificar_acesso_consulta_ao_vivo(user_id: str = Depends(verificar_sessao)) -> str:
+    """A consulta ao vivo é exclusiva do dono do projeto (D-67).
+
+    404, nunca 403: para quem não está liberado a rota simplesmente não existe.
+    Vem ANTES do limite diário na assinatura das rotas, para que uma chamada
+    barrada não consuma a cota de ninguém.
+    """
+
+    if user_id not in usuarios_com_acesso_consulta():
+        raise HTTPException(status_code=404, detail="Not Found")
+    return user_id
+
+
+def _consulta_para_resposta(row: dict[str, Any], restantes: int) -> ConsultaAoVivoResponse:
+    resposta = row.get("resposta") or {}
+    return ConsultaAoVivoResponse(
+        id=row.get("id"),
+        partida_espelho_id=row["partida_espelho_id"],
+        numero_lance=row["numero_lance"],
+        fen=row["fen"],
+        cor_jogador=row["cor_jogador"],
+        lances_san=row.get("lances_san") or [],
+        pensamento=PensamentoConsulta(
+            situacao=row.get("pensamento_situacao"),
+            candidatos=row.get("pensamento_candidatos"),
+            trava=row.get("pensamento_trava"),
+        ),
+        camada_pensar=CamadaPensar(**resposta["camada_pensar"]),
+        camada_ideias=CamadaIdeias(**resposta["camada_ideias"]),
+        camada_motor=CamadaMotor(**resposta["camada_motor"]),
+        gerado_por=row.get("gerado_por") or resposta.get("gerado_por") or "gemini",
+        consultas_restantes=restantes,
+        criado_em=row.get("criado_em"),
+    )
+
+
+def _contar_consultas_da_partida(client: Any, user_id: str, partida_espelho_id: str) -> int:
+    resposta = (
+        client.table("consultas_ao_vivo")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .eq("partida_espelho_id", partida_espelho_id)
+        .execute()
+    )
+    contagem = getattr(resposta, "count", None)
+    return contagem if isinstance(contagem, int) else len(resposta.data or [])
+
+
+def _uuid_valido(valor: str) -> bool:
+    return bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", valor or ""))
+
+
+@app.get("/consulta-ao-vivo/acesso", response_model=AcessoConsultaAoVivoResponse)
+def acesso_consulta_ao_vivo(
+    user_id: str = Depends(verificar_sessao),
+) -> AcessoConsultaAoVivoResponse:
+    """Diz à tela se deve oferecer a consulta ao vivo a esta sessão (D-67).
+
+    É a única rota da feature que responde a qualquer sessão: sem ela o menu
+    teria que conhecer o id do dono, e esse tipo de regra não mora no frontend.
+    """
+
+    return AcessoConsultaAoVivoResponse(
+        habilitado=user_id in usuarios_com_acesso_consulta(),
+        limite_por_partida=limite_consultas_por_partida(),
+    )
+
+
+@app.post("/consulta-ao-vivo", response_model=ConsultaAoVivoResponse)
+def consultar_ao_vivo(
+    payload: ConsultaAoVivoRequest,
+    _acesso: str = Depends(verificar_acesso_consulta_ao_vivo),
+    user_id: str = Depends(verificar_limite_consulta_ao_vivo),
+) -> ConsultaAoVivoResponse:
+    """Consulta uma posição da partida que o jogador está espelhando (D-67).
+
+    Ordem das verificações, da mais barata para a mais cara: formato, teto da
+    partida, posição (é a vez dele?) — e só então Stockfish e Gemini.
+    """
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+    if not _uuid_valido(payload.partida_espelho_id):
+        raise HTTPException(status_code=400, detail="Identificador de partida inválido.")
+    try:
+        plataforma = normalizar_escolha(payload.plataforma, PLATAFORMAS_CONSULTA, "Plataforma")
+        cor = normalizar_escolha(payload.cor_jogador, ("BRANCAS", "PRETAS"), "Cor do jogador")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    limite = limite_consultas_por_partida()
+    try:
+        feitas = _contar_consultas_da_partida(client, user_id, payload.partida_espelho_id)
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao contar as consultas da partida: {error}"
+        ) from error
+    if feitas >= limite:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Você já usou todas as consultas desta partida ({limite} de {limite}). "
+                "O teto existe para você escolher os momentos de dúvida de verdade — "
+                "daqui em diante, a decisão é sua."
+            ),
+        )
+
+    adversario = (payload.adversario or "").strip() or None
+    try:
+        resultado = consultar_posicao(
+            _state["engine"],
+            _state.get("gemini_client"),
+            _state["logger"],
+            payload.lances,
+            cor,
+            fen_inicial=payload.fen_inicial,
+            pensamento=payload.pensamento.model_dump() if payload.pensamento else None,
+            adversario=adversario,
+            engine_lock=_state.get("engine_lock"),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except EngineIndisponivelError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar a posição: {error}"
+        ) from error
+
+    pensamento = resultado["pensamento"]
+    linha: dict[str, Any] = {
+        "user_id": user_id,
+        "partida_espelho_id": payload.partida_espelho_id,
+        "plataforma": plataforma,
+        "adversario": adversario,
+        "cor_jogador": resultado["cor_jogador"],
+        "fen_inicial": resultado["fen_inicial"],
+        "lances_san": resultado["lances_san"],
+        "numero_lance": resultado["numero_lance"],
+        "fen": resultado["fen"],
+        "pensamento_situacao": pensamento.get("situacao"),
+        "pensamento_candidatos": pensamento.get("candidatos"),
+        "pensamento_trava": pensamento.get("trava"),
+        "resposta": {
+            chave: resultado[chave]
+            for chave in ("camada_pensar", "camada_ideias", "camada_motor", "gerado_por")
+        },
+        "gerado_por": resultado["gerado_por"],
+    }
+    # Persistir é efeito colateral (mesmo critério do explicador): se falhar, o
+    # jogador ainda recebe a ajuda que pediu no meio da partida.
+    try:
+        gravado = client.table("consultas_ao_vivo").insert(linha).execute()
+        linhas = gravado.data or []
+        if linhas and isinstance(linhas[0], dict):
+            linha = {**linha, **linhas[0]}
+    except Exception as error:
+        logger = _state.get("logger")
+        if logger:
+            logger.warning("Falha ao salvar consulta ao vivo; seguindo sem persistir. %s", error)
+
+    return _consulta_para_resposta(linha, max(0, limite - feitas - 1))
+
+
+@app.get(
+    "/consulta-ao-vivo/partida/{partida_espelho_id}",
+    response_model=list[ConsultaAoVivoResponse],
+)
+def listar_consultas_da_partida(
+    partida_espelho_id: str,
+    user_id: str = Depends(verificar_acesso_consulta_ao_vivo),
+) -> list[ConsultaAoVivoResponse]:
+    """As consultas já feitas numa partida espelhada, para recarregar a tela (D-67)."""
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+    if not _uuid_valido(partida_espelho_id):
+        raise HTTPException(status_code=400, detail="Identificador de partida inválido.")
+
+    try:
+        resposta = (
+            client.table("consultas_ao_vivo")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("partida_espelho_id", partida_espelho_id)
+            .order("criado_em")
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar as consultas da partida: {error}"
+        ) from error
+
+    linhas = resposta.data or []
+    restantes = max(0, limite_consultas_por_partida() - len(linhas))
+    return [_consulta_para_resposta(row, restantes) for row in linhas]
 
 
 @app.post(

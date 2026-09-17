@@ -1,0 +1,82 @@
+<div class="relative mx-auto w-full max-w-[440px]">
+  <div
+    class="grid w-full select-none grid-cols-8 overflow-hidden rounded-lg border border-linha-forte shadow-cartao"
+    role="group"
+    aria-label="Tabuleiro: clique na peça e depois na casa de destino"
+  >
+    @for (casa of casas(); track casa.nome) {
+      <button
+        type="button"
+        class="relative flex aspect-square items-center justify-center p-0.5 focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-latao-500"
+        [class]="casa.clara ? 'bg-casa-clara' : 'bg-casa-escura'"
+        [attr.aria-label]="descricaoCasa(casa)"
+        [attr.aria-pressed]="casa.selecionada"
+        [attr.data-casa]="casa.nome"
+        [disabled]="bloqueado()"
+        (click)="clicar(casa)"
+      >
+        @if (casa.ultimoLance) {
+          <span class="pointer-events-none absolute inset-0 bg-latao-500/30" aria-hidden="true"></span>
+        }
+        @if (casa.selecionada) {
+          <span class="pointer-events-none absolute inset-0 bg-latao-500/55" aria-hidden="true"></span>
+        }
+        @if (casa.rankLabel) {
+          <span
+            class="pointer-events-none absolute left-0.5 top-0.5 text-[9px] font-bold leading-none"
+            [class]="casa.clara ? 'text-casa-escura' : 'text-casa-clara'"
+            aria-hidden="true"
+          >{{ casa.rankLabel }}</span>
+        }
+        @if (casa.fileLabel) {
+          <span
+            class="pointer-events-none absolute bottom-0.5 right-0.5 text-[9px] font-bold leading-none"
+            [class]="casa.clara ? 'text-casa-escura' : 'text-casa-clara'"
+            aria-hidden="true"
+          >{{ casa.fileLabel }}</span>
+        }
+        @if (casa.peca) {
+          <img
+            [src]="piecesBaseUrl + '/' + casa.peca + '.svg'"
+            alt=""
+            class="relative h-full w-full select-none"
+            draggable="false"
+          />
+        }
+        @if (casa.destino && !casa.captura) {
+          <span class="pointer-events-none absolute h-1/4 w-1/4 rounded-full bg-ardosia-950/35" aria-hidden="true"></span>
+        }
+        @if (casa.captura) {
+          <span class="pointer-events-none absolute inset-1 rounded-full border-4 border-ardosia-950/35" aria-hidden="true"></span>
+        }
+      </button>
+    }
+  </div>
+
+  @if (promocaoPendente()) {
+    <div
+      class="absolute inset-0 flex items-center justify-center rounded-lg bg-ardosia-950/70"
+      role="dialog"
+      aria-label="Escolha a peça da promoção"
+    >
+      <div class="cartao flex flex-col items-center gap-3 p-4">
+        <p class="text-sm text-bruma-200">Promover para:</p>
+        <div class="flex gap-2">
+          @for (peca of opcoesPromocao; track peca) {
+            <button
+              type="button"
+              class="h-14 w-14 rounded-md bg-casa-clara p-1 hover:bg-latao-500"
+              [attr.aria-label]="'Promover a ' + peca"
+              (click)="escolherPromocao(peca)"
+            >
+              <img [src]="imagemPromocao(peca)" alt="" class="h-full w-full" draggable="false" />
+            </button>
+          }
+        </div>
+        <button type="button" class="btn btn-secundario btn-pequeno" (click)="cancelarPromocao()">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  }
+</div>

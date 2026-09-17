@@ -92,6 +92,16 @@
         >
           Analisador
         </a>
+        @if (consultaAoVivoHabilitada()) {
+          <a
+            routerLink="/consulta-ao-vivo"
+            routerLinkActive="nav-link-ativo"
+            class="nav-link"
+            title="Consulta ao vivo (partida em andamento)"
+          >
+            Ao vivo
+          </a>
+        }
         <a routerLink="/perfil" routerLinkActive="nav-link-ativo" class="nav-link" title="Meu Perfil">
           Perfil
         </a>

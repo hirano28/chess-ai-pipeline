@@ -3536,6 +3536,98 @@ falso), 17 nos endpoints e na fila, 6 no componente — 861 backend, 268 fronten
 
 ---
 
+### D-67 — Consulta ao vivo: ajuda para pensar durante uma partida em andamento
+
+**Data:** 17/09/2026
+
+**Contexto.** Tudo que o produto faz até aqui olha a partida **depois** que ela
+acabou: detecta o erro, diagnostica, agenda o treino. O que nunca chega ao
+sistema é o momento da dúvida em si — "não tenho plano", "não sei se abro o
+centro" — e o que o jogador estava pensando quando travou. O dono do projeto
+pediu uma tela para espelhar, lance a lance, uma partida que ele joga contra um
+bot no Lichess ou no Chess.com, e pedir análise quando travar, com ou sem um
+texto explicando o raciocínio.
+
+**Decisão: a consulta ensina a pensar antes de dar o lance.** A resposta vem em
+três camadas, abertas em ordem na tela:
+
+1. **Pensar** — leitura da posição, comentário sobre o raciocínio do jogador,
+   perguntas para se fazer e planos descritos em palavras. **Nenhum lance.**
+2. **Ideias** — os candidatos do Stockfish, cada um com a ideia por trás, em
+   **ordem alfabética**: a ordem do motor revelaria qual é o melhor.
+3. **Motor** — melhor lance, avaliação e linhas, só com clique explícito.
+
+Um oráculo que devolve o lance resolve a partida e não ensina nada; o que se quer
+treinar é decidir sozinho. A ocultação é pedagógica, feita na tela: as três
+camadas chegam juntas numa única resposta, porque uma chamada ao Gemini por
+camada triplicaria o custo e a espera de quem está com o relógio correndo.
+
+**Exclusiva do dono, fechada por padrão.** A feature é de um usuário só por
+decisão dele. Numa ferramenta que devolve análise de motor para uma posição de
+partida em andamento, abrir para todos seria entregar ajuda externa em partida
+contra humanos, que Lichess e Chess.com proíbem. A liberação é uma lista de ids
+em `CONSULTA_AO_VIVO_USUARIOS` (Variable do repositório, levada ao Cloud Run
+pelo deploy); **ausente ou vazia, ninguém acessa** — esquecer de configurar não
+pode abrir a feature. Para os demais a rota responde **404**, e essa checagem
+vem antes do limite diário na assinatura, para uma chamada barrada não consumir
+cota. O espelhamento é manual e o módulo não fala com a API de nenhum site.
+
+**O servidor recebe lances, não a posição.** Reconstruir a partida dá o número
+do lance, recusa a consulta quando a vez é do adversário ("espelhe o lance dele
+primeiro") ou a partida acabou, e guarda `lances_san` inteiro — que é o que vai
+permitir casar a consulta com a partida real quando a coleta a trouxer (F5.3).
+
+**Três freios de gasto e de uso.** Um teto por partida (`CONSULTA_MAX_POR_PARTIDA`,
+3), que obriga a escolher os momentos de dúvida de verdade — consultar a cada
+lance seria jogar com o motor do lado; um limite diário (15); e no máximo uma
+correção por consulta quando o modelo viola as regras, caindo depois num
+fallback determinístico que só afirma o que o tabuleiro prova.
+
+**A regra "sem lance na camada 1" é verificada, não só pedida.** O prompt
+proíbe, e a resposta passa por `detectar_lances_inventados` (herdado do
+Explicador) com conjunto de permitidos **vazio** — qualquer lance ali é
+violação, mesmo legal. O detector herdado só conhecia notação inglesa, e em
+português "Cf3" passaria direto; ganhou um padrão para C/B/T/D/R.
+
+**Tabuleiro próprio, com `chess.js`.** O produto só tinha o `tabuleiro-preview`,
+estático. O `tabuleiro-interativo` reaproveita o mesmo visual e joga por clique
+(peça, depois casa, com escolha de promoção); a legalidade vem do `chess.js`
+(BSD-2). A `chessground`, do próprio Lichess, foi descartada por ser GPL-3 —
+incompatível com o plano de cobrar pelo produto. O lance também pode ser
+digitado em português ou inglês ("R" é tentado como Rei primeiro, a mesma ordem
+do backend), e um PGN ou FEN colado alcança o site sem clicar lance por lance.
+
+**Achado durante a verificação: o Explicador estava travado em produção desde
+14/09.** A consulta reaproveita `analisar_posicao_com_engine`, e a primeira
+chamada real ficou pendurada por mais de 3 minutos. A causa não era da feature:
+a função repassava `searchtime=0` ao Stockfish, que nesse caso busca sem fim —
+e o default de `STOCKFISH_SEARCHTIME_MS` virou 0 no commit `1c221c6`, de 14/09.
+Toda chamada ao Explicador travava **segurando o `engine_lock`**, levando junto
+Treino, trecho e Laboratório. A última explicação gravada é de 11/09.
+`evaluate_position` sempre teve a guarda; aqui ela faltava, e o dublê de teste
+aceitava qualquer `searchtime`. Corrigido num commit separado (`1e47cbf`), com
+um teste cujo dublê falha com zero. Depois da correção: 0,6 s com o motor real.
+
+**Verificado com a conta do dono, servidor local, uma chamada ao Gemini.**
+Partida italiana até o lance 11, raciocínio preenchido. Resposta em 11,2 s,
+gerada pelo modelo; a camada 1 veio sem nenhum lance, comentou o receio do
+jogador de abrir o centro e propôs três planos em palavras; as ideias vieram em
+ordem alfabética (a4, Bc2, Nf1) e o motor apontou Nf1. Confirmados também: 401
+sem sessão, 400 na vez do adversário e em lance ilegal, 429 ao passar do teto da
+partida, e a listagem da partida. A tela foi fotografada em desktop e celular,
+jogando por clique de verdade; as fotos mostraram três defeitos de layout,
+corrigidos antes do commit — o tabuleiro grudado no campo de lance, o botão de
+consulta no fim da página do celular (onde menos serve durante uma partida) e
+um buraco no desktop.
+
+**Testes:** 28 no módulo da consulta, 10 nos endpoints, 2 na correção do
+Explicador, 35 no frontend (tabuleiro, tela, regras de notação e armazenamento,
+serviço e guard) — 901 backend, 303 frontend.
+
+**Próximas fases:** F5.3 casa cada consulta com a partida coletada ("o que você
+jogou depois?") e transforma a dúvida em sinal do Hexágono e em card da fila;
+F5.4 sincroniza pelo link do Lichess, só contra bot; F5.5 cobre o Chess.com.
+
 ---
 
 ## Decisões tomadas sobre o que NÃO fazer

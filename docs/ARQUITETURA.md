@@ -75,8 +75,9 @@ Enriquecimentos que entram lateralmente nesse fluxo:
   partida inteira + momento-chave estratégico).
 - `backend/agentes/gerar_perguntas_pendentes.py` → `perguntas_pendentes`.
 - `backend/agentes/popular_fila_treino_espacado.py` → `fila_treino_espacado`
-  (D-48, roda depois de `agente1_linter.py`: agenda os lances `PICO` já
-  diagnosticados para repetição espaçada, sem chamar Gemini — a citação de
+  (D-48, roda depois de `agente1_linter.py`: agenda os lances críticos já
+  diagnosticados — `PICO` e, desde o D-66, `EROSAO` com cota diária própria —
+  para repetição espaçada, sem chamar Gemini — a citação de
   livro é ILIKE puro sobre `indice_conceitual`).
 - `backend/rag/importar_exercicios_taticos.py` → `exercicios_taticos` (D-49,
   **não** roda no pipeline diário — import ocasional/manual: baixa o dump
@@ -160,6 +161,9 @@ já foi atingido — mesmo princípio de "falhar rápido" de 🎫, mas para cust
 | `GET /perfis/importacao` 🎫👤 | D-65: progresso da importação, lido do próprio dado sendo produzido — não existe tabela de "job", que poderia divergir do que de fato aconteceu. `pronto` exige **ter o Hexágono**, não só ter terminado de processar |
 | `GET /partidas/composicao` 🎫👤 | D-57: quantas partidas analisadas há em cada cadência, com a dominante e o percentual dela. Alimenta a ressalva que o Hexágono mostra acima do diagnóstico — se quase tudo é blitz, o gargalo carrega junto o efeito do relógio |
 | `POST /explicar-posicao` 🎫👤⏱️ | avaliação objetiva + explicação didática de uma posição; persiste em `explicacoes_posicao` e devolve o `id` (falha de persistência não derruba a resposta — ver D-11) |
+| `GET /consulta-ao-vivo/acesso` 🎫 | D-67: diz à tela se esta sessão pode usar a consulta ao vivo (`habilitado`) e o teto por partida. É a única rota da feature que responde a qualquer sessão — sem ela o menu precisaria conhecer o id do dono, e essa regra não mora no frontend |
+| `POST /consulta-ao-vivo` 🎫👤⏱️ | D-67, **exclusiva de `CONSULTA_AO_VIVO_USUARIOS`** (404 para os demais, checado antes do limite diário para não consumir cota): recebe os LANCES de uma partida espelhada, não a posição — reconstrói, exige que seja a vez do jogador e que a partida não tenha acabado, aplica o teto por partida e só então roda Stockfish (`analisar_posicao_com_engine`) e **uma** chamada ao Gemini (no máximo uma correção). Devolve três camadas: `camada_pensar` (sem nenhum lance — verificado nas notações inglesa e portuguesa, com fallback determinístico se o modelo insistir), `camada_ideias` (candidatos do motor em ordem alfabética, que esconde o ranking) e `camada_motor`. Grava em `consultas_ao_vivo`; falha de gravação não tira a resposta de quem está com o relógio correndo |
+| `GET /consulta-ao-vivo/partida/{partida_espelho_id}` 🎫👤 | D-67: as consultas de uma partida espelhada, para a tela se recompor ao recarregar; mesma exclusividade (404) |
 | `GET /explicacoes-posicao/recentes` 🎫👤 | histórico do Explicador, filtrado pelo dono; cada item embute a resposta completa, sem endpoint "buscar por id" |
 | `GET /resolver-fen` 🎫 | resolve FEN ou PGN para o FEN final; parsing puro, sem Gemini nem Stockfish |
 | `POST /reconhecer-posicao` 🎫⏱️ | recebe foto de diagrama (multipart) e devolve o FEN, via Gemini multimodal |
@@ -191,16 +195,20 @@ Angular 21, standalone components, signals, Tailwind CSS 4, testes em Vitest.
 | `/analisador` | `analisador-partida` | cola PGN, acompanha o progresso, lê o resumo |
 | `/treino` | `treino-do-dia` | repetição espaçada sobre os próprios lances críticos já diagnosticados (D-48) e, quando pedido, exercícios dos catálogos tático (D-49) e posicional (D-55) focados numa categoria fraca — diferente das "Sessões de treino" da tela `/` (prescrição semanal do Agente 3). Aceita `?sessao_id=` para virar a prática de uma sessão específica (D-56), e o card cronometrado de `GESTAO_DE_TEMPO` mostra o relógio antes do tabuleiro de propósito (D-55) |
 | `/sessao/:id` | `sessao-execucao` | D-54: execução de uma sessão de treino focado — blocos de estudo marcáveis um a um e um bloco de prática que leva para `/treino?sessao_id=`. É a tela que transformou a prescrição do Agente 3 em algo que se conclui, e é a `data_concluida` que ela produz que `medir_eficacia.py` espera |
+| `/consulta-ao-vivo` | `consulta-ao-vivo` | D-67, **exclusiva do dono** (`consultaAoVivoGuard` pergunta ao servidor; o link "Ao vivo" do menu só aparece para quem está liberado): espelhar à mão uma partida em andamento contra um bot — clicando no `tabuleiro-interativo` ou digitando o lance em português ou inglês, com colar PGN/FEN para alcançar o site — e pedir ajuda para pensar quando travar. A resposta abre em camadas: pensar, ideias candidatas, motor. A partida fica no `localStorage` e as consultas voltam do servidor ao recarregar. No celular a ordem é tabuleiro → consulta → lances |
 | `/perfil` | `perfil-usuario` | cadastra a(s) conta(s) de Lichess/Chess.com de quem está logado (D-28) |
 | `/login` | `login` | signUp/signInWithPassword do Supabase Auth (Fase B.1 — ver D-15 em `DECISOES.md`) |
 
-`authGuard` está ligado nas **7 rotas** do dashboard (todas acima, exceto
-`/login`) desde D-23 — `/treino` entrou em D-48 e `/sessao/:id` em D-54. Ver a
+`authGuard` está ligado nas **8 rotas** do dashboard (todas acima, exceto
+`/login`) desde D-23 — `/treino` entrou em D-48, `/sessao/:id` em D-54 e
+`/consulta-ao-vivo` em D-67. Ver a
 nota mais abaixo sobre a Fase B.
 
 Componentes de apoio: `tabuleiro-preview` (tabuleiro 8x8 em CSS Grid com SVGs do
 conjunto cburnett; `[miniatura]="true"` dá a versão compacta sem coordenadas nem
-barra de ferramentas), `narrativa-analise`, `perguntas-pendentes`,
+barra de ferramentas), `tabuleiro-interativo` (D-67: o mesmo visual, mas
+jogável por clique — peça, depois casa, com promoção; a legalidade vem do
+`chess.js`, dependência BSD-2 escolhida em vez da `chessground`, que é GPL-3), `narrativa-analise`, `perguntas-pendentes`,
 `sessoes-treino`, `repertorio-insights` (D-40), `puzzles-insights` (D-41),
 `modal-onboarding-contas` (convite para cadastrar a conta de Lichess/Chess.com
 de quem ainda não tem perfil — sem ela a pessoa loga e nunca vê partida
