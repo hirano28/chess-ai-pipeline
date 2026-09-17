@@ -4291,6 +4291,33 @@ propósito).
 
 ---
 
+### D-77 — "Understanding Chess Endgames" (Nunn) — mesmo tratamento do D-76, sem capítulo nenhum detectado
+
+**Contexto:** o usuário colocou mais um livro na pasta de Finais depois do
+D-76: "Understanding Chess Endgames" (John Nunn). Texto nativo confirmado
+(234 páginas, sem OCR necessário), organizado do mesmo jeito problemático
+do D-76 — títulos como `"31 Bishop and Two Pawns vs Bishop"` (final
+numerado individual, sem palavra CAPÍTULO/PART) em vez de capítulo. O
+`--preview` confirmou: **0 de 267 chunks** com capítulo detectado (pior que
+o D-76, que ao menos capturou 4 marcadores de seção grosseiros — aqui nem
+isso, porque a numeração de finais individuais desse livro não bate nem no
+padrão `numbered_chapter_number`).
+
+**Decisão:** mesmo tratamento do D-76, sem repetir a pergunta ao usuário
+— o caso é estruturalmente idêntico e a decisão já tinha sido tomada:
+processado só para `livros_chunks` (busca vetorial), sem rodar
+`sugerir_indice_conceitual.py`/`importar_indice_conceitual.py`. Diferente
+do D-76, não foi encontrado nenhum chunk de lixo de fonte de diagrama
+neste livro (os diagramas aqui parecem ser imagem embutida, não fonte de
+texto), então não precisou de limpeza adicional.
+
+**Verificação real:** `--preview` gratuito primeiro (267 chunks, 0
+capítulos). Processamento completo contra produção
+(`pmzmershonrqzwbmhaco`): `livros_chunks` 1354→1621 (confirmado por
+query). `indice_conceitual` inalterado em 274.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a
