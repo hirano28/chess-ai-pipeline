@@ -278,9 +278,18 @@ def analisar_posicao_com_engine(
 
     with _acquire_engine_lock(engine_lock):
         engine.set_fen_position(board.fen())
-        try:
-            eval_dict = engine.get_evaluation(searchtime=searchtime_ms)
-        except TypeError:
+        # `searchtime=0` NÃO significa "use a profundidade": o Stockfish fica
+        # buscando sem fim e a requisição trava segurando o engine_lock (R3),
+        # levando junto toda rota que usa o motor. O default de
+        # STOCKFISH_SEARCHTIME_MS virou 0 em 14/09/2026, e desde então o
+        # Explicador travava em toda chamada. `evaluate_position` sempre teve
+        # esta guarda; aqui ela faltava.
+        if searchtime_ms and searchtime_ms > 0:
+            try:
+                eval_dict = engine.get_evaluation(searchtime=searchtime_ms)
+            except TypeError:
+                eval_dict = engine.get_evaluation()
+        else:
             eval_dict = engine.get_evaluation()
 
         try:

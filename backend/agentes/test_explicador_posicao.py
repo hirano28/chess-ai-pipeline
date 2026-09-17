@@ -193,6 +193,34 @@ class InspecionarElementosTabuleiroTest(unittest.TestCase):
 
 
 class AnalisarPosicaoComEngineTest(unittest.TestCase):
+    def test_searchtime_zero_usa_a_profundidade_e_nao_trava(self) -> None:
+        """Com `searchtime=0` o Stockfish real busca sem fim e a requisição
+        trava segurando o engine_lock. O dublê antigo aceitava qualquer
+        searchtime, e por isso o Explicador ficou travado em produção desde
+        14/09/2026 com a suíte verde."""
+
+        class MotorQueTravaComZero(_FakeEngine):
+            def get_evaluation(self, searchtime: int | None = None) -> dict[str, Any]:
+                if searchtime is not None and searchtime <= 0:
+                    raise AssertionError("searchtime=0 trava o Stockfish real")
+                return self.eval_dict
+
+        resultado = analisar_posicao_com_engine(
+            MotorQueTravaComZero(), chess.Board(), searchtime_ms=0
+        )
+        self.assertEqual(resultado["score_cp"], 350)
+
+    def test_searchtime_positivo_continua_sendo_repassado(self) -> None:
+        recebido: list[int | None] = []
+
+        class MotorQueRegistra(_FakeEngine):
+            def get_evaluation(self, searchtime: int | None = None) -> dict[str, Any]:
+                recebido.append(searchtime)
+                return self.eval_dict
+
+        analisar_posicao_com_engine(MotorQueRegistra(), chess.Board(), searchtime_ms=500)
+        self.assertEqual(recebido, [500])
+
     def test_avaliacao_centipawns_vencedor_brancas(self) -> None:
         board = chess.Board()
         engine = _FakeEngine(
