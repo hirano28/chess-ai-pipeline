@@ -3843,6 +3843,97 @@ celular sem erro de console. As duas consultas de teste foram apagadas depois.
 **Testes:** 31 no módulo (eram 28), API e componente adaptados — 958 backend,
 314 frontend.
 
+### D-71 — Navegação lateral, tema claro/escuro e o Hexágono em quatro páginas
+
+**Pedido do dono:** o app parecia "blog, página corrida, muita informação numa
+página só". Ele pediu navegação lateral, fundo mais claro, escolha entre claro
+e escuro, e validar em telas pequenas.
+
+**O diagnóstico por trás do "jeito de blog".** Não era só a barra de menu no
+topo. A página inicial tinha **cerca de 7.900 px de altura no desktop**:
+ressalva de cadência, narrativa, perguntas pendentes, radar, treino focado,
+repertório de aberturas, puzzles e sessões de treino, tudo numa rolagem. E
+todas as telas abriam com um título de até 3.25rem e parágrafos de subtítulo,
+como capa de revista. Perguntado, o dono escolheu quebrar a página em
+subpáginas (em vez de abas ou de só trocar o menu) e fazer o tema seguir o
+aparelho por padrão.
+
+**Navegação em três grupos**, pelo que a pessoa vai fazer:
+- **Diagnóstico:** Visão geral, Aberturas, Puzzles, Plano de treino;
+- **Praticar:** Treino diário, Laboratório;
+- **Ferramentas:** Explicador, Analisador, Ao vivo (este só para quem o
+  servidor libera, D-67).
+
+Tema, Perfil, Sair e o e-mail ficam no rodapé da lateral. A partir de 1024px
+a lateral é fixa. Abaixo, uma barra no topo com botão de menu abre a mesma
+lateral como gaveta: é um único `<aside>`, porque duas cópias da lista
+acabariam divergindo. A gaveta leva o foco para dentro e o devolve ao botão,
+fecha no Esc, no véu e ao navegar, e trava a rolagem da página por trás. Fora
+da tela ela fica com `visibility: hidden`, senão o teclado alcançaria os links
+escondidos. `/sessao/:id` acende "Plano de treino".
+
+**Subpáginas sem reescrever nada.** Repertório, puzzles e sessões de treino já
+eram componentes que buscam os próprios dados; ganharam as rotas `/aberturas`,
+`/puzzles` e `/plano` numa página fina (`diagnostico-secao`) que só põe o
+título. O subtítulo da página foi tirado depois da primeira captura: o cartão
+de cada bloco já traz a descrição, e a tela a repetia duas vezes seguidas. Os
+links que apontavam para as sessões na raiz ("sessões de treino do Hexágono",
+"Voltar ao Hexágono", "a sprint prescrita abaixo") agora levam a `/plano`.
+
+**Tema como papéis, não como cores.** `styles.css` já era a única fonte de
+cor, e os templates usavam os tokens de forma consistente, então o tema claro
+é um bloco `:root[data-tema="claro"]` que redefine os mesmos papéis
+(`ardosia-900` = fundo da página, `marfim` = texto de maior ênfase). Não houve
+renomeação espalhada pelos 18 componentes. As exceções foram tratadas
+explicitamente:
+- `ardosia-950` continua escuro nos dois temas (é o preto das peças pretas e
+  o véu de modal);
+- entraram `tinta` e `giz`, textos que não mudam com o tema, sobre a casa
+  clara e sobre esse preto;
+- entrou `sobre-latao`: escuro no tema escuro, branco no claro.
+
+O latão escurece no claro (`#dea34c` sobre branco dá 2,2:1; `#9a661c` passa de
+4,5:1). No claro, o botão primário desabilitado deixa de ser latão a 50% e
+vira um controle cinza, porque texto branco sobre latão lavado ficava
+ilegível.
+
+**Sem lampejo.** Um script inline no `index.html` aplica `data-tema` antes da
+primeira pintura, com a mesma chave e regra do `TemaService`; sem ele, quem
+usa o claro via o escuro piscar a cada recarga. O radar do Chart.js lê as
+cores dos tokens na criação e por isso é recriado quando o tema muda.
+
+**Densidade.** Título de página entre 1.5rem e 2rem (era até 3.25rem),
+subtítulo menor e mais apagado, menos espaço entre cartões, e o subtítulo
+longo do Treino Diário encurtado para duas linhas.
+
+**Bugs achados no caminho:**
+- **A gaveta fechava ao abrir:** o efeito que fecha a gaveta ao navegar lia
+  `menuAberto()` e passava a depender dele. O teste pegou antes de chegar à
+  tela; resolvido com `untracked`.
+- **Botão fora do cartão:** no histórico de análises, título longo não
+  truncava (faltava `min-w-0`) e empurrava o botão para fora. A coluna mais
+  estreita da nova casca é que expôs isso.
+
+**Verificação real:** API e frontend locais com a sessão do dono. Foram
+capturadas 31 telas no claro e 31 no escuro, em 1440, 820 e 390px. Olhei uma
+amostra de cada largura e tema (Visão geral, Aberturas, Plano, Treino,
+Explicador, Analisador, Ao vivo, login), e as duas correções abaixo foram
+fotografadas de novo depois de feitas. A gaveta foi
+exercitada no navegador em 390 e 320px nos dois temas: foco entrando e
+voltando, rolagem travada e destravada, fechar no Esc e ao navegar, e nenhuma
+rolagem horizontal. Nenhum erro de console da aplicação; dois 500 passageiros
+da API local em rotas que esta mudança não toca, que responderam 200 nas
+outras chamadas.
+
+**Fica para depois:**
+- **A Visão geral ainda é longa:** a narrativa do Agente 2 sozinha passa de
+  meia tela.
+- **Markdown cru na narrativa:** `*calculo_tatico_deficiente*` aparece com os
+  asteriscos. É anterior a esta mudança, mas continua visível.
+
+**Testes:** `TemaService` (4), casca (grupos, item ativo, gaveta, seletor de
+tema) e `diagnostico-secao` — 322 frontend.
+
 ---
 
 ## Decisões tomadas sobre o que NÃO fazer

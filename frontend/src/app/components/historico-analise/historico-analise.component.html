@@ -35,7 +35,9 @@
             (keydown.enter)="itemClicado.emit(item.id)"
             (keydown.space)="$event.preventDefault(); itemClicado.emit(item.id)"
           >
-            <div class="flex items-start gap-3 sm:items-center">
+            <!-- min-w-0: sem ele o título longo não trunca e empurra o botão
+                 para fora do cartão (visto no D-71, com a coluna mais estreita). -->
+            <div class="flex min-w-0 items-start gap-3 sm:items-center">
               @if (item.fen) {
                 <app-tabuleiro-preview
                   class="block w-14 shrink-0 self-start sm:w-16 sm:self-center"

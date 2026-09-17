@@ -11,7 +11,7 @@
         <span aria-hidden="true">!</span>
         <span>{{ erro() ?? 'Sessão de treino não encontrada.' }}</span>
       </div>
-      <a routerLink="/" class="btn btn-secundario self-start">Voltar ao Hexágono</a>
+      <a routerLink="/plano" class="btn btn-secundario self-start">Voltar ao plano de treino</a>
     } @else {
       <header class="max-w-2xl">
         <p class="sobrelinha">Sessão de treino focado</p>
@@ -97,7 +97,7 @@
               <span>
                 Sessão concluída em {{ formatarData(execucao()!.data_concluida) }}. O impacto nas
                 suas próximas partidas é medido automaticamente pelo pipeline semanal — a eficácia
-                aparece no cartão da sessão no Hexágono.
+                aparece no cartão da sessão no Plano de treino.
               </span>
             </div>
           }

@@ -30,11 +30,9 @@ import {
   RevisaoAvulsaService,
   StatusImportacao
 } from '../../services/revisao-avulsa.service';
-import { SessoesTreinoComponent } from '../sessoes-treino/sessoes-treino.component';
 import { NarrativaAnaliseComponent } from '../narrativa-analise/narrativa-analise.component';
 import { PerguntasPendentesComponent } from '../perguntas-pendentes/perguntas-pendentes.component';
-import { RepertorioInsightsComponent } from '../repertorio-insights/repertorio-insights.component';
-import { PuzzlesInsightsComponent } from '../puzzles-insights/puzzles-insights.component';
+import { TemaService } from '../../services/tema.service';
 
 Chart.register(
   RadarController,
@@ -63,14 +61,7 @@ type Categoria = (typeof CATEGORIAS)[number];
 @Component({
   selector: 'app-hexagono-radar',
   standalone: true,
-  imports: [
-    RouterLink,
-    SessoesTreinoComponent,
-    NarrativaAnaliseComponent,
-    PerguntasPendentesComponent,
-    RepertorioInsightsComponent,
-    PuzzlesInsightsComponent
-  ],
+  imports: [RouterLink, NarrativaAnaliseComponent, PerguntasPendentesComponent],
   templateUrl: './hexagono-radar.component.html'
 })
 export class HexagonoRadarComponent implements OnInit, OnDestroy {
@@ -116,7 +107,9 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
   private readonly treinoService = inject(TreinoService);
   private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
   private readonly router = inject(Router);
+  private readonly temaService = inject(TemaService);
   private chart?: Chart<'radar'>;
+  private temaDoGrafico?: string;
 
   constructor() {
     // Cria/atualiza o gráfico apenas quando dados e canvas existem no DOM.
@@ -126,9 +119,17 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
       const analise = this.metricasExibidas();
       const canvas = this.radarCanvas();
       const modo = this.modoVisualizacao();
+      const tema = this.temaService.tema();
       if (!analise?.frequencia_por_categoria || !canvas) {
         return;
       }
+      // D-71: as cores do Chart.js são lidas dos tokens uma vez, na criação.
+      // Trocar o tema recria o gráfico para ele reler a paleta nova.
+      if (this.chart && this.temaDoGrafico !== tema) {
+        this.chart.destroy();
+        this.chart = undefined;
+      }
+      this.temaDoGrafico = tema;
       this.renderizarGrafico(canvas.nativeElement, analise, modo);
     });
   }
@@ -458,6 +459,7 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
     const corBruma300 = this.corToken('--color-bruma-300', '#b9c7c8');
     const corBruma500 = this.corToken('--color-bruma-500', '#74898c');
     const corMarfim = this.corToken('--color-marfim', '#f4f0e6');
+    const corGrade = this.corToken('--grade-grafico', 'rgba(147, 169, 171, 0.14)');
 
     this.chart = new Chart(canvas, {
       type: 'radar',
@@ -473,7 +475,7 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
             borderColor: corLatao500,
             pointBackgroundColor: corLatao300,
             pointBorderColor: corArdosia800,
-            pointHoverBackgroundColor: '#fff8e8',
+            pointHoverBackgroundColor: corArdosia800,
             pointHoverBorderColor: corLatao500,
             borderWidth: 2,
             pointRadius: 3.5,
@@ -499,8 +501,8 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
               color: corBruma500,
               font: { size: 10, family: FAMILIA_UI }
             },
-            grid: { color: 'rgba(147, 169, 171, 0.14)' },
-            angleLines: { color: 'rgba(147, 169, 171, 0.14)' },
+            grid: { color: corGrade },
+            angleLines: { color: corGrade },
             pointLabels: {
               color: corBruma200,
               font: { size: 11, weight: 600, family: FAMILIA_UI }

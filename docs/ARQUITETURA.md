@@ -191,21 +191,33 @@ inicializados uma vez no startup e guardados em `_state`, um dict de módulo.
 
 Angular 21, standalone components, signals, Tailwind CSS 4, testes em Vitest.
 
+**Casca e tema (D-71).** Logado, o app tem navegação lateral fixa a partir de
+1024px e, abaixo disso, uma barra no topo cujo botão abre a mesma navegação
+como gaveta (`app.html`, um único `<aside>` para os dois casos; a lista de
+itens é `NAVEGACAO` em `app.ts`, agrupada em Diagnóstico / Praticar /
+Ferramentas). O tema claro/escuro é do `TemaService`: preferência `sistema`
+(padrão), `claro` ou `escuro`, guardada em `localStorage` (`hexagono:tema`) e
+aplicada como `data-tema` no `<html>`. Um script inline no `index.html` aplica
+o tema antes da primeira pintura. As cores são as variáveis de
+`src/styles.css`: o `@theme` é o escuro e `:root[data-tema="claro"]` redefine
+os mesmos papéis; `ardosia-950`, `tinta` e `giz` não mudam com o tema.
+
 | Rota | Componente | O que faz |
 |---|---|---|
-| `/` | `hexagono-radar` | radar das 6 categorias + narrativa + sessões de treino. Desde o D-63 tem um seletor de cadência (Todas / Blitz / Rápida / …) que redesenha o radar a partir de `metricas.por_cadencia`, mostra a escala ("N diagnósticos em M partidas · gargalo: X") e avisa quando o gargalo do recorte é outro que o do conjunto. O seletor só aparece quando a análise traz o recorte — as gravadas antes do D-63 não trazem |
+| `/` | `hexagono-radar` | "Visão geral": radar das 6 categorias + narrativa + perguntas pendentes + treino focado. Até o D-70 também carregava repertório, puzzles e sessões de treino, que viraram as três rotas abaixo (D-71). Desde o D-63 tem um seletor de cadência (Todas / Blitz / Rápida / …) que redesenha o radar a partir de `metricas.por_cadencia`, mostra a escala ("N diagnósticos em M partidas · gargalo: X") e avisa quando o gargalo do recorte é outro que o do conjunto. O seletor só aparece quando a análise traz o recorte — as gravadas antes do D-63 não trazem |
+| `/aberturas`, `/puzzles`, `/plano` | `diagnostico-secao` | D-71: uma página por bloco do diagnóstico — `repertorio-insights`, `puzzles-insights` e `sessoes-treino`, escolhido por `data.secao` da rota. `/sessao/:id` acende "Plano de treino" na navegação |
 | `/laboratorio` | `laboratorio-raciocinio` | exercício avulso com feedback imediato |
 | `/explicador` | `explicador-posicao` | explicação didática de uma posição |
 | `/analisador` | `analisador-partida` | cola PGN, acompanha o progresso, lê o resumo |
-| `/treino` | `treino-do-dia` | repetição espaçada sobre os próprios lances críticos já diagnosticados (D-48) e, quando pedido, exercícios dos catálogos tático (D-49) e posicional (D-55) focados numa categoria fraca — diferente das "Sessões de treino" da tela `/` (prescrição semanal do Agente 3). Aceita `?sessao_id=` para virar a prática de uma sessão específica (D-56), e o card cronometrado de `GESTAO_DE_TEMPO` mostra o relógio antes do tabuleiro de propósito (D-55) |
+| `/treino` | `treino-do-dia` | repetição espaçada sobre os próprios lances críticos já diagnosticados (D-48) e, quando pedido, exercícios dos catálogos tático (D-49) e posicional (D-55) focados numa categoria fraca — diferente das "Sessões de treino" da tela `/plano` (prescrição semanal do Agente 3). Aceita `?sessao_id=` para virar a prática de uma sessão específica (D-56), e o card cronometrado de `GESTAO_DE_TEMPO` mostra o relógio antes do tabuleiro de propósito (D-55) |
 | `/sessao/:id` | `sessao-execucao` | D-54: execução de uma sessão de treino focado — blocos de estudo marcáveis um a um e um bloco de prática que leva para `/treino?sessao_id=`. É a tela que transformou a prescrição do Agente 3 em algo que se conclui, e é a `data_concluida` que ela produz que `medir_eficacia.py` espera |
 | `/consulta-ao-vivo` | `consulta-ao-vivo` | D-67, **exclusiva do dono** (`consultaAoVivoGuard` pergunta ao servidor; o link "Ao vivo" do menu só aparece para quem está liberado): espelhar à mão uma partida em andamento contra um bot — clicando no `tabuleiro-interativo` ou digitando o lance em português ou inglês, com colar PGN/FEN para alcançar o site — e pedir ajuda para avaliar a posição quando travar: que posição é, um roteiro numerado do que olhar e por quê, e o princípio — sem lance nenhum (D-70). Desde o D-69 também sincroniza com uma partida em andamento do Lichess ou do Chess.com — aí o tabuleiro só acompanha, e o espelho à mão some. Desde o D-68 mostra, em "Suas dúvidas anteriores", o que aconteceu depois de cada consulta. A partida fica no `localStorage` e as consultas voltam do servidor ao recarregar. No celular a ordem é tabuleiro → consulta → lances |
 | `/perfil` | `perfil-usuario` | cadastra a(s) conta(s) de Lichess/Chess.com de quem está logado (D-28) |
 | `/login` | `login` | signUp/signInWithPassword do Supabase Auth (Fase B.1 — ver D-15 em `DECISOES.md`) |
 
-`authGuard` está ligado nas **8 rotas** do dashboard (todas acima, exceto
-`/login`) desde D-23 — `/treino` entrou em D-48, `/sessao/:id` em D-54 e
-`/consulta-ao-vivo` em D-67. Ver a
+`authGuard` está ligado nas **11 rotas** do dashboard (todas acima, exceto
+`/login`) desde D-23 — `/treino` entrou em D-48, `/sessao/:id` em D-54,
+`/consulta-ao-vivo` em D-67 e `/aberturas`, `/puzzles` e `/plano` em D-71. Ver a
 nota mais abaixo sobre a Fase B.
 
 Componentes de apoio: `tabuleiro-preview` (tabuleiro 8x8 em CSS Grid com SVGs do

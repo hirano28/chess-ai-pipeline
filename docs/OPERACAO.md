@@ -416,9 +416,15 @@ teste unitário. O procedimento completo está em `docs/ESTADO.md` §6.
 | Comando | O que faz |
 |---|---|
 | `python backend/common/gerar_sessao_local.py <email> [saida.json]` | Emite uma sessão real do Supabase Auth via magic link (Admin API), sem precisar da senha. Sem argumento de saída, imprime só o `access_token` — útil para `curl -H "Authorization: Bearer ..."`. **O token é credencial válida: não cole em log, issue nem commit.** |
-| `cd frontend && npm run telas -- <sessao.json> [pasta]` | Fotografa as 7 telas de lista fixa em 1440px e 390px, com a sessão injetada. Requer `npx playwright install chromium` na primeira vez, e os dois servidores no ar. |
+| `cd frontend && npm run telas -- <sessao.json> [pasta]` | Fotografa as 9 telas logadas de lista fixa em 1440px e 390px, e o login, com a sessão injetada. Requer `npx playwright install chromium` na primeira vez, e os dois servidores no ar. |
 
-Duas variáveis opcionais do `capturar-telas.mjs` (D-54):
+Variáveis opcionais do `capturar-telas.mjs` (D-54, D-71):
+
+- **`TEMA`** (`claro` ou `escuro`) força o tema e entra no nome do arquivo
+  (`desktop-escuro-treino.png`). Sem ela vale o tema do navegador headless,
+  que é o claro.
+- **`TABLET=1`** acrescenta a largura de 820px, abaixo do corte em que a
+  navegação lateral vira gaveta.
 
 - **`ROTAS_EXTRA`** acrescenta rotas à lista fixa, no formato
   `"/caminho:nome-do-arquivo"`, separadas por vírgula. Existe porque rota com

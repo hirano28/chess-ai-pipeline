@@ -6,8 +6,25 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Diagnóstico de xadrez a partir das suas próprias partidas: hexágono de desempenho, laboratório de raciocínio, explicador de posição e analisador de partida.">
-  <meta name="theme-color" content="#0c1519">
-  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#f3f1eb">
+  <meta name="color-scheme" content="light dark">
+  <!--
+    D-71: aplica o tema ANTES do CSS pintar a página. Sem isto, quem usa o
+    claro via um lampejo do escuro a cada recarga até o Angular subir. A chave
+    e a regra são as mesmas de TemaService (src/app/services/tema.service.ts).
+  -->
+  <script>
+    (function () {
+      var raiz = document.documentElement;
+      var escuro = false;
+      try {
+        var salvo = localStorage.getItem('hexagono:tema');
+        escuro = salvo === 'escuro' || (salvo !== 'claro' && matchMedia('(prefers-color-scheme: dark)').matches);
+      } catch (e) {}
+      raiz.setAttribute('data-tema', escuro ? 'escuro' : 'claro');
+      raiz.style.colorScheme = escuro ? 'dark' : 'light';
+    })();
+  </script>
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

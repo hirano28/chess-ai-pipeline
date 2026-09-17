@@ -15,6 +15,25 @@ export const routes: Routes = [
 		loadComponent: () => import('./components/hexagono-radar/hexagono-radar.component').then((m) => m.HexagonoRadarComponent),
 		canActivate: [authGuard],
 	},
+	// D-71: os blocos que ficavam na rolagem da página do Hexágono ganharam rota.
+	{
+		path: 'aberturas',
+		loadComponent: () => import('./components/diagnostico-secao/diagnostico-secao.component').then((m) => m.DiagnosticoSecaoComponent),
+		canActivate: [authGuard],
+		data: { secao: 'aberturas' },
+	},
+	{
+		path: 'puzzles',
+		loadComponent: () => import('./components/diagnostico-secao/diagnostico-secao.component').then((m) => m.DiagnosticoSecaoComponent),
+		canActivate: [authGuard],
+		data: { secao: 'puzzles' },
+	},
+	{
+		path: 'plano',
+		loadComponent: () => import('./components/diagnostico-secao/diagnostico-secao.component').then((m) => m.DiagnosticoSecaoComponent),
+		canActivate: [authGuard],
+		data: { secao: 'plano' },
+	},
 	{
 		path: 'treino',
 		loadComponent: () => import('./components/treino-do-dia/treino-do-dia.component').then((m) => m.TreinoDoDiaComponent),

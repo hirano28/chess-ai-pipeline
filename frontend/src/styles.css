@@ -1,14 +1,29 @@
 @import "tailwindcss";
 
 /* ============================================================================
-   IDENTIDADE VISUAL — "sala de estudo noturna": ardósia, latão e marfim.
+   IDENTIDADE VISUAL — ardósia, latão e marfim, em dois temas (D-71).
 
    Este arquivo é a ÚNICA fonte de verdade de cor, sombra, raio e tipografia.
    Nenhum template deve escrever hex na mão: use os tokens (bg-ardosia-800,
    text-latao-500, …) ou as classes de componente definidas mais abaixo.
+
+   Os nomes descrevem PAPÉIS, não a cor literal: `ardosia-900` é "o fundo da
+   página", `marfim` é "o texto de maior ênfase". O bloco @theme abaixo é o
+   tema escuro; `:root[data-tema="claro"]`, logo depois, redefine os mesmos
+   papéis para o claro. Quem escolhe o tema é o TemaService, gravando
+   `data-tema` no <html>.
+
+   Exceções que NÃO mudam com o tema, porque a superfície por trás também não
+   muda: `ardosia-950` (o preto das peças pretas, o véu de modal), `tinta` e
+   `giz` (texto sobre as casas do tabuleiro e sobre esse preto).
    ========================================================================= */
 
 @theme {
+  /* --- fixos nos dois temas --------------------------------------------- */
+  --color-tinta: #0c1519; /* texto escuro sobre superfície sempre clara */
+  --color-giz: #f4f0e6; /* texto claro sobre superfície sempre escura */
+  --color-sobre-latao: #0c1519; /* texto de botão primário e item ativo */
+
   /* --- superfícies, do fundo da página ao elemento mais alto ------------- */
   --color-ardosia-950: #080f12; /* poço / scrim de modal */
   --color-ardosia-900: #0c1519; /* fundo da página */
@@ -76,6 +91,73 @@
   --shadow-latao: 0 10px 26px -10px rgb(222 163 76 / 0.45);
 }
 
+/* Valores que não são tokens de utilitário, mas também mudam com o tema. */
+:root {
+  --brilho-cartao: rgb(244 240 230 / 0.09);
+  --luz-topo: rgb(222 163 76 / 0.07);
+  --luz-lateral: rgb(127 196 232 / 0.045);
+  --grade-grafico: rgb(147 169 171 / 0.14);
+}
+
+/* --- TEMA CLARO --------------------------------------------------------------
+   Papel quente, não branco hospitalar: o fundo puxa para o marfim da marca e o
+   cartão é branco, então a hierarquia vem de cartão sobre papel, com sombra
+   curta. O latão escurece: #dea34c sobre branco tem contraste 2,2:1, ilegível
+   como texto; #9a661c passa de 4,5:1 e continua sendo latão. Os semânticos
+   seguem a mesma regra (texto escuro, fundo lavado, borda média). */
+:root[data-tema="claro"] {
+  --color-ardosia-900: #f3f1eb; /* fundo da página */
+  --color-ardosia-850: #f8f6f1; /* campo, painel embutido */
+  --color-ardosia-800: #ffffff; /* cartão */
+  --color-ardosia-750: #f0ede5; /* hover */
+  --color-ardosia-700: #e8e3d8; /* controle, selo neutro */
+  --color-ardosia-600: #d6cfc0;
+
+  --color-linha: #e6e1d6;
+  --color-linha-forte: #d3cbbb;
+
+  --color-marfim: #172024;
+  --color-bruma-200: #28343a;
+  --color-bruma-300: #3b474d;
+  --color-bruma-400: #56636a;
+  --color-bruma-500: #66727a;
+  --color-bruma-600: #8b959b;
+
+  --color-latao-300: #7c5011;
+  --color-latao-400: #875a17;
+  --color-latao-500: #9a661c;
+  --color-latao-600: #b07a2a;
+  --color-latao-700: #d9b67e;
+  --color-latao-fundo: #fbf1de;
+  --color-latao-borda: #e3c48e;
+  --color-sobre-latao: #ffffff;
+
+  --color-sucesso: #1d7545;
+  --color-sucesso-fundo: #e8f5ed;
+  --color-sucesso-borda: #b3dac2;
+
+  --color-perigo: #b23a28;
+  --color-perigo-fundo: #fcece8;
+  --color-perigo-borda: #eab6aa;
+
+  --color-info: #1c6a93;
+  --color-info-fundo: #e8f3f9;
+  --color-info-borda: #b2d3e6;
+
+  --color-roxo: #6a4cae;
+  --color-roxo-fundo: #f1ecfa;
+  --color-roxo-borda: #cfc0ea;
+
+  --shadow-cartao: 0 1px 2px rgb(23 32 36 / 0.05), 0 6px 18px -10px rgb(23 32 36 / 0.14);
+  --shadow-elevado: 0 2px 6px rgb(23 32 36 / 0.08), 0 20px 40px -18px rgb(23 32 36 / 0.25);
+  --shadow-latao: 0 8px 20px -10px rgb(154 102 28 / 0.5);
+
+  --brilho-cartao: transparent;
+  --luz-topo: rgb(222 163 76 / 0.1);
+  --luz-lateral: rgb(127 196 232 / 0.08);
+  --grade-grafico: rgb(40 52 58 / 0.12);
+}
+
 /* ============================================================================
    BASE
    ========================================================================= */
@@ -84,15 +166,15 @@
   html {
     -webkit-text-size-adjust: 100%;
     scroll-behavior: smooth;
-    /* O cabeçalho é `sticky top-0`, então qualquer rolagem até uma âncora
-       (o link "pular para o conteúdo", um scrollIntoView) deixava o topo do
-       alvo escondido embaixo dele. Medido: 60px no desktop, 100px no celular
-       (onde a navegação quebra em duas linhas), mais uma folga. */
-    scroll-padding-top: 7rem;
+    /* Abaixo de lg a barra do topo é `sticky`, e uma rolagem até âncora
+       (o "pular para o conteúdo", um scrollIntoView) deixaria o topo do alvo
+       escondido embaixo dela: 3.5rem de barra mais uma folga. No desktop a
+       navegação é lateral e não cobre nada. */
+    scroll-padding-top: 4.5rem;
   }
-  @media (min-width: 640px) {
+  @media (min-width: 1024px) {
     html {
-      scroll-padding-top: 4.75rem;
+      scroll-padding-top: 1.5rem;
     }
   }
 
@@ -104,8 +186,8 @@
     background-color: var(--color-ardosia-900);
     /* duas luzes fracas no topo dão profundidade sem custar nenhum asset */
     background-image:
-      radial-gradient(1100px 520px at 50% -12%, rgb(222 163 76 / 0.07), transparent 62%),
-      radial-gradient(760px 420px at 100% 0%, rgb(127 196 232 / 0.045), transparent 58%);
+      radial-gradient(1100px 520px at 50% -12%, var(--luz-topo), transparent 62%),
+      radial-gradient(760px 420px at 100% 0%, var(--luz-lateral), transparent 58%);
     background-attachment: fixed;
     color: var(--color-marfim);
     font-family: var(--font-sans);
@@ -133,7 +215,7 @@
 
   ::selection {
     background-color: var(--color-latao-500);
-    color: var(--color-ardosia-900);
+    color: var(--color-sobre-latao);
   }
 
   :focus-visible {
@@ -180,18 +262,20 @@
 @layer components {
   /* --- casca da página --------------------------------------------------- */
 
+  /* D-71: a página vive dentro da casca com navegação lateral, então não
+     precisa mais ocupar a viewport inteira nem abrir com um respiro de capa
+     de revista. */
   .pagina {
-    min-height: 100dvh;
-    padding: 2.5rem 1.25rem 5rem;
+    padding: 1.25rem 1rem 4rem;
   }
   @media (min-width: 640px) {
     .pagina {
-      padding-inline: 2rem;
+      padding: 1.75rem 1.75rem 4rem;
     }
   }
   @media (min-width: 1024px) {
     .pagina {
-      padding-inline: 3rem;
+      padding: 2.25rem 2.5rem 4rem;
     }
   }
 
@@ -199,9 +283,14 @@
     margin-inline: auto;
     display: flex;
     width: 100%;
-    max-width: 64rem;
+    max-width: 68rem;
     flex-direction: column;
-    gap: 1.75rem;
+    gap: 1.25rem;
+  }
+  @media (min-width: 640px) {
+    .conteudo {
+      gap: 1.5rem;
+    }
   }
 
   /* --- cabeçalhos -------------------------------------------------------- */
@@ -215,11 +304,14 @@
     color: var(--color-latao-500);
   }
 
+  /* Título de tela de aplicativo, não manchete: o tamanho antigo (até 3.25rem)
+     empurrava o conteúdo para baixo da dobra antes de a pessoa ver qualquer
+     dado — parte do "jeito de blog" que o D-71 corrige. */
   .titulo-pagina {
-    margin-top: 0.75rem;
-    font-size: clamp(2rem, 1.4rem + 2.4vw, 3.25rem);
+    margin-top: 0.375rem;
+    font-size: clamp(1.5rem, 1.25rem + 1vw, 2rem);
     font-weight: 600;
-    line-height: 1.08;
+    line-height: 1.15;
     color: var(--color-marfim);
   }
 
@@ -239,11 +331,11 @@
   }
 
   .subtitulo {
-    margin-top: 0.875rem;
-    max-width: 44rem;
-    font-size: 1rem;
-    line-height: 1.7;
-    color: var(--color-bruma-300);
+    margin-top: 0.5rem;
+    max-width: 48rem;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--color-bruma-400);
   }
 
   .legenda {
@@ -272,15 +364,15 @@
     background: linear-gradient(
       to right,
       transparent,
-      rgb(244 240 230 / 0.09) 22%,
-      rgb(244 240 230 / 0.09) 78%,
+      var(--brilho-cartao) 22%,
+      var(--brilho-cartao) 78%,
       transparent
     );
     pointer-events: none;
   }
   @media (min-width: 640px) {
     .cartao {
-      padding: 1.75rem;
+      padding: 1.5rem;
     }
   }
 
@@ -344,7 +436,7 @@
 
   .btn-primario {
     background-color: var(--color-latao-500);
-    color: var(--color-ardosia-900);
+    color: var(--color-sobre-latao);
     box-shadow: var(--shadow-latao);
   }
   .btn-primario:hover:not(:disabled) {
@@ -352,6 +444,13 @@
   }
   .btn-primario:disabled {
     box-shadow: none;
+  }
+  /* No claro, latão a 50% sobre papel com texto branco some (≈1,6:1). O
+     desabilitado vira um controle apagado, e o texto continua legível. */
+  :root[data-tema="claro"] .btn-primario:disabled {
+    opacity: 1;
+    background-color: var(--color-ardosia-700);
+    color: var(--color-bruma-500);
   }
 
   .btn-secundario {
@@ -512,12 +611,12 @@
   .selo-brancas {
     border-color: var(--color-casa-escura);
     background-color: var(--color-casa-clara);
-    color: var(--color-ardosia-900);
+    color: var(--color-tinta);
   }
   .selo-pretas {
     border-color: var(--color-linha-forte);
     background-color: var(--color-ardosia-950);
-    color: var(--color-marfim);
+    color: var(--color-giz);
   }
 
   /* --- avisos ------------------------------------------------------------ */
@@ -563,7 +662,7 @@
     gap: 0.5rem;
     border-radius: var(--radius-controle);
     border: 1px dashed var(--color-linha-forte);
-    background-color: rgb(16 27 32 / 0.6);
+    background-color: color-mix(in oklab, var(--color-ardosia-850) 60%, transparent);
     padding: 2.5rem 1.5rem;
     text-align: center;
     font-size: 0.875rem;
@@ -651,10 +750,10 @@
   }
   .segmentado-opcao-ativa {
     background-color: var(--color-latao-500);
-    color: var(--color-ardosia-900);
+    color: var(--color-sobre-latao);
   }
   .segmentado-opcao-ativa:hover {
-    color: var(--color-ardosia-900);
+    color: var(--color-sobre-latao);
   }
 
   /* --- métrica (número em destaque) -------------------------------------- */
@@ -754,7 +853,7 @@
     padding: 0.625rem 1rem;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-ardosia-900);
+    color: var(--color-sobre-latao);
     box-shadow: var(--shadow-elevado);
     transition: transform 150ms ease;
   }
@@ -762,51 +861,103 @@
     transform: none;
   }
 
-  /* Trilho horizontal com barra escondida: sem uma pista visual, os itens
-     fora da tela simplesmente não existem para quem está no celular. A
-     máscara desvanece a borda direita, sinalizando que há mais para o lado.
-     Só no celular — a partir de sm: a navegação cabe inteira e não rola. */
-  .nav-rolavel {
-    mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+  /* Navegação lateral (D-71). No desktop fica fixa à esquerda; abaixo de lg
+     vira gaveta, aberta pelo botão de menu da barra do topo. A largura mora
+     numa variável porque o conteúdo precisa do mesmo recuo. */
+  .lateral {
+    --largura-lateral: 15rem;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 50;
+    display: flex;
+    width: min(var(--largura-lateral), 85vw);
+    flex-direction: column;
+    border-right: 1px solid var(--color-linha);
+    background-color: var(--color-ardosia-800);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 0s linear 220ms;
   }
-  @media (min-width: 640px) {
-    .nav-rolavel {
-      mask-image: none;
+  /* Aberta no celular: `visibility` volta junto, senão os links da gaveta
+     fechada continuariam recebendo foco pelo teclado fora da tela. */
+  .lateral-aberta {
+    transform: none;
+    visibility: visible;
+    box-shadow: var(--shadow-elevado);
+    transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @media (min-width: 1024px) {
+    .lateral {
+      width: var(--largura-lateral);
+      transform: none;
+      visibility: visible;
+      box-shadow: none;
+      transition: none;
     }
   }
 
-  .nav-link {
+  .area-principal {
+    min-width: 0;
+  }
+  @media (min-width: 1024px) {
+    .area-principal {
+      padding-left: 15rem;
+    }
+  }
+
+  .nav-grupo {
+    padding: 0 0.75rem 0.375rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-bruma-500);
+  }
+
+  .nav-item {
     position: relative;
-    flex-shrink: 0;
+    display: flex;
+    min-height: 2.5rem;
+    align-items: center;
+    gap: 0.75rem;
     border-radius: 0.5rem;
     padding: 0.4375rem 0.75rem;
     font-size: 0.875rem;
     font-weight: 500;
-    color: var(--color-bruma-400);
-    white-space: nowrap;
+    color: var(--color-bruma-300);
     transition:
       color 150ms ease,
       background-color 150ms ease;
   }
-  .nav-link:hover {
-    background-color: var(--color-ardosia-800);
+  .nav-item svg {
+    height: 1.125rem;
+    width: 1.125rem;
+    flex-shrink: 0;
+    color: var(--color-bruma-500);
+    transition: color 150ms ease;
+  }
+  .nav-item:hover {
+    background-color: var(--color-ardosia-750);
     color: var(--color-marfim);
   }
-  .nav-link-ativo {
-    background-color: var(--color-ardosia-800);
-    color: var(--color-latao-500);
+  .nav-item-ativo,
+  .nav-item-ativo:hover {
+    background-color: var(--color-latao-fundo);
+    color: var(--color-latao-400);
     font-weight: 600;
   }
-  .nav-link-ativo:hover {
-    color: var(--color-latao-400);
+  .nav-item-ativo svg {
+    color: var(--color-latao-500);
   }
-  /* risco de latão sob o item ativo — a âncora visual da navegação */
-  .nav-link-ativo::after {
+  /* filete de latão à esquerda — a âncora visual de onde se está */
+  .nav-item-ativo::before {
     content: "";
     position: absolute;
-    inset: auto 0.75rem -0.5rem;
-    height: 2px;
-    border-radius: 999px;
+    inset: 0.5rem auto 0.5rem -0.75rem;
+    width: 3px;
+    border-radius: 0 999px 999px 0;
     background-color: var(--color-latao-500);
   }
 

@@ -1,128 +1,151 @@
 <!--
-  Casca da aplicação. O cabeçalho só existe para quem está logado: sem sessão a
-  única rota alcançável é /login (authGuard, D-23), então mostrar a navegação ali
-  seria oferecer 5 links que voltam todos para a mesma tela.
+  Casca da aplicação (D-71). A navegação só existe para quem está logado: sem
+  sessão a única rota alcançável é /login (authGuard, D-23).
+
+  Desktop (lg+): navegação lateral fixa e o conteúdo recuado ao lado dela.
+  Abaixo de lg: uma barra no topo com o botão de menu, e a mesma navegação
+  vira gaveta. Um único <aside> serve aos dois — duas cópias da lista acabariam
+  divergindo.
 -->
 @if (authService.autenticado()) {
   <!--
     Primeiro ponto de tabulação da página: sem ele, quem navega por teclado
-    atravessa os 6 links da navegação, o e-mail e o "Sair" a cada troca de tela
-    antes de chegar no conteúdo.
+    atravessa a navegação inteira a cada troca de tela antes do conteúdo.
   -->
   <a href="#conteudo" class="link-pular">Pular para o conteúdo</a>
 
-  <header class="sticky top-0 z-40 border-b border-linha bg-ardosia-900/80 backdrop-blur-xl">
-    <div
-      class="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-1 px-5 py-3 sm:px-8 lg:px-12"
+  <header
+    class="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-linha bg-ardosia-900/85 px-2 backdrop-blur-xl lg:hidden"
+  >
+    <button
+      #botaoMenu
+      type="button"
+      class="btn btn-fantasma h-10 w-10 p-0"
+      aria-label="Abrir o menu"
+      aria-controls="navegacao-lateral"
+      [attr.aria-expanded]="menuAberto()"
+      (click)="abrirMenu()"
     >
-      <a
-        routerLink="/"
-        class="group flex shrink-0 items-center gap-2.5 text-marfim"
-        aria-label="Hexágono — início"
-      >
-        <span
-          class="text-latao-500 transition-transform duration-300 group-hover:rotate-[30deg]"
-          aria-hidden="true"
-        >
-          <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none">
-            <path
-              d="M12 2 20.66 7v10L12 22 3.34 17V7z"
-              stroke="currentColor"
-              stroke-width="1.3"
-              stroke-linejoin="round"
-              opacity="0.5"
-            />
-            <path
-              d="M12 5 15.9 9.75 17.2 15 12 15.5 6.37 15.25 7.67 9.5z"
-              fill="currentColor"
-              opacity="0.9"
-            />
-          </svg>
-        </span>
-        <span class="font-display text-lg font-semibold tracking-tight">Hexágono</span>
-      </a>
-
-      <!--
-        No celular a navegação rola na horizontal com a barra escondida, então
-        "Analisador" e "Perfil" ficavam fora da tela sem nenhuma pista de que
-        havia mais. `.nav-rolavel` desvanece a borda direita para sinalizar isso.
-      -->
-      <nav
-        class="nav-rolavel order-3 -mx-1 flex w-full items-center gap-1 overflow-x-auto sem-barra pb-1 sm:order-none sm:mx-0 sm:w-auto sm:pb-0"
-        aria-label="Navegação principal"
-      >
-        <a
-          routerLink="/"
-          routerLinkActive="nav-link-ativo"
-          [routerLinkActiveOptions]="{ exact: true }"
-          class="nav-link"
-          title="Meu Hexágono de Xadrez"
-        >
-          Hexágono
-        </a>
-        <a
-          routerLink="/treino"
-          routerLinkActive="nav-link-ativo"
-          class="nav-link"
-          title="Treino Diário"
-        >
-          Treino
-        </a>
-        <a
-          routerLink="/laboratorio"
-          routerLinkActive="nav-link-ativo"
-          class="nav-link"
-          title="Laboratório de Raciocínio"
-        >
-          Laboratório
-        </a>
-        <a
-          routerLink="/explicador"
-          routerLinkActive="nav-link-ativo"
-          class="nav-link"
-          title="Explicador de Posição"
-        >
-          Explicador
-        </a>
-        <a
-          routerLink="/analisador"
-          routerLinkActive="nav-link-ativo"
-          class="nav-link"
-          title="Analisador de Partida"
-        >
-          Analisador
-        </a>
-        @if (consultaAoVivoHabilitada()) {
-          <a
-            routerLink="/consulta-ao-vivo"
-            routerLinkActive="nav-link-ativo"
-            class="nav-link"
-            title="Consulta ao vivo (partida em andamento)"
-          >
-            Ao vivo
-          </a>
-        }
-        <a routerLink="/perfil" routerLinkActive="nav-link-ativo" class="nav-link" title="Meu Perfil">
-          Perfil
-        </a>
-      </nav>
-
-      <div class="ml-auto flex min-w-0 shrink items-center gap-2.5">
-        <span
-          class="hidden max-w-[18ch] truncate text-xs text-bruma-500 md:inline"
-          [title]="authService.usuario()?.email"
-        >
-          {{ authService.usuario()?.email }}
-        </span>
-        <button type="button" class="btn btn-secundario btn-pequeno" (click)="sair()" title="Encerrar sessão">
-          Sair
-        </button>
-      </div>
-    </div>
+      <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 6.5h16 M4 12h16 M4 17.5h16" />
+      </svg>
+    </button>
+    <ng-container *ngTemplateOutlet="marca" />
   </header>
+
+  @if (menuAberto()) {
+    <div
+      class="fixed inset-0 z-40 bg-ardosia-950/50 backdrop-blur-[2px] lg:hidden surgir"
+      aria-hidden="true"
+      (click)="fecharMenu()"
+    ></div>
+  }
+
+  <aside id="navegacao-lateral" class="lateral" [class.lateral-aberta]="menuAberto()">
+    <div class="flex h-14 shrink-0 items-center justify-between gap-2 px-4 lg:h-16 lg:px-5">
+      <ng-container *ngTemplateOutlet="marca" />
+      <button
+        #botaoFechar
+        type="button"
+        class="btn btn-fantasma h-9 w-9 p-0 lg:hidden"
+        aria-label="Fechar o menu"
+        (click)="fecharMenu(true)"
+      >
+        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12 M18 6 6 18" />
+        </svg>
+      </button>
+    </div>
+
+    <nav class="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-3" aria-label="Navegação principal">
+      @for (grupo of grupos(); track grupo.titulo) {
+        <div>
+          <p class="nav-grupo">{{ grupo.titulo }}</p>
+          <ul class="space-y-0.5">
+            @for (item of grupo.itens; track item.rota) {
+              <li>
+                <ng-container *ngTemplateOutlet="link; context: { $implicit: item }" />
+              </li>
+            }
+          </ul>
+        </div>
+      }
+    </nav>
+
+    <div class="shrink-0 space-y-3 border-t border-linha px-3 py-3">
+      <!-- Só ícones: três rótulos por extenso não cabem nos 15rem da lateral.
+           O nome vai no aria-label (leitor de tela) e no title (mouse). -->
+      <div class="flex items-center justify-between gap-2 px-3">
+        <span class="text-xs font-medium text-bruma-500">Tema</span>
+        <div class="segmentado" role="group" aria-label="Tema">
+          @for (opcao of opcoesTema; track opcao.valor) {
+            <button
+              type="button"
+              class="segmentado-opcao flex items-center justify-center px-2.5"
+              [class.segmentado-opcao-ativa]="temaService.preferencia() === opcao.valor"
+              [attr.aria-pressed]="temaService.preferencia() === opcao.valor"
+              [attr.aria-label]="opcao.rotulo"
+              [title]="opcao.valor === 'sistema' ? 'Seguir o tema do aparelho' : 'Tema ' + opcao.rotulo.toLowerCase()"
+              (click)="temaService.escolher(opcao.valor)"
+            >
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path [attr.d]="opcao.icone" />
+              </svg>
+            </button>
+          }
+        </div>
+      </div>
+
+      <ul class="space-y-0.5">
+        <li>
+          <ng-container *ngTemplateOutlet="link; context: { $implicit: itemPerfil }" />
+        </li>
+        <li>
+          <button type="button" class="nav-item w-full" (click)="sair()" title="Encerrar sessão">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3 M16 16l4-4-4-4 M20 12H10" />
+            </svg>
+            <span>Sair</span>
+          </button>
+        </li>
+      </ul>
+
+      <p class="truncate px-3 text-xs text-bruma-500" [title]="authService.usuario()?.email ?? ''">
+        {{ authService.usuario()?.email }}
+      </p>
+    </div>
+  </aside>
 }
 
-<div id="conteudo" tabindex="-1">
-  <router-outlet />
+<ng-template #marca>
+  <a routerLink="/" class="group flex min-w-0 items-center gap-2.5 text-marfim" aria-label="Hexágono — visão geral">
+    <span class="text-latao-500 transition-transform duration-300 group-hover:rotate-[30deg]" aria-hidden="true">
+      <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none">
+        <path d="M12 2 20.66 7v10L12 22 3.34 17V7z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" opacity="0.5" />
+        <path d="M12 5 15.9 9.75 17.2 15 12 15.5 6.37 15.25 7.67 9.5z" fill="currentColor" opacity="0.9" />
+      </svg>
+    </span>
+    <span class="font-display text-lg font-semibold tracking-tight">Hexágono</span>
+  </a>
+</ng-template>
+
+<ng-template #link let-item>
+  <a
+    [routerLink]="item.rota"
+    class="nav-item"
+    [class.nav-item-ativo]="ativo(item)"
+    [attr.aria-current]="ativo(item) ? 'page' : null"
+  >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path [attr.d]="item.icone" />
+    </svg>
+    <span class="truncate">{{ item.rotulo }}</span>
+  </a>
+</ng-template>
+
+<div [class.area-principal]="authService.autenticado()">
+  <div id="conteudo" tabindex="-1" class="outline-none">
+    <router-outlet />
+  </div>
 </div>
 <app-modal-onboarding-contas />

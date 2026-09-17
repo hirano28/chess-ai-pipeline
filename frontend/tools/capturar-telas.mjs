@@ -37,11 +37,19 @@ const SAIDA = path.resolve(pastaSaida);
 fs.mkdirSync(SAIDA, { recursive: true });
 
 /** As duas larguras importam: dos 3 defeitos achados no D-52, um era só do
- *  desktop (cartões espremidos) e outro só do celular (navegação sem pista). */
+ *  desktop (cartões espremidos) e outro só do celular (navegação sem pista).
+ *  `TABLET=1` acrescenta 820px — abaixo do corte de 1024px, onde a navegação
+ *  lateral vira gaveta num espaço que ainda tem cara de desktop (D-71). */
 const VIEWPORTS = [
   { nome: 'desktop', viewport: { width: 1440, height: 900 } },
+  ...(process.env.TABLET ? [{ nome: 'tablet', viewport: { width: 820, height: 1180 } }] : []),
   { nome: 'celular', viewport: { width: 390, height: 844 } }
 ];
+
+/** D-71: `TEMA=claro` ou `TEMA=escuro` força o tema (mesma chave do
+ *  TemaService). Sem a variável, vale o tema do navegador headless — claro. */
+const TEMA = process.env.TEMA;
+const SUFIXO_TEMA = TEMA ? `-${TEMA}` : '';
 
 /** Rotas com parâmetro (ex.: /sessao/:id) não cabem numa lista fixa — o id
  *  muda a cada execução. `ROTAS_EXTRA="/sessao/abc:sessao,/x:nome"` acrescenta
@@ -58,7 +66,10 @@ const ROTAS_EXTRA = (process.env.ROTAS_EXTRA ?? '')
   });
 
 const ROTAS = [
-  { caminho: '/', nome: 'hexagono' },
+  { caminho: '/', nome: 'visao-geral' },
+  { caminho: '/aberturas', nome: 'aberturas' },
+  { caminho: '/puzzles', nome: 'puzzles' },
+  { caminho: '/plano', nome: 'plano' },
   { caminho: '/treino', nome: 'treino' },
   { caminho: '/laboratorio', nome: 'laboratorio' },
   { caminho: '/explicador', nome: 'explicador' },
@@ -86,14 +97,17 @@ for (const { nome: nomeViewport, viewport } of VIEWPORTS) {
   // localStorage pertence a "about:blank" e o app abre deslogado.
   await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
   await page.evaluate(
-    ([chave, valor]) => localStorage.setItem(chave, valor),
-    [CHAVE_SESSAO, JSON.stringify(sessao)]
+    ([chave, valor, tema]) => {
+      localStorage.setItem(chave, valor);
+      if (tema) localStorage.setItem('hexagono:tema', tema);
+    },
+    [CHAVE_SESSAO, JSON.stringify(sessao), TEMA]
   );
 
   for (const { caminho, nome } of ROTAS) {
     await page.goto(`${BASE}${caminho}`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(ESPERA_MS);
-    const arquivo = path.join(SAIDA, `${nomeViewport}-${nome}.png`);
+    const arquivo = path.join(SAIDA, `${nomeViewport}${SUFIXO_TEMA}-${nome}.png`);
     await page.screenshot({ path: arquivo, fullPage: true });
     console.log('capturada:', path.relative(process.cwd(), arquivo));
     capturadas += 1;
@@ -114,8 +128,12 @@ for (const { nome: nomeViewport, viewport } of VIEWPORTS) {
   const ctx = await browser.newContext({ viewport: VIEWPORTS[0].viewport, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
+  if (TEMA) {
+    await page.evaluate((tema) => localStorage.setItem('hexagono:tema', tema), TEMA);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
   await page.waitForTimeout(1500);
-  const arquivo = path.join(SAIDA, 'desktop-login.png');
+  const arquivo = path.join(SAIDA, `desktop${SUFIXO_TEMA}-login.png`);
   await page.screenshot({ path: arquivo, fullPage: true });
   console.log('capturada:', path.relative(process.cwd(), arquivo));
   capturadas += 1;

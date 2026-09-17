@@ -215,6 +215,6 @@ describe('SessaoExecucaoComponent', () => {
 
     expect(component.erro()).toContain('não encontrada');
     const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(texto).toContain('Voltar ao Hexágono');
+    expect(texto).toContain('Voltar ao plano de treino');
   });
 });

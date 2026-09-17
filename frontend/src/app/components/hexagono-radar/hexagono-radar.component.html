@@ -1,10 +1,10 @@
 <main class="pagina">
   <section class="conteudo">
-    <header class="max-w-2xl">
-      <p class="sobrelinha">Diagnóstico de desempenho</p>
-      <h1 class="titulo-pagina">Meu Hexágono de Xadrez</h1>
+    <header>
+      <p class="sobrelinha">Diagnóstico</p>
+      <h1 class="titulo-pagina">Visão geral</h1>
       <p class="subtitulo">
-        Uma visão das categorias que mais aparecem nos seus erros críticos.
+        As categorias que mais aparecem nos seus erros críticos e o que o diagnóstico diz sobre elas.
       </p>
     </header>
 
@@ -220,8 +220,8 @@
                 <strong class="text-marfim">{{ rotuloGargalo(gargaloExibido()) }}</strong>;
                 no conjunto das partidas, é
                 <strong class="text-marfim">{{ rotuloGargalo(dados()?.gargalo_sistemico_atual ?? null) }}</strong>.
-                A sprint prescrita abaixo segue o gargalo do conjunto — se você quer treinar
-                para esta cadência, o alvo pode ser outro.
+                A sprint do <a routerLink="/plano" class="underline hover:text-latao-400">Plano de treino</a>
+                segue o gargalo do conjunto — se você quer treinar para esta cadência, o alvo pode ser outro.
               </span>
             </div>
           }
@@ -305,11 +305,7 @@
         </div>
       }
     </section>
-
-    <app-repertorio-insights />
-
-    <app-puzzles-insights />
-
-    <app-sessoes-treino />
+    <!-- D-71: repertório, puzzles e sessões de treino têm página própria
+         (/aberturas, /puzzles, /plano) — ver DiagnosticoSecaoComponent. -->
   </section>
 </main>
