@@ -2749,6 +2749,121 @@ class ObterFilaTreinoTest(unittest.TestCase):
         for campo in ("brancas", "pretas", "evento", "partida_url", "partida_referencia"):
             self.assertNotIn(campo, item)
 
+    def test_teto_corta_o_que_a_tela_mostra_sem_esconder_o_atraso(self) -> None:
+        """D-56: a população acrescenta 10 cards/dia independentemente do
+        consumo. Sem teto a tela um dia abre com centenas — mas esconder o
+        tamanho do atraso seria mentir por omissão, daí `vencidos_total`."""
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": i,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "lances_criticos": {
+                    "numero_lance": 10,
+                    "fen_antes_lance": chess_fen_inicial(),
+                    "partidas": {},
+                },
+            }
+            for i in range(50)
+        ]
+        base.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        corpo = self.client.get("/treino/fila", headers=HEADERS_SESSAO).json()
+
+        self.assertEqual(len(corpo["itens"]), api_server.TREINO_TETO_FILA)
+        self.assertEqual(corpo["vencidos_total"], 50)
+        self.assertEqual(corpo["total_hoje"], 50)
+        self.assertIsNone(corpo["sessao_id"])
+
+    def test_filtra_pelos_exercicios_de_uma_sessao(self) -> None:
+        """Sem isso o botão "Ir para os exercícios" da sessão levava a uma fila
+        onde os 12 cards dela ficavam atrás de dezenas de outros (D-56)."""
+        mock_client = self._mockar_client()
+        sessoes = MagicMock()
+        fila = MagicMock()
+
+        def table(nome: str):
+            return sessoes if nome == "sessoes_treino" else fila
+
+        mock_client.table.side_effect = table
+        sessoes.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = [
+            {
+                "id": "sessao-1",
+                "diagnostico_gargalo": "TATICA: x",
+                "modulos": {},
+                "data_prescrita": "2026-09-14",
+                "data_iniciada": "2026-09-16T10:00:00Z",
+                "data_concluida": None,
+                "progresso": {"fila_ids": [101, 102]},
+            }
+        ]
+        consulta = fila.select.return_value.eq.return_value
+        consulta.in_.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": 101,
+                "origem": "exercicio_posicional",
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "exercicios_posicionais": {
+                    "fen": chess_fen_inicial(),
+                    "categoria_hexagono": "ESTRATEGIA",
+                    "segundos_restantes": None,
+                },
+            }
+        ]
+        consulta.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        corpo = self.client.get(
+            "/treino/fila?sessao_id=sessao-1", headers=HEADERS_SESSAO
+        ).json()
+
+        self.assertEqual(corpo["sessao_id"], "sessao-1")
+        self.assertEqual([item["fila_id"] for item in corpo["itens"]], [101])
+        # Os dois contadores passam a ser DA SESSÃO: 2 exercícios nela, 1 ainda
+        # pendente, logo 1 feito. Somar com o "feitas hoje" global produzia um
+        # total que não era o tamanho de sessão nenhuma.
+        self.assertEqual(corpo["total_hoje"], 2)
+        self.assertEqual(corpo["feitas_hoje"], 1)
+        # Dentro da sessão o critério é "ainda não respondido", não "venceu
+        # hoje": um card respondido agora é reagendado e sumiria no meio dela.
+        consulta.in_.assert_called_once_with("id", [101, 102])
+        consulta.in_.return_value.eq.assert_called_once_with("total_revisoes", 0)
+        consulta.lte.assert_not_called()
+
+    def test_sessao_sem_bloco_de_pratica_devolve_fila_vazia(self) -> None:
+        """Devolver a fila inteira seria ignorar o filtro que o usuário pediu."""
+        mock_client = self._mockar_client()
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = [
+            {
+                "id": "sessao-1",
+                "diagnostico_gargalo": "ESTRATEGIA: x",
+                "modulos": {},
+                "data_prescrita": "2026-09-14",
+                "data_iniciada": None,
+                "data_concluida": None,
+                "progresso": {},
+            }
+        ]
+
+        corpo = self.client.get(
+            "/treino/fila?sessao_id=sessao-1", headers=HEADERS_SESSAO
+        ).json()
+
+        self.assertEqual(corpo["itens"], [])
+        self.assertEqual(corpo["vencidos_total"], 0)
+
+    def test_sessao_de_outro_dono_devolve_404(self) -> None:
+        mock_client = self._mockar_client()
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
+
+        resposta = self.client.get(
+            "/treino/fila?sessao_id=sessao-alheia", headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 404)
+
     def test_conta_feitas_hoje_separado_das_pendentes(self) -> None:
         mock_client = self._mockar_client()
         base = mock_client.table.return_value.select.return_value.eq.return_value
@@ -3520,6 +3635,73 @@ class DisponibilidadeFocoTreinoTest(unittest.TestCase):
         resposta = self.client.get("/treino/foco/disponibilidade", headers=HEADERS_SESSAO)
 
         self.assertEqual(resposta.status_code, 503)
+
+
+class ComposicaoCadenciaTest(unittest.TestCase):
+    """GET /partidas/composicao (D-57): torna visível, na tela do diagnóstico,
+    que o corpus é dominado por uma cadência — e que o gargalo lido ali carrega
+    junto o efeito do relógio."""
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _mockar(self, contagens: dict[str, int]) -> None:
+        mock_client = MagicMock()
+        pedida: dict[str, str] = {}
+        cadeia = mock_client.table.return_value.select.return_value.eq.return_value
+
+        def eq_cadencia(_coluna: str, valor: str):
+            pedida["cadencia"] = valor
+            return cadeia.eq.return_value
+
+        def execute():
+            resp = MagicMock()
+            resp.count = contagens.get(pedida.get("cadencia", ""), 0)
+            return resp
+
+        cadeia.eq.side_effect = eq_cadencia
+        cadeia.eq.return_value.eq.return_value.limit.return_value.execute.side_effect = execute
+        api_server._state["supabase_client"] = mock_client
+
+    def test_resume_a_composicao_e_aponta_a_dominante(self) -> None:
+        self._mockar({"BLITZ": 142, "RAPIDA": 30, "DESCONHECIDA": 68})
+
+        corpo = self.client.get("/partidas/composicao", headers=HEADERS_SESSAO).json()
+
+        self.assertEqual(corpo["total"], 240)
+        self.assertEqual(corpo["dominante"], "BLITZ")
+        self.assertEqual(corpo["percentual_dominante"], 59.2)
+        self.assertEqual(corpo["por_cadencia"]["RAPIDA"], 30)
+
+    def test_omite_cadencias_zeradas(self) -> None:
+        """Listar BULLET: 0 e CLASSICA: 0 só polui — diferente do catálogo de
+        exercícios, aqui o zero não esconde nenhum botão."""
+        self._mockar({"BLITZ": 10})
+
+        por_cadencia = self.client.get(
+            "/partidas/composicao", headers=HEADERS_SESSAO
+        ).json()["por_cadencia"]
+
+        self.assertEqual(por_cadencia, {"BLITZ": 10})
+
+    def test_sem_partidas_analisadas(self) -> None:
+        self._mockar({})
+
+        corpo = self.client.get("/partidas/composicao", headers=HEADERS_SESSAO).json()
+
+        self.assertEqual(corpo["total"], 0)
+        self.assertIsNone(corpo["dominante"])
+        self.assertEqual(corpo["percentual_dominante"], 0.0)
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.get("/partidas/composicao")
+
+        self.assertEqual(resposta.status_code, 401)
 
 
 class ExecucaoSessaoTreinoTest(unittest.TestCase):

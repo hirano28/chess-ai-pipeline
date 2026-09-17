@@ -21,13 +21,15 @@ describe('TreinoService', () => {
         data_partida: '2026-09-10',
         plataforma: 'LICHESS',
         categoria: null,
-      segundos_sugeridos: null,
+        segundos_sugeridos: null,
         repeticoes: 0,
         total_revisoes: 0
       }
     ],
     feitas_hoje: 2,
-    total_hoje: 3
+    total_hoje: 3,
+    vencidos_total: 1,
+    sessao_id: null
   };
 
   const mockResultado: ResultadoTreino = {
@@ -66,6 +68,24 @@ describe('TreinoService', () => {
     expect(callArgs[0]).toContain('/treino/fila');
     const headers = (callArgs[1] as { headers: any })?.headers;
     expect(headers?.get('Authorization')).toBe('Bearer jwt-token-teste');
+  });
+
+  it('getFila(sessaoId) filtra a fila pelo bloco de prática da sessão', async () => {
+    /** D-56: sem o filtro, os 12 cards da sessão ficavam atrás de dezenas de
+     * outros vencidos e a sessão não tinha caminho reto do começo ao fim. */
+    const getSpy = vi.spyOn(http, 'get').mockReturnValue(of(mockFila));
+
+    await service.getFila('sessao-abc');
+
+    expect(getSpy.mock.calls[0][0]).toContain('/treino/fila?sessao_id=sessao-abc');
+  });
+
+  it('getFila() sem sessão não manda parâmetro nenhum', async () => {
+    const getSpy = vi.spyOn(http, 'get').mockReturnValue(of(mockFila));
+
+    await service.getFila(null);
+
+    expect(getSpy.mock.calls[0][0]).not.toContain('sessao_id');
   });
 
   it('getFila() retorna sessaoExpirada=true quando backend devolve 401', async () => {

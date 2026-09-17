@@ -93,6 +93,7 @@ from backend.common.lichess_explorer import (  # noqa: E402
 from backend.common.lichess_oauth import (  # noqa: E402
     obter_access_token_lichess,
 )
+from backend.common.cadencia import CADENCIAS  # noqa: E402
 from backend.common.progress import log_and_print  # noqa: E402
 from backend.common.spaced_repetition import (  # noqa: E402
     atualizar_agendamento,
@@ -155,6 +156,13 @@ TREINO_FOCO_QTD_EXERCICIOS = int(os.getenv("TREINO_FOCO_QTD_EXERCICIOS", "8"))
 # formato longo com objetivo fechado, o "Focar" é o incremento rápido na fila
 # do dia.
 SESSAO_QTD_EXERCICIOS = int(os.getenv("SESSAO_QTD_EXERCICIOS", "12"))
+
+# D-56: teto de cards mostrados de uma vez em GET /treino/fila. A população
+# acrescenta 10 novos por dia (D-48) independentemente do consumo, então o que
+# não é respondido vira atraso acumulado — sem teto, a tela um dia abre com
+# centenas de cards, que é a forma mais eficiente de fazer alguém desistir.
+# O contador `vencidos_total` continua dizendo a verdade sobre o tamanho real.
+TREINO_TETO_FILA = int(os.getenv("TREINO_TETO_FILA", "20"))
 
 # Rótulos legíveis das chaves de HEXAGON_CATEGORIES. O frontend tem a mesma
 # tabela (ROTULOS_CATEGORIA_HEXAGONO em treino.service.ts) para os seus
@@ -324,6 +332,12 @@ class FilaTreinoResponse(BaseModel):
     itens: list[ItemFilaTreino]
     feitas_hoje: int
     total_hoje: int
+    # D-56: `itens` é limitado por TREINO_TETO_FILA; `vencidos_total` é quantos
+    # de fato venceram. Sem os dois números a tela mentiria por omissão — ou
+    # despejaria centenas de cards, ou esconderia o tamanho do atraso.
+    vencidos_total: int = 0
+    # Preenchido quando a fila veio filtrada por uma sessão de treino (D-56).
+    sessao_id: str | None = None
 
 
 class ResponderTreinoRequest(BaseModel):
@@ -399,6 +413,21 @@ class DisponibilidadeFocoResponse(BaseModel):
     """
 
     por_categoria: dict[str, int]
+
+
+class ComposicaoCadenciaResponse(BaseModel):
+    """Distribuição das partidas analisadas por cadência (D-57).
+
+    Existe para tornar VISÍVEL a maior ressalva do diagnóstico do produto: se
+    a esmagadora maioria do corpus é blitz, "seu gargalo é tática" carrega
+    junto o efeito do relógio, e o usuário merece saber disso na mesma tela em
+    que lê o gargalo — não numa nota de rodapé da documentação.
+    """
+
+    por_cadencia: dict[str, int]
+    total: int
+    dominante: str | None = None
+    percentual_dominante: float = 0.0
 
 
 class BlocoSessaoResponse(BaseModel):
@@ -986,11 +1015,19 @@ def _hoje_america_sao_paulo() -> date:
 
 
 @app.get("/treino/fila", response_model=FilaTreinoResponse)
-def obter_fila_treino(user_id: str = Depends(verificar_sessao)) -> FilaTreinoResponse:
+def obter_fila_treino(
+    sessao_id: str | None = None, user_id: str = Depends(verificar_sessao)
+) -> FilaTreinoResponse:
     """Lista os cards de repetição espaçada vencidos hoje (D-48).
 
     Não revela tags_falha, causa raiz nem citação de livro - isso só aparece
     na resposta de POST /treino/{fila_id}/responder, depois de tentar o lance.
+
+    Com `sessao_id` (D-56), devolve SÓ os exercícios do bloco de prática
+    daquela sessão que ainda não foram respondidos. Sem isso, o botão "Ir para
+    os exercícios" da sessão levava a uma fila onde os 12 cards dela ficavam
+    atrás de dezenas de outros vencidos: a sessão tinha começo e fim, mas
+    nenhum caminho reto entre os dois.
     """
     client = _state.get("supabase_client")
     if not client:
@@ -999,8 +1036,28 @@ def obter_fila_treino(user_id: str = Depends(verificar_sessao)) -> FilaTreinoRes
     hoje = _hoje_america_sao_paulo()
     inicio_do_dia = datetime.combine(hoje, time.min, tzinfo=ZoneInfo("America/Sao_Paulo"))
 
+    ids_da_sessao: list[int] | None = None
+    if sessao_id:
+        sessao = _buscar_sessao(client, sessao_id, user_id)
+        bruto = sessao.get("progresso")
+        progresso = bruto if isinstance(bruto, dict) else {}
+        ids_da_sessao = [
+            item for item in progresso.get("fila_ids") or [] if isinstance(item, int)
+        ]
+        if not ids_da_sessao:
+            # Sessão ainda não iniciada, ou categoria sem catálogo: fila vazia
+            # é a resposta honesta - devolver a fila inteira seria ignorar o
+            # filtro que o usuário pediu.
+            return FilaTreinoResponse(
+                itens=[],
+                feitas_hoje=0,
+                total_hoje=0,
+                vencidos_total=0,
+                sessao_id=sessao_id,
+            )
+
     try:
-        resp_pendentes = (
+        consulta = (
             client.table("fila_treino_espacado")
             .select(
                 "id, origem, repeticoes, total_revisoes, "
@@ -1010,10 +1067,15 @@ def obter_fila_treino(user_id: str = Depends(verificar_sessao)) -> FilaTreinoRes
                 "exercicios_posicionais(fen, categoria_hexagono, segundos_restantes)"
             )
             .eq("user_id", user_id)
-            .lte("proxima_revisao_data", hoje.isoformat())
-            .order("proxima_revisao_data")
-            .execute()
         )
+        if ids_da_sessao is not None:
+            # Dentro de uma sessão o critério não é "venceu hoje" e sim "ainda
+            # não foi respondido": um card respondido agora é reagendado para
+            # amanhã e sumiria da sessão no meio dela.
+            consulta = consulta.in_("id", ids_da_sessao).eq("total_revisoes", 0)
+        else:
+            consulta = consulta.lte("proxima_revisao_data", hoje.isoformat())
+        resp_pendentes = consulta.order("proxima_revisao_data").execute()
         resp_feitas = (
             client.table("fila_treino_espacado")
             .select("id")
@@ -1088,9 +1150,28 @@ def obter_fila_treino(user_id: str = Depends(verificar_sessao)) -> FilaTreinoRes
             )
         )
 
-    feitas_hoje = len(resp_feitas.data or [])
+    vencidos_total = len(itens)
+    if ids_da_sessao is not None:
+        # Dentro de uma sessão os dois contadores são DELA, não do dia: somar
+        # os pendentes da sessão com tudo o que foi feito hoje produzia um
+        # "6 nesta sessão" que não era o tamanho de sessão nenhuma.
+        total_hoje = len(ids_da_sessao)
+        feitas_hoje = total_hoje - vencidos_total
+    else:
+        feitas_hoje = len(resp_feitas.data or [])
+        total_hoje = vencidos_total + feitas_hoje
+
+    # O teto corta o que a tela MOSTRA, nunca o que o SM-2 agendou: os cards
+    # cortados continuam vencidos e aparecem assim que estes forem respondidos.
+    # `vencidos_total` preserva a verdade sobre o tamanho do atraso (D-56).
+    if TREINO_TETO_FILA > 0:
+        itens = itens[:TREINO_TETO_FILA]
     return FilaTreinoResponse(
-        itens=itens, feitas_hoje=feitas_hoje, total_hoje=len(itens) + feitas_hoje
+        itens=itens,
+        feitas_hoje=feitas_hoje,
+        total_hoje=total_hoje,
+        vencidos_total=vencidos_total,
+        sessao_id=sessao_id,
     )
 
 
@@ -2221,6 +2302,55 @@ def reprocessar_partida_endpoint(
     background_tasks.add_task(_executar_analise_pgn_background, partida_id)
 
     return AnalisarPgnResponse(partida_id=partida_id, external_id=external_id)
+
+
+@app.get("/partidas/composicao", response_model=ComposicaoCadenciaResponse)
+def composicao_das_partidas(
+    user_id: str = Depends(verificar_sessao),
+) -> ComposicaoCadenciaResponse:
+    """Quantas partidas analisadas há em cada cadência (D-57).
+
+    Uma contagem `exact` por cadência, e não um select das linhas: é a mesma
+    armadilha do teto de 1000 do PostgREST que o D-54 encontrou em
+    `/treino/foco/disponibilidade`, e com 240 partidas hoje ela morderia assim
+    que o acervo crescesse.
+    """
+
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    por_cadencia: dict[str, int] = {}
+    for cadencia in CADENCIAS:
+        try:
+            resp = (
+                client.table("partidas")
+                .select("id", count="exact")
+                .eq("user_id", user_id)
+                .eq("cadencia", cadencia)
+                .eq("status_processamento", "concluido")
+                .limit(1)
+                .execute()
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=500, detail=f"Falha ao consultar as partidas: {error}"
+            ) from error
+        quantidade = resp.count or 0
+        if quantidade:
+            por_cadencia[cadencia] = quantidade
+
+    total = sum(por_cadencia.values())
+    if not total:
+        return ComposicaoCadenciaResponse(por_cadencia={}, total=0)
+
+    dominante = max(por_cadencia, key=lambda chave: por_cadencia[chave])
+    return ComposicaoCadenciaResponse(
+        por_cadencia=por_cadencia,
+        total=total,
+        dominante=dominante,
+        percentual_dominante=round(100 * por_cadencia[dominante] / total, 1),
+    )
 
 
 @app.get("/insights/repertorio")

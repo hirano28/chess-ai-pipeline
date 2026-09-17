@@ -1,5 +1,5 @@
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   ItemFilaTreino,
   ROTULOS_CATEGORIA_HEXAGONO,
@@ -18,6 +18,15 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
   readonly fila = signal<ItemFilaTreino[]>([]);
   readonly feitasHoje = signal(0);
   readonly totalHoje = signal(0);
+  readonly vencidosTotal = signal(0);
+  /** Quando preenchido, a fila está filtrada pelo bloco de prática de uma
+   * sessão de treino focado (D-56) e a tela diz isso em vez de parecer o
+   * Treino Diário normal com menos cards. */
+  readonly sessaoId = signal<string | null>(null);
+  /** Quantos cards venceram além dos que cabem na tela. */
+  readonly ocultosPeloTeto = computed(() =>
+    Math.max(0, this.vencidosTotal() - this.fila().length)
+  );
 
   readonly carregando = signal(true);
   readonly enviando = signal(false);
@@ -37,10 +46,12 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
   );
 
   private readonly treinoService = inject(TreinoService);
+  private readonly route = inject(ActivatedRoute);
   private cronometro: ReturnType<typeof setInterval> | null = null;
   private iniciadoEm = 0;
 
   ngOnInit(): void {
+    this.sessaoId.set(this.route.snapshot.queryParamMap.get('sessao'));
     this.carregarFila();
   }
 
@@ -94,7 +105,7 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
     this.carregando.set(true);
     this.erro.set(null);
 
-    const resposta = await this.treinoService.getFila();
+    const resposta = await this.treinoService.getFila(this.sessaoId());
     if (resposta.sessaoExpirada) {
       this.erro.set(resposta.error ?? 'Sessão expirada.');
       this.carregando.set(false);
@@ -109,6 +120,7 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
     this.fila.set(resposta.fila.itens);
     this.feitasHoje.set(resposta.fila.feitas_hoje);
     this.totalHoje.set(resposta.fila.total_hoje);
+    this.vencidosTotal.set(resposta.fila.vencidos_total ?? resposta.fila.itens.length);
     this.carregando.set(false);
     this.iniciarCronometro(this.itemAtual());
   }

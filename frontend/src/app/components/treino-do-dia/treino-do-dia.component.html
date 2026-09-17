@@ -12,17 +12,46 @@
       </p>
     </header>
 
+    <!-- Fila filtrada por uma sessão (D-56): a tela precisa dizer isso, senão
+         parece o Treino Diário normal com misteriosamente menos cards. -->
+    @if (sessaoId()) {
+      <div class="aviso aviso-latao" role="status">
+        <span aria-hidden="true">◈</span>
+        <span>
+          Você está na prática de uma
+          <a
+            [routerLink]="['/sessao', sessaoId()]"
+            class="text-latao-500 underline hover:text-latao-400"
+            >sessão de treino focado</a
+          >: aqui estão só os exercícios dela que faltam.
+          <a routerLink="/treino" class="text-latao-500 underline hover:text-latao-400"
+            >Ver a fila completa</a
+          >
+        </span>
+      </div>
+    }
+
     @if (!carregando() && totalHoje() > 0) {
       <div class="grid grid-cols-2 gap-2">
         <div class="metrica text-center">
           <span class="metrica-valor text-xl text-sucesso">{{ feitasHoje() }}</span>
-          <span class="metrica-rotulo">Feitas hoje</span>
+          <span class="metrica-rotulo">{{ sessaoId() ? 'Feitos' : 'Feitas hoje' }}</span>
         </div>
         <div class="metrica text-center">
           <span class="metrica-valor text-xl">{{ totalHoje() }}</span>
-          <span class="metrica-rotulo">Total hoje</span>
+          <span class="metrica-rotulo">{{ sessaoId() ? 'Nesta sessão' : 'Total hoje' }}</span>
         </div>
       </div>
+    }
+
+    <!-- O teto corta o que a tela mostra, nunca o que o SM-2 agendou. Dizer
+         quantos ficaram de fora é o que impede o corte de virar omissão. -->
+    @if (!carregando() && ocultosPeloTeto() > 0) {
+      <p class="legenda">
+        Mostrando {{ fila().length }} de {{ vencidosTotal() }} cards vencidos. Os outros
+        {{ ocultosPeloTeto() }} continuam agendados e aparecem conforme você avança — a fila
+        cresce sozinha todo dia, e despejar tudo de uma vez não ajudaria ninguém.
+      </p>
     }
 
     @if (carregando()) {

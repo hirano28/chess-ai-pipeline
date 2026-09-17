@@ -250,6 +250,31 @@ export interface ListarPartidasRecentesResult {
   sessaoExpirada?: boolean;
 }
 
+/** Distribuição das partidas analisadas por cadência (D-57). */
+export interface ComposicaoCadencia {
+  por_cadencia: Record<string, number>;
+  total: number;
+  dominante: string | null;
+  percentual_dominante: number;
+}
+
+export interface ComposicaoCadenciaResult {
+  success: boolean;
+  composicao?: ComposicaoCadencia;
+  error?: string;
+  sessaoExpirada?: boolean;
+}
+
+/** Rótulos de `backend/common/cadencia.py`. */
+export const ROTULOS_CADENCIA: Record<string, string> = {
+  BULLET: 'Bullet',
+  BLITZ: 'Blitz',
+  RAPIDA: 'Rápida',
+  CLASSICA: 'Clássica',
+  CORRESPONDENCIA: 'Correspondência',
+  DESCONHECIDA: 'Sem cadência registrada'
+};
+
 const MENSAGEM_SERVIDOR_OFFLINE =
   'Não foi possível conectar ao servidor local. Confirme que ele está rodando ' +
   '(uvicorn backend.api.api_server:app --port 8000).';
@@ -408,6 +433,29 @@ export class RevisaoAvulsaService {
         )
       );
       return { success: true, partidas };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        return { success: false, error: MENSAGEM_SESSAO_EXPIRADA, sessaoExpirada: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  /** Composição do corpus analisado por cadência (D-57).
+   *
+   * Serve a uma ressalva, não a uma métrica: se quase tudo é blitz, o gargalo
+   * que o Hexágono aponta carrega junto o efeito do relógio, e o usuário
+   * precisa saber disso na mesma tela em que lê o diagnóstico.
+   */
+  async obterComposicaoCadencia(): Promise<ComposicaoCadenciaResult> {
+    try {
+      const composicao = await firstValueFrom(
+        this.http.get<ComposicaoCadencia>(
+          `${environment.apiLocalUrl}/partidas/composicao`,
+          { headers: await this.headersComSessao() }
+        )
+      );
+      return { success: true, composicao };
     } catch (cause: unknown) {
       if (this.isUnauthorized(cause)) {
         return { success: false, error: MENSAGEM_SESSAO_EXPIRADA, sessaoExpirada: true };

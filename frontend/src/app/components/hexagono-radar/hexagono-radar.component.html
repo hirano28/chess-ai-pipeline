@@ -8,6 +8,33 @@
       </p>
     </header>
 
+    <!--
+      Ressalva de cadência (D-57). Fica ANTES do diagnóstico de propósito: se
+      quase todo o corpus é blitz, "seu gargalo é tática" carrega junto o
+      efeito do relógio, e ler isso depois do gargalo já seria tarde. Só
+      aparece quando uma cadência de fato domina — senão viraria ruído.
+    -->
+    @if (cadenciaDominaOCorpus()) {
+      <div class="aviso aviso-info max-w-2xl" role="note">
+        <span aria-hidden="true">i</span>
+        <span>
+          <strong class="text-marfim">
+            {{ percentualDominanteFormatado() }}% das
+            {{ composicaoCadencia()!.total }} partidas analisadas são
+            {{ rotuloCadencia(composicaoCadencia()!.dominante) }}.
+          </strong>
+          O diagnóstico abaixo mistura a sua habilidade com o efeito do relógio —
+          erro sob pressão de tempo aparece aqui com a mesma cara de erro de
+          entendimento.
+          <span class="mt-1.5 block text-xs text-bruma-400">
+            @for (item of cadenciasOrdenadas(); track item.cadencia) {
+              <span>{{ rotuloCadencia(item.cadencia) }}: {{ item.total }}&nbsp;&nbsp;</span>
+            }
+          </span>
+        </span>
+      </div>
+    }
+
     <app-narrativa-analise />
 
     <app-perguntas-pendentes />
@@ -98,8 +125,9 @@
       <p class="sobrelinha">Repetição espaçada</p>
       <h2 id="treino-focado-heading" class="titulo-secao">Treino focado</h2>
       <p class="mt-1 text-sm leading-6 text-bruma-200">
-        Sem lances críticos próprios suficientes numa categoria ainda? Treine com exercícios do
-        catálogo tático focados nela.
+        Sem lances críticos próprios suficientes numa categoria ainda? Treine com exercícios de
+        catálogo focados nela — táticos de puzzle e posições de partidas reais de torneio, onde o
+        melhor lance é quieto.
       </p>
       <div class="mt-4 flex flex-wrap gap-2">
         @for (categoria of categorias; track categoria) {

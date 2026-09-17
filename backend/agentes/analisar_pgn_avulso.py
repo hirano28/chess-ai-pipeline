@@ -41,6 +41,7 @@ from backend.agentes.agente1_linter import (  # noqa: E402
     load_settings as load_linter_settings,
     processar_lance,
 )
+from backend.common.cadencia import campos_de_cadencia  # noqa: E402
 from backend.agentes.gerar_resumo_partida import (  # noqa: E402
     build_prompt_resumo,
     coletar_dados_partida,
@@ -301,6 +302,9 @@ def inserir_partida(
         "cor_jogada": cor,
         "status_processamento": "pendente",
         "user_id": user_id or obter_default_user_id(),
+        # D-57: PGN colado à mão costuma vir sem TimeControl, e aí a cadência
+        # sai DESCONHECIDA - que é a resposta certa, não uma falha.
+        **campos_de_cadencia(game.headers.get("TimeControl")),
     }
     # Campos opcionais — só inclui se extraiu algo
     if resultado:

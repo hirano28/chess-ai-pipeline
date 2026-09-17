@@ -156,7 +156,14 @@
                     respondidos. Eles já estão na sua fila do Treino Diário.
                   </p>
                   @if (!bloco.concluido) {
-                    <a routerLink="/treino" class="btn btn-primario btn-pequeno mt-4">
+                    <!-- Leva à fila FILTRADA por esta sessão (D-56): sem o
+                         parâmetro, os 12 cards dela ficavam atrás de dezenas
+                         de outros vencidos. -->
+                    <a
+                      routerLink="/treino"
+                      [queryParams]="{ sessao: execucao()!.sessao_id }"
+                      class="btn btn-primario btn-pequeno mt-4"
+                    >
                       Ir para os exercícios
                     </a>
                   }

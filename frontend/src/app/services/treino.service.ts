@@ -31,6 +31,11 @@ export interface FilaTreino {
   itens: ItemFilaTreino[];
   feitas_hoje: number;
   total_hoje: number;
+  /** Quantos cards de fato venceram. `itens` vem limitado por um teto (D-56);
+   * este número preserva a verdade sobre o tamanho do atraso. */
+  vencidos_total: number;
+  /** Preenchido quando a fila veio filtrada por uma sessão de treino. */
+  sessao_id: string | null;
 }
 
 /** Revelação completa após responder um card: qualidade, causa raiz e citação. */
@@ -132,10 +137,15 @@ export class TreinoService {
     return cause instanceof Error ? cause.message : 'Erro desconhecido';
   }
 
-  async getFila(): Promise<FilaTreinoResult> {
+  /** Com `sessaoId`, traz só os exercícios do bloco de prática daquela sessão
+   * ainda não respondidos — é o caminho reto entre o começo e o fim dela. */
+  async getFila(sessaoId?: string | null): Promise<FilaTreinoResult> {
     try {
+      const url = sessaoId
+        ? `${this.apiUrl}/treino/fila?sessao_id=${encodeURIComponent(sessaoId)}`
+        : `${this.apiUrl}/treino/fila`;
       const fila = await firstValueFrom(
-        this.http.get<FilaTreino>(`${this.apiUrl}/treino/fila`, {
+        this.http.get<FilaTreino>(url, {
           headers: await this.headersComSessao()
         })
       );

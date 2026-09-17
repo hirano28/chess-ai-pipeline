@@ -24,6 +24,11 @@ import {
   SupabaseService
 } from '../../services/supabase.service';
 import { ROTULOS_CATEGORIA_HEXAGONO, TreinoService } from '../../services/treino.service';
+import {
+  ComposicaoCadencia,
+  ROTULOS_CADENCIA,
+  RevisaoAvulsaService
+} from '../../services/revisao-avulsa.service';
 import { SessoesTreinoComponent } from '../sessoes-treino/sessoes-treino.component';
 import { NarrativaAnaliseComponent } from '../narrativa-analise/narrativa-analise.component';
 import { PerguntasPendentesComponent } from '../perguntas-pendentes/perguntas-pendentes.component';
@@ -88,9 +93,16 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
    * não carregou ou se a consulta falhou — nesse caso nenhum botão é bloqueado,
    * porque supor "não tem material" sem saber seria pior que deixar tentar. */
   readonly catalogoPorCategoria = signal<Record<string, number> | null>(null);
+  /** Composição do corpus por cadência (D-57). É uma ressalva, não uma
+   * métrica: se quase tudo é blitz, o gargalo abaixo carrega junto o efeito do
+   * relógio, e esconder isso seria vender um diagnóstico mais firme do que ele
+   * é. `null` enquanto não carregou ou se a consulta falhou. */
+  readonly composicaoCadencia = signal<ComposicaoCadencia | null>(null);
+  readonly rotulosCadencia = ROTULOS_CADENCIA;
 
   private readonly supabaseService = inject(SupabaseService);
   private readonly treinoService = inject(TreinoService);
+  private readonly revisaoAvulsaService = inject(RevisaoAvulsaService);
   private readonly router = inject(Router);
   private chart?: Chart<'radar'>;
 
@@ -110,6 +122,41 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     void this.carregarAnalise();
     void this.carregarDisponibilidadeFoco();
+    void this.carregarComposicaoCadencia();
+  }
+
+  /** Só alerta quando uma cadência domina de fato o corpus: abaixo disso a
+   * ressalva viraria ruído em toda visita. */
+  cadenciaDominaOCorpus(): boolean {
+    const composicao = this.composicaoCadencia();
+    return !!composicao && composicao.total > 0 && composicao.percentual_dominante >= 50;
+  }
+
+  /** "59,2" — separador decimal em português, não o ponto do JSON. */
+  percentualDominanteFormatado(): string {
+    const percentual = this.composicaoCadencia()?.percentual_dominante ?? 0;
+    return percentual.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+  }
+
+  rotuloCadencia(cadencia: string | null): string {
+    return (cadencia && this.rotulosCadencia[cadencia]) || 'cadência desconhecida';
+  }
+
+  /** Cadências presentes, da mais frequente para a menos. */
+  cadenciasOrdenadas(): { cadencia: string; total: number }[] {
+    const porCadencia = this.composicaoCadencia()?.por_cadencia ?? {};
+    return Object.entries(porCadencia)
+      .map(([cadencia, total]) => ({ cadencia, total }))
+      .sort((a, b) => b.total - a.total);
+  }
+
+  private async carregarComposicaoCadencia(): Promise<void> {
+    const resultado = await this.revisaoAvulsaService.obterComposicaoCadencia();
+    // Degrada em silêncio, igual à disponibilidade de catálogo: sem a
+    // composição a tela só deixa de mostrar a ressalva.
+    if (resultado.success && resultado.composicao) {
+      this.composicaoCadencia.set(resultado.composicao);
+    }
   }
 
   /** true quando já sabemos que a categoria não tem exercício de catálogo. */

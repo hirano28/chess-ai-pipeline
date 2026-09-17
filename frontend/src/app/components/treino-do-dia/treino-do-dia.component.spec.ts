@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { vi, describe, beforeEach, it, expect } from 'vitest';
 import { TreinoDoDiaComponent } from './treino-do-dia.component';
 import { FilaTreino, ResultadoTreino, TreinoService } from '../../services/treino.service';
@@ -26,7 +26,7 @@ describe('TreinoDoDiaComponent', () => {
 
   const item2 = { ...item1, fila_id: 8, numero_lance: 20 };
 
-  const mockFila: FilaTreino = { itens: [item1, item2], feitas_hoje: 1, total_hoje: 3 };
+  const mockFila: FilaTreino = { itens: [item1, item2], feitas_hoje: 1, total_hoje: 3, vencidos_total: 1, sessao_id: null };
 
   const mockResultado: ResultadoTreino = {
     qualidade_lance: 'BOM',
@@ -82,7 +82,7 @@ describe('TreinoDoDiaComponent', () => {
   it('deve exibir o estado vazio quando não há nada pendente', async () => {
     vi.spyOn(treinoService, 'getFila').mockResolvedValue({
       success: true,
-      fila: { itens: [], feitas_hoje: 3, total_hoje: 3 }
+      fila: { itens: [], feitas_hoje: 3, total_hoje: 3, vencidos_total: 1, sessao_id: null }
     });
     await criarComponente();
 
@@ -174,7 +174,7 @@ describe('TreinoDoDiaComponent', () => {
     };
     vi.spyOn(treinoService, 'getFila').mockResolvedValue({
       success: true,
-      fila: { itens: [itemExercicio], feitas_hoje: 0, total_hoje: 1 }
+      fila: { itens: [itemExercicio], feitas_hoje: 0, total_hoje: 1, vencidos_total: 1, sessao_id: null }
     });
     await criarComponente();
 
@@ -188,6 +188,56 @@ describe('TreinoDoDiaComponent', () => {
 
     expect(component.rotuloCategoria('CALCULO')).toBe('Cálculo');
     expect(component.rotuloCategoria(null)).toBe('Exercício de catálogo');
+  });
+
+  describe('fila com teto e filtro de sessão (D-56)', () => {
+    it('diz quantos cards ficaram de fora do teto', async () => {
+      /** O teto corta o que a tela mostra, nunca o que o SM-2 agendou —
+       * omitir o tamanho do atraso seria mentir por omissão. */
+      vi.spyOn(treinoService, 'getFila').mockResolvedValue({
+        success: true,
+        fila: {
+          itens: [item1, item2],
+          feitas_hoje: 0,
+          total_hoje: 47,
+          vencidos_total: 47,
+          sessao_id: null
+        }
+      });
+      await criarComponente();
+
+      expect(component.ocultosPeloTeto()).toBe(45);
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).toContain('Mostrando 2 de 47');
+    });
+
+    it('não incomoda com o aviso de teto quando tudo cabe', async () => {
+      vi.spyOn(treinoService, 'getFila').mockResolvedValue({
+        success: true,
+        fila: {
+          itens: [item1, item2],
+          feitas_hoje: 0,
+          total_hoje: 2,
+          vencidos_total: 2,
+          sessao_id: null
+        }
+      });
+      await criarComponente();
+
+      expect(component.ocultosPeloTeto()).toBe(0);
+      const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(texto).not.toContain('Mostrando');
+    });
+
+    it('sem parâmetro de sessão, pede a fila inteira', async () => {
+      const getFila = vi
+        .spyOn(treinoService, 'getFila')
+        .mockResolvedValue({ success: true, fila: mockFila });
+      await criarComponente();
+
+      expect(getFila).toHaveBeenCalledWith(null);
+      expect(component.sessaoId()).toBeNull();
+    });
   });
 
   describe('exercício posicional cronometrado (D-55)', () => {
@@ -204,7 +254,7 @@ describe('TreinoDoDiaComponent', () => {
     async function comCardCronometrado(): Promise<void> {
       vi.spyOn(treinoService, 'getFila').mockResolvedValue({
         success: true,
-        fila: { itens: [itemCronometrado], feitas_hoje: 0, total_hoje: 1 }
+        fila: { itens: [itemCronometrado], feitas_hoje: 0, total_hoje: 1, vencidos_total: 1, sessao_id: null }
       });
       await criarComponente();
     }
@@ -304,5 +354,49 @@ describe('TreinoDoDiaComponent', () => {
       // O julgamento do lance continua sendo o do motor: são dois fatos.
       expect(texto).toContain('BOM');
     });
+  });
+});
+
+describe('TreinoDoDiaComponent com ?sessao= (D-56)', () => {
+  const SESSAO = 'sessao-abc';
+  let treinoService: TreinoService;
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [TreinoDoDiaComponent],
+      providers: [
+        provideHttpClient(),
+        provideRouter([]),
+        TreinoService,
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: { queryParamMap: convertToParamMap({ sessao: SESSAO }) }
+          }
+        }
+      ]
+    }).compileComponents();
+    treinoService = TestBed.inject(TreinoService);
+  });
+
+  it('pede só os exercícios da sessão e avisa que a fila está filtrada', async () => {
+    const getFila = vi.spyOn(treinoService, 'getFila').mockResolvedValue({
+      success: true,
+      fila: { itens: [], feitas_hoje: 0, total_hoje: 0, vencidos_total: 0, sessao_id: SESSAO }
+    });
+
+    const fixture = TestBed.createComponent(TreinoDoDiaComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(getFila).toHaveBeenCalledWith(SESSAO);
+    expect(fixture.componentInstance.sessaoId()).toBe(SESSAO);
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    // Sem este aviso a tela pareceria o Treino Diário normal com
+    // misteriosamente menos cards.
+    expect(texto).toContain('sessão de treino focado');
+    expect(texto).toContain('Ver a fila completa');
   });
 });

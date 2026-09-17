@@ -5,6 +5,10 @@ import { vi, describe, beforeEach, it, expect } from 'vitest';
 import { HexagonoRadarComponent } from './hexagono-radar.component';
 import { AnaliseHexagonoMetricas, SupabaseService } from '../../services/supabase.service';
 import { TreinoService } from '../../services/treino.service';
+import {
+  ComposicaoCadencia,
+  RevisaoAvulsaService
+} from '../../services/revisao-avulsa.service';
 
 describe('HexagonoRadarComponent', () => {
   let component: HexagonoRadarComponent;
@@ -200,5 +204,93 @@ describe('HexagonoRadarComponent', () => {
 
     expect(component.avisoFoco()?.texto).toBe('8 exercícios de Tática na fila de hoje.');
     expect(router.navigateByUrl).toHaveBeenCalledWith('/treino');
+  });
+});
+
+describe('HexagonoRadarComponent — ressalva de cadência (D-57)', () => {
+  let component: HexagonoRadarComponent;
+  let fixture: ComponentFixture<HexagonoRadarComponent>;
+  let revisaoService: RevisaoAvulsaService;
+
+  async function criar(composicao: ComposicaoCadencia): Promise<void> {
+    vi.spyOn(revisaoService, 'obterComposicaoCadencia').mockResolvedValue({
+      success: true,
+      composicao
+    });
+    fixture = TestBed.createComponent(HexagonoRadarComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [HexagonoRadarComponent],
+      providers: [provideHttpClient(), provideRouter([]), SupabaseService, TreinoService]
+    }).compileComponents();
+
+    revisaoService = TestBed.inject(RevisaoAvulsaService);
+    const treinoService = TestBed.inject(TreinoService);
+    vi.spyOn(treinoService, 'disponibilidadeFoco').mockResolvedValue({
+      success: true,
+      porCategoria: {}
+    });
+    vi.spyOn(TestBed.inject(SupabaseService), 'getUltimaAnaliseHexagono').mockResolvedValue(
+      null
+    );
+  });
+
+  it('avisa quando uma cadência domina o corpus', async () => {
+    /** Sem esta ressalva o produto venderia um diagnóstico mais firme do que
+     * ele é: erro sob pressão de relógio tem a mesma cara de erro de
+     * entendimento no radar. */
+    await criar({
+      por_cadencia: { BLITZ: 142, RAPIDA: 30, DESCONHECIDA: 68 },
+      total: 240,
+      dominante: 'BLITZ',
+      percentual_dominante: 59.2
+    });
+
+    expect(component.cadenciaDominaOCorpus()).toBe(true);
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(texto).toContain('59,2% das 240 partidas analisadas são Blitz');
+    expect(component.percentualDominanteFormatado()).toBe('59,2');
+    expect(texto).toContain('efeito do relógio');
+  });
+
+  it('cala a boca quando o corpus é equilibrado', async () => {
+    await criar({
+      por_cadencia: { BLITZ: 30, RAPIDA: 40, CLASSICA: 30 },
+      total: 100,
+      dominante: 'RAPIDA',
+      percentual_dominante: 40
+    });
+
+    expect(component.cadenciaDominaOCorpus()).toBe(false);
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(texto).not.toContain('efeito do relógio');
+  });
+
+  it('ordena as cadências da mais frequente para a menos', async () => {
+    await criar({
+      por_cadencia: { BLITZ: 142, RAPIDA: 30, DESCONHECIDA: 68 },
+      total: 240,
+      dominante: 'BLITZ',
+      percentual_dominante: 59.2
+    });
+
+    expect(component.cadenciasOrdenadas().map((item) => item.cadencia)).toEqual([
+      'BLITZ',
+      'DESCONHECIDA',
+      'RAPIDA'
+    ]);
+  });
+
+  it('sem partidas analisadas não mostra ressalva nenhuma', async () => {
+    await criar({ por_cadencia: {}, total: 0, dominante: null, percentual_dominante: 0 });
+
+    expect(component.cadenciaDominaOCorpus()).toBe(false);
   });
 });
