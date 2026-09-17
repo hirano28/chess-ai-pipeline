@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 
 from backend.agentes.agente2_analista import (
+    CADENCIA_MIN_PARTIDAS,
     CATEGORY_MIN_DIAGNOSTICS,
     HEXAGON_CATEGORIES,
     RECENT_WINDOW_DAYS,
@@ -15,7 +16,9 @@ from backend.agentes.agente2_analista import (
     analisar_usuario,
     build_dataframe,
     build_prompt,
+    calcular_metricas_completas,
     calcular_metricas_hexagono,
+    calcular_metricas_por_cadencia,
     fetch_diagnosticos,
     listar_usuarios_com_partidas,
     salvar_analise,
@@ -28,6 +31,8 @@ def _make_row(
     data_partida: str | None = None,
     eco: str | None = None,
     diag_id: int = 1,
+    cadencia: str | None = None,
+    partida_id: str | None = None,
 ) -> dict:
     """Helper que cria um registro no formato retornado por fetch_diagnosticos."""
     return {
@@ -36,9 +41,11 @@ def _make_row(
         "lances_criticos": {
             "queda_win_percent": queda_win_percent,
             "numero_lance": 15,
+            "partida_id": partida_id,
             "partidas": {
                 "data_partida": data_partida or datetime.now(timezone.utc).isoformat(),
                 "eco_abertura": eco,
+                "cadencia": cadencia,
             },
         },
     }
@@ -142,6 +149,120 @@ class TestCalcularMetricasHexagono(unittest.TestCase):
         self.assertEqual(metrics["total_diagnosticos"], 0)
         self.assertIsNone(metrics["gargalo_sistemico_atual"])
         self.assertEqual(metrics["top_3_tags"], [])
+
+
+class TestMetricasPorCadencia(unittest.TestCase):
+    """D-63: o Hexágono ganha um recorte por cadência dentro do mesmo jsonb."""
+
+    def _df(self) -> pd.DataFrame:
+        recente = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+        rows = []
+        # BLITZ: 3 partidas, 6 diagnósticos de tática.
+        for i in range(6):
+            rows.append(
+                _make_row(
+                    ["calculo_tatico_deficiente"], data_partida=recente, diag_id=i,
+                    cadencia="BLITZ", partida_id=f"blitz-{i % 3}",
+                )
+            )
+        # RAPIDA: 3 partidas, 6 diagnósticos de finais — gargalo DIFERENTE.
+        for i in range(6, 12):
+            rows.append(
+                _make_row(
+                    ["erro_tecnico_de_final"], data_partida=recente, diag_id=i,
+                    cadencia="RAPIDA", partida_id=f"rapida-{i % 3}",
+                )
+            )
+        # Sem cadência: conta no total, em bloco nenhum.
+        rows.append(
+            _make_row(
+                ["perda_de_material"], data_partida=recente, diag_id=99,
+                cadencia=None, partida_id="manual-1",
+            )
+        )
+        return build_dataframe(rows)
+
+    def test_cada_cadencia_tem_o_proprio_gargalo(self):
+        """É a razão de o recorte existir: o gargalo pode ser outro por cadência."""
+        metrics = calcular_metricas_completas(self._df())
+
+        self.assertEqual(
+            metrics["por_cadencia"]["BLITZ"]["gargalo_sistemico_atual"], "TATICA"
+        )
+        self.assertEqual(
+            metrics["por_cadencia"]["RAPIDA"]["gargalo_sistemico_atual"], "FINAIS"
+        )
+
+    def test_o_total_continua_somando_tudo_inclusive_sem_cadencia(self):
+        metrics = calcular_metricas_completas(self._df())
+
+        self.assertEqual(metrics["total_diagnosticos"], 13)
+        # 6 de cálculo tático + 1 de perda de material, ambas TATICA.
+        self.assertEqual(metrics["frequencia_por_categoria"]["TATICA"], 7)
+        self.assertEqual(sorted(metrics["por_cadencia"]), ["BLITZ", "RAPIDA"])
+
+    def test_conta_partidas_distintas_e_nao_diagnosticos(self):
+        metrics = calcular_metricas_completas(self._df())
+
+        self.assertEqual(metrics["partidas_distintas"], 7)
+        self.assertEqual(metrics["por_cadencia"]["BLITZ"]["partidas_distintas"], 3)
+
+    def test_bloco_tem_o_mesmo_shape_do_total_menos_a_frequencia_por_eco(self):
+        """A tela reaproveita o render do total para qualquer recorte."""
+        metrics = calcular_metricas_completas(self._df())
+        bloco = metrics["por_cadencia"]["BLITZ"]
+
+        for chave in ("frequencia_por_categoria", "frequencia_por_categoria_recente",
+                      "gravidade_media_por_categoria", "gargalo_sistemico_atual",
+                      "total_diagnosticos"):
+            self.assertIn(chave, bloco)
+        self.assertNotIn("frequencia_tags_por_eco", bloco)
+
+    def test_cadencia_com_poucas_partidas_nao_ganha_bloco(self):
+        """Um PGN colado à mão não pode virar chip permanente no seletor."""
+        recente = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+        rows = [
+            _make_row(["erro_tecnico_de_final"], data_partida=recente, diag_id=i,
+                      cadencia="CLASSICA", partida_id="classica-unica")
+            for i in range(5)
+        ]
+        rows += [
+            _make_row(["calculo_tatico_deficiente"], data_partida=recente, diag_id=10 + i,
+                      cadencia="BLITZ", partida_id=f"blitz-{i}")
+            for i in range(CADENCIA_MIN_PARTIDAS)
+        ]
+
+        por_cadencia = calcular_metricas_por_cadencia(build_dataframe(rows))
+
+        self.assertNotIn("CLASSICA", por_cadencia)
+        self.assertIn("BLITZ", por_cadencia)
+
+    def test_o_gargalo_de_primeiro_nivel_segue_sendo_o_de_todas_as_partidas(self):
+        """O Agente 3 e a medição de eficácia leem este; o recorte só informa."""
+        metrics = calcular_metricas_completas(self._df())
+
+        # 7 TATICA contra 6 FINAIS, mesma gravidade: TATICA no conjunto.
+        self.assertEqual(metrics["gargalo_sistemico_atual"], "TATICA")
+
+    def test_prompt_traz_o_gargalo_por_cadencia_e_pede_para_comparar(self):
+        metrics = calcular_metricas_completas(self._df())
+
+        prompt = build_prompt(metrics)
+
+        self.assertIn('"BLITZ": "TATICA"', prompt)
+        self.assertIn('"RAPIDA": "FINAIS"', prompt)
+        self.assertIn("pressão de relógio", prompt)
+
+    def test_prompt_tolera_metricas_antigas_sem_recorte(self):
+        """As 5 análises gravadas antes do D-63 não têm `por_cadencia`."""
+        metrics = calcular_metricas_hexagono(self._df())
+
+        prompt = build_prompt(metrics)
+
+        self.assertIn('"gargalo_por_cadencia": {}', prompt)
+
+    def test_dataframe_vazio_devolve_recorte_vazio(self):
+        self.assertEqual(calcular_metricas_por_cadencia(build_dataframe([])), {})
 
 
 class TestIdentifyBottleneck(unittest.TestCase):

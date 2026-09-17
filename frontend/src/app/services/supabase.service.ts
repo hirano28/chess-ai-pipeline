@@ -5,6 +5,16 @@ import { environment } from '../../environments/environment';
 export interface AnaliseHexagonoMetricas {
   frequencia_por_categoria?: Record<string, number>;
   gravidade_media_por_categoria?: Record<string, number>;
+  total_diagnosticos?: number;
+  gargalo_sistemico_atual?: string | null;
+  /** D-63: partidas distintas por trás dos diagnósticos — dá escala ao número. */
+  partidas_distintas?: number;
+  /**
+   * D-63: um hexágono completo por cadência, com o MESMO shape deste objeto,
+   * para a tela reaproveitar o render. Ausente nas análises gravadas antes do
+   * D-63 — o componente trata a ausência como "só o total está disponível".
+   */
+  por_cadencia?: Record<string, AnaliseHexagonoMetricas>;
   [key: string]: unknown;
 }
 

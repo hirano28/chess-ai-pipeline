@@ -3218,6 +3218,91 @@ como ser concluída.
 
 ---
 
+### D-63 — O Hexágono ganha recorte por cadência, e "From Position" volta a ser analisável
+
+Dois itens do planejamento de 17/09 (C1 e M1), feitos juntos porque são sobre a
+mesma coisa: **a confiabilidade do diagnóstico**. Não adianta acelerar aquisição
+enquanto o número central do produto mistura cadências.
+
+**C1 — a trava de variante era larga demais.** `validate_standard_game()`
+rejeitava qualquer `Variant` que não fosse "standard". Mas "From Position" é
+xadrez com as regras de sempre a partir de uma posição própria: python-chess
+lê `[FEN]`/`[SetUp]` em `game.board()`, a numeração vem de
+`board.fullmove_number` e o motor avalia qualquer FEN legal — **nenhuma outra
+linha do analisador precisou mudar**. A trava virou lista de permissão
+(`VARIANTES_ANALISAVEIS = {"standard", "from position"}`); Crazyhouse, Atomic,
+Antichess e companhia continuam recusadas porque mudam as regras, e Chess960
+tem a própria checagem.
+
+Isso nunca tinha aparecido porque, antes do D-62, a reconstrução do PGN
+**apagava o header `Variant`** — essas partidas eram analisadas em silêncio a
+partir da posição inicial errada. O D-62 as desmascarou como `falhou`; o D-63
+as torna analisáveis de verdade. O teste que importa não é "passa na
+validação": é o motor receber o FEN do cabeçalho na primeira avaliação, e não
+um FEN começado por `rnbqkbnr`.
+
+**M1 — o recorte por cadência, e três decisões de desenho.**
+
+1. **Dentro do mesmo jsonb, não em linhas novas.** `metricas.por_cadencia`
+   guarda um hexágono completo por cadência, com **exatamente o shape** do
+   objeto de primeiro nível (menos `frequencia_tags_por_eco`, informativo e
+   pesado). Consequências: zero migração; o Agente 3 e a medição de eficácia
+   continuam lendo uma linha só e não enxergam mudança; a tela reaproveita o
+   mesmo render para o total e para qualquer recorte; e **as 5 análises
+   gravadas antes não precisam de backfill** — o componente trata a ausência
+   da chave como "só o total existe" e nem mostra o seletor. Alternativa
+   recusada: uma linha por `(user, cadencia)`, que obrigaria a reescrever
+   todos os leitores para um ganho nenhum.
+
+2. **O gargalo de primeiro nível continua sendo o de TODAS as partidas.** É
+   ele que o Agente 3 lê para prescrever e que `medir_eficacia.py`
+   acompanha. Fazer a prescrição seguir uma cadência é decisão de produto
+   ("você quer treinar para qual cadência?"), não de cálculo — e a cadeia
+   diagnóstico → sprint → eficácia ainda nem fechou uma vez com dado real. O
+   recorte **informa; ainda não prescreve.** Quando o gargalo do recorte
+   diverge do do conjunto, a tela diz isso ao lado do radar, com a ressalva
+   explícita de que a sprint abaixo segue o conjunto. Esse aviso é o achado
+   que o recorte existe para expor.
+
+3. **Mínimo de 3 partidas distintas para uma cadência ganhar bloco**
+   (`CADENCIA_MIN_PARTIDAS`). Uma ou duas partidas não sustentam hexágono
+   nenhum, e "Cadência desconhecida · 1 partida" viraria chip permanente no
+   seletor para quem colou um PGN à mão. Diagnóstico sem cadência conta no
+   total e em bloco nenhum.
+
+O narrador (Gemini) passa a receber `gargalo_por_cadencia` e a instrução de
+dizer explicitamente quando ele muda de uma cadência para outra — "é a
+informação mais útil para o jogador, porque separa erro de entendimento de
+erro sob pressão de relógio" — e de **não forçar diferença** quando é igual.
+
+**A ressalva do D-57 vira ação.** O aviso "72% das partidas são blitz" agora
+termina num botão: *Ver o Hexágono só de Blitz*. Em vez de só alertar que o
+diagnóstico está contaminado, a tela oferece o hexágono descontaminado. O
+botão some quando o recorte já é o da dominante.
+
+**Resultado medido (17/09/2026, primeira execução).** Dono principal: gargalo
+do conjunto **TATICA**; em blitz **TATICA** (176 partidas); em rápidas
+**CALCULO** (67 partidas). **O gargalo muda com a cadência** — a hipótese do
+D-57 deixou de ser hipótese. A leitura que os dados sugerem: sob relógio curto
+o erro dominante é tático puro; com mais tempo, o que sobra são iniciativa,
+segurança do rei e profilaxia — as tags de CALCULO. A sprint em vigor segue
+TATICA, pelo desenho acima; se o objetivo do jogador for jogar rápidas, o alvo
+certo hoje seria outro. É a primeira vez que o produto consegue dizer isso.
+
+**Incidente na mesma execução.** As duas análises foram gravadas **sem
+narrativa**: o Gemini respondeu `429 RESOURCE_EXHAUSTED` — teto mensal de
+gastos do projeto estourado (ver `ESTADO.md` §0). Nada no cálculo depende do
+modelo, então hexágono, gargalo e recorte estão corretos; a tela mostra
+"Nenhuma narrativa textual disponível", que é o estado honesto. Decidi
+**manter** as linhas em vez de apagá-las e voltar à narrativa de 14/09: os
+números novos são mais corretos (748 diagnósticos, cadências pós-D-62) e a
+ausência da narrativa é a consequência visível de um problema que só o dono do
+console do Google resolve.
+
+**Testes:** 4 no analisador, 9 no Agente 2, 9 no componente.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

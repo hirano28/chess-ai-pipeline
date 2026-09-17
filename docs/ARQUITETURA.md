@@ -93,7 +93,7 @@ Enriquecimentos que entram lateralmente nesse fluxo:
 | Agente | Arquivo | Entrada | Saída | Papel do LLM |
 |---|---|---|---|---|
 | 1 — Linter | `agente1_linter.py` | um lance crítico + linha do motor | `diagnosticos` | diagnostica a causa do erro em 16 tags fechadas |
-| 2 — Analista | `agente2_analista.py` | diagnósticos de um usuário (loop por `user_id`, D-28) | `analises_hexagono` | só narra; a estatística é pandas puro |
+| 2 — Analista | `agente2_analista.py` | diagnósticos de um usuário (loop por `user_id`, D-28) | `analises_hexagono` — o total em `metricas` e, desde o D-63, um hexágono por cadência em `metricas.por_cadencia`, com o mesmo shape | só narra; a estatística é pandas puro. O gargalo de primeiro nível segue sendo o de todas as partidas — é o que o Agente 3 lê |
 | 3 — Prescritor | `agente3_prescritor.py` | gargalo + RAG de livros | `sessoes_treino` | monta a sprint citando teoria real |
 
 O Agente 1 usa **prompts diferentes por `tipo_evento`**: um para `PICO` (erro
@@ -182,7 +182,7 @@ Angular 21, standalone components, signals, Tailwind CSS 4, testes em Vitest.
 
 | Rota | Componente | O que faz |
 |---|---|---|
-| `/` | `hexagono-radar` | radar das 6 categorias + narrativa + sessões de treino |
+| `/` | `hexagono-radar` | radar das 6 categorias + narrativa + sessões de treino. Desde o D-63 tem um seletor de cadência (Todas / Blitz / Rápida / …) que redesenha o radar a partir de `metricas.por_cadencia`, mostra a escala ("N diagnósticos em M partidas · gargalo: X") e avisa quando o gargalo do recorte é outro que o do conjunto. O seletor só aparece quando a análise traz o recorte — as gravadas antes do D-63 não trazem |
 | `/laboratorio` | `laboratorio-raciocinio` | exercício avulso com feedback imediato |
 | `/explicador` | `explicador-posicao` | explicação didática de uma posição |
 | `/analisador` | `analisador-partida` | cola PGN, acompanha o progresso, lê o resumo |

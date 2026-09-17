@@ -31,12 +31,36 @@ A segunda linha é o canário desde o D-61: qualquer falha ou cancelamento de
 workflow abre uma issue com esse rótulo. Issue aberta = automação quebrada,
 independentemente do que as seções seguintes digam.
 
+> ### 🔴 Incidente aberto em 17/09/2026 — Gemini sem cota
+>
+> O projeto do Gemini **estourou o teto mensal de gastos**. Toda chamada
+> responde `429 RESOURCE_EXHAUSTED: "Your project has exceeded its monthly
+> spending cap"`. Confirmado às 03:53 UTC com o Agente 1 (0 de 4 lances
+> diagnosticados) e o Agente 2 (narrativa vazia nas 2 análises gravadas).
+>
+> **Efeito enquanto durar:** o Stockfish e toda a estatística continuam
+> funcionando — coleta, análise de lances, hexágono, fila de treino. O que
+> para é tudo que depende do modelo: diagnóstico de lances novos (Agente 1),
+> narrativa do hexágono, sprint do Agente 3, resumos de partida, e na API o
+> Laboratório, o Explicador e o Analisador. O pipeline diário **vai falhar**
+> no passo do Agente 1 e abrir a issue `falha-automacao` — é o alerta do D-61
+> funcionando, não um segundo defeito.
+>
+> **Correção:** subir o teto (ou esperar o ciclo virar) em
+> https://ai.studio/spend — só o dono do projeto Google tem acesso. Depois,
+> rodar `agente1_linter.py` e `agente2_analista.py` à mão para preencher o que
+> ficou para trás, ou esperar o pipeline diário e o semanal fazerem isso.
+>
+> **Provável causa:** a recuperação do D-61 processou 29 partidas acumuladas
+> de uma vez — dezenas de chamadas de Agente 1 e de resumo num único dia. O
+> teto mensal existe justamente para conter esse tipo de pico, e ele conteve.
+
 ## 1. Testes e build
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **750**, todos passando, em 38 módulos |
-| Testes de frontend (Vitest) | **242**, todos passando, em 28 arquivos |
+| Testes de backend | **763**, todos passando, em 38 módulos |
+| Testes de frontend (Vitest) | **251**, todos passando, em 28 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
 `.github/workflows/deploy-backend.yml` lista os **37** módulos de teste do
@@ -66,7 +90,7 @@ pendência P-11 abaixo).
 
 | Tabela | Linhas |
 |---|---|
-| `partidas` | **269** (02/07/2026 a 16/09/2026); 267 `concluido` e **2 `falhou`** — as duas `variant: fromPosition`, recusadas pelo motor, desmascaradas pelo D-62 (uma delas constava como `concluido` tendo sido analisada com um único lance). 230 com `abertura_normalizada`; **268 das 269 com cadência real** desde o D-62, a única exceção sendo um PGN colado à mão |
+| `partidas` | **269** (02/07/2026 a 16/09/2026); **269 `concluido`, 0 `falhou`**. As duas `variant: fromPosition` que o D-62 desmascarou foram analisadas de verdade pelo D-63 (a trava de variante as recusava; "From Position" é xadrez padrão a partir de uma posição própria) — uma rendeu 4 lances críticos, a outra nenhum, o que é legítimo numa partida de 8 lances. 230 com `abertura_normalizada`; **268 das 269 com cadência real** desde o D-62, a única exceção sendo um PGN colado à mão |
 | `lances_criticos` | **802** (635 `PICO` + 83 `EROSAO` antes da recuperação; os 84 novos vieram dela) |
 | `diagnosticos` | **802** — paridade total com `lances_criticos`, nenhum lance sem diagnóstico |
 | `perfis_usuario` | 2 (o dono do acervo + uma conta sem partida ingerida). É a tabela que prova que o multi-tenant do D-28 não é hipótese |
@@ -79,7 +103,7 @@ pendência P-11 abaixo).
 | `revisao_exercicio_avulso` | 17 |
 | `explicacoes_posicao` | 7 (tabela nova, ver D-11 em `DECISOES.md`) |
 | `metricas_lichess_partida` | 18, para 67 partidas do Lichess; 14 já têm `precisao_abertura`/`precisao_meiojogo` preenchidas e 12 têm `precisao_final` — colunas novas (ver `BANCO.md`) sendo preenchidas prospectivamente pelo pipeline automatizado (D-37), sem reprocessamento retroativo das linhas mais antigas |
-| `analises_hexagono` | 5 |
+| `analises_hexagono` | **7** — as 2 mais recentes (17/09/2026, D-63) são as primeiras com `metricas.por_cadencia`, e foram gravadas **sem narrativa** por causa do incidente do Gemini (seção 0). Dono principal: gargalo do conjunto TATICA, em blitz TATICA, em rápidas **CALCULO** — o gargalo muda com a cadência |
 | `sessoes_treino` | 5 prescritas, **0 concluídas**, 0 com eficácia medida. A validação do D-54 concluiu uma sessão de verdade (5/0/0 → 5/1/0, a primeira da história do produto) e **foi revertida de propósito**: aquele treino não aconteceu — os 12 exercícios foram respondidos por script, com lances quaisquer. Deixar a marca produziria a primeira medição de eficácia do produto em cima de um treino inexistente. O caminho está validado; o número volta a subir quando houver sessão real |
 | `resumo_partida` | **258** |
 | `fila_treino_espacado` | **697**, todas `lance_critico` (D-48) — cresceu 65 na recuperação de 17/09. Nenhuma de catálogo: os cards das validações do D-54/D-55 saíram junto com a reversão da sessão. **49 vencidos** em 17/09/2026 — número que muda todo dia, então rode a query da seção 6 em vez de confiar neste, e meça no fuso de Brasília, não em `current_date` (a API decide o "hoje" da fila em `America/Sao_Paulo` e à noite o UTC já virou). A fila cresce ~10/dia venha alguém respondê-la ou não, e é esse crescimento que o teto do D-56 contém na exibição — sem nunca escondê-lo, porque `vencidos_total` continua dizendo o tamanho real |
@@ -140,10 +164,14 @@ agora estão em `falhou`, recusadas pelo motor com "variante não padrão" — q
 a resposta certa. São as 2 do total de 269 que não entram em nenhuma
 estatística de diagnóstico.
 
-**O que ainda falta:** o Agente 2 continua calculando o Hexágono sobre TODAS
-as partidas juntas. Separar "o gargalo em clássicas" de "o gargalo em blitz"
-exige mexer nele e decidir o que fazer com as análises já gravadas — ver a
-ressalva no fim do D-57.
+**Resolvido em 17/09/2026 (D-63):** o Agente 2 passou a gravar, dentro do
+mesmo `metricas` jsonb, um hexágono por cadência (`por_cadencia`), e a tela `/`
+ganhou um seletor Todas / Blitz / Rápida que redesenha o radar e avisa quando o
+gargalo do recorte é outro que o do conjunto. As 5 análises anteriores não
+precisaram de backfill: sem a chave, a tela mostra só o total. O que **ainda**
+segue em aberto, de propósito: a sprint do Agente 3 continua prescrita a partir
+do gargalo do conjunto — fazê-la seguir uma cadência é decisão de produto
+("treinar para qual cadência?"), não de cálculo.
 
 Sinal na direção oposta: nos puzzles, ~60% de acerto em puzzles de rating médio
 ~2000, contra rating de blitz ~1424. Escalas diferentes, não comparáveis

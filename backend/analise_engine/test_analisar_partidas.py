@@ -14,6 +14,7 @@ from backend.analise_engine.analisar_partidas import (
     fetch_lances_anotados_partida,
     insert_critical_moves,
     limpar_registros_derivados_partida,
+    load_validated_game,
     parse_args,
     processar_partida,
     processar_partida_com_timeout,
@@ -61,6 +62,69 @@ class ProcessarPartidaTest(unittest.TestCase):
             "Qh4#", [critical_move.notation for critical_move in result.critical_moves]
         )
         self.assertEqual(engine.evaluation_calls, 3)
+
+
+# Cabeçalho real da partida `wSfk0zwh` (Lichess, `variant: fromPosition`): as
+# regras são as de sempre, só a posição inicial é própria.
+FEN_FROM_POSITION = "3r1rk1/p3qp1p/2bb2p1/2pp4/8/1P2P3/PBQN1PPP/2R2RK1 b - - 0 1"
+PGN_FROM_POSITION = f"""[Event "casual blitz game"]
+[Variant "From Position"]
+[FEN "{FEN_FROM_POSITION}"]
+[SetUp "1"]
+[Result "0-1"]
+
+1... d4 2. exd4 Bf4 0-1"""
+
+
+class VariantesAnalisaveisTest(unittest.TestCase):
+    """D-63: a trava recusava "From Position", que é xadrez padrão a partir de
+    uma posição própria — analisável, e analisado errado antes do D-62, quando
+    a reconstrução do PGN apagava o header e partia da posição inicial."""
+
+    def _engine(self) -> MagicMock:
+        engine = MagicMock()
+        engine.get_evaluation.return_value = {"type": "cp", "value": 0}
+        return engine
+
+    def test_from_position_passa_na_validacao(self) -> None:
+        game = load_validated_game(
+            {"id": 1, "cor_jogada": "PRETAS", "pgn": PGN_FROM_POSITION}
+        )
+        # O que autoriza analisar: o tabuleiro parte do FEN do cabeçalho.
+        self.assertEqual(game.board().fen(), FEN_FROM_POSITION)
+
+    def test_o_motor_recebe_a_posicao_do_cabecalho_e_nao_a_inicial(self) -> None:
+        engine = self._engine()
+
+        processar_partida(
+            {"id": 1, "cor_jogada": "PRETAS", "pgn": PGN_FROM_POSITION}, engine
+        )
+
+        # Primeiro lance das pretas é avaliado a partir da posição própria. Se o
+        # tabuleiro tivesse partido da inicial padrão, `d4` seria outro lance e
+        # o FEN avaliado começaria por "rnbqkbnr".
+        primeiro_fen = engine.set_fen_position.call_args_list[0][0][0]
+        self.assertEqual(primeiro_fen, FEN_FROM_POSITION)
+
+    def test_variante_com_regras_diferentes_continua_recusada(self) -> None:
+        with self.assertRaisesRegex(ValueError, "variante não padrão"):
+            load_validated_game(
+                {
+                    "id": 2,
+                    "cor_jogada": "BRANCAS",
+                    "pgn": '[Variant "Crazyhouse"]\n\n1. e4 e5',
+                }
+            )
+
+    def test_chess960_continua_recusado(self) -> None:
+        with self.assertRaises(ValueError):
+            load_validated_game(
+                {
+                    "id": 3,
+                    "cor_jogada": "BRANCAS",
+                    "pgn": '[Variant "Chess960"]\n[Chess960 "1"]\n\n1. e4 e5',
+                }
+            )
 
 
 class SelecionarPicosTest(unittest.TestCase):

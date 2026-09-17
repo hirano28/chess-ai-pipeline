@@ -294,3 +294,205 @@ describe('HexagonoRadarComponent — ressalva de cadência (D-57)', () => {
     expect(component.cadenciaDominaOCorpus()).toBe(false);
   });
 });
+
+describe('HexagonoRadarComponent — recorte por cadência (D-63)', () => {
+  let component: HexagonoRadarComponent;
+  let fixture: ComponentFixture<HexagonoRadarComponent>;
+  let supabaseService: SupabaseService;
+  let revisaoService: RevisaoAvulsaService;
+
+  const semRecorte: AnaliseHexagonoMetricas = {
+    total_diagnosticos: 60,
+    gargalo_sistemico_atual: 'TATICA',
+    frequencia_por_categoria: { TATICA: 40, CALCULO: 20 }
+  };
+
+  /** Mesmo cenário do teste do Agente 2: o gargalo muda entre as cadências. */
+  const comRecorte: AnaliseHexagonoMetricas = {
+    total_diagnosticos: 13,
+    partidas_distintas: 7,
+    gargalo_sistemico_atual: 'TATICA',
+    frequencia_por_categoria: { TATICA: 7, FINAIS: 6 },
+    por_cadencia: {
+      BLITZ: {
+        total_diagnosticos: 6,
+        partidas_distintas: 3,
+        gargalo_sistemico_atual: 'TATICA',
+        frequencia_por_categoria: { TATICA: 6 }
+      },
+      RAPIDA: {
+        total_diagnosticos: 6,
+        partidas_distintas: 3,
+        gargalo_sistemico_atual: 'FINAIS',
+        frequencia_por_categoria: { FINAIS: 6 }
+      }
+    }
+  };
+
+  const composicaoBlitz: ComposicaoCadencia = {
+    por_cadencia: { BLITZ: 180, RAPIDA: 68 },
+    total: 248,
+    dominante: 'BLITZ',
+    percentual_dominante: 72.6
+  };
+
+  async function criar(
+    analise: AnaliseHexagonoMetricas | null,
+    composicao: ComposicaoCadencia = composicaoBlitz
+  ): Promise<void> {
+    vi.spyOn(supabaseService, 'getUltimaAnaliseHexagono').mockResolvedValue(analise);
+    vi.spyOn(revisaoService, 'obterComposicaoCadencia').mockResolvedValue({
+      success: true,
+      composicao
+    });
+    fixture = TestBed.createComponent(HexagonoRadarComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  function texto(): string {
+    return (fixture.nativeElement as HTMLElement).textContent ?? '';
+  }
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [HexagonoRadarComponent],
+      providers: [provideHttpClient(), provideRouter([]), SupabaseService, TreinoService]
+    }).compileComponents();
+
+    supabaseService = TestBed.inject(SupabaseService);
+    revisaoService = TestBed.inject(RevisaoAvulsaService);
+    vi.spyOn(TestBed.inject(TreinoService), 'disponibilidadeFoco').mockResolvedValue({
+      success: true,
+      porCategoria: {}
+    });
+    /** jsdom não tem canvas: o Chart.js nasce degradado ("can't acquire
+     * context") e explode no SEGUNDO render (`chart.update()` →
+     * `ownerDocument` de null). Os testes anteriores nunca redesenhavam; os
+     * deste bloco trocam o recorte e redesenham. O que se afirma aqui é a
+     * lógica do componente e o DOM — não o desenho —, então o desenho sai. */
+    vi.spyOn(
+      HexagonoRadarComponent.prototype as unknown as { renderizarGrafico: () => void },
+      'renderizarGrafico'
+    ).mockImplementation(() => undefined);
+  });
+
+  it('análise antiga, sem por_cadencia, não ganha seletor nem atalho', async () => {
+    /** As 5 análises gravadas antes do D-63 não têm o recorte. Um seletor com
+     * um único "Todas" seria um botão que não faz nada. */
+    await criar(semRecorte);
+
+    expect(component.cadenciasDisponiveis()).toEqual([]);
+    expect(component.podeRecortarDominante()).toBe(false);
+    const seletor = (fixture.nativeElement as HTMLElement).querySelector(
+      '[aria-label="Recorte por cadência"]'
+    );
+    expect(seletor).toBeNull();
+    expect(texto()).not.toContain('Ver o Hexágono só de');
+  });
+
+  it('com recorte, lista as cadências da mais diagnosticada para a menos', async () => {
+    await criar(comRecorte);
+
+    expect(component.cadenciasDisponiveis().map((item) => item.cadencia)).toEqual([
+      'BLITZ',
+      'RAPIDA'
+    ]);
+    expect(texto()).toContain('Todas');
+    expect(texto()).toContain('Rápida');
+  });
+
+  it('escolher uma cadência troca as métricas exibidas e a escala do rodapé', async () => {
+    await criar(comRecorte);
+
+    component.selecionarCadencia('RAPIDA');
+    fixture.detectChanges();
+
+    expect(component.metricasExibidas()?.gargalo_sistemico_atual).toBe('FINAIS');
+    expect(component.gargaloExibido()).toBe('FINAIS');
+    expect(texto()).toContain('6 diagnósticos');
+    expect(texto()).toContain('em 3 partidas');
+    expect(texto()).toContain('de Rápida');
+  });
+
+  it('"Todas" volta para o total', async () => {
+    await criar(comRecorte);
+    component.selecionarCadencia('RAPIDA');
+
+    component.selecionarCadencia(null);
+    fixture.detectChanges();
+
+    expect(component.metricasExibidas()).toBe(comRecorte);
+    expect(texto()).toContain('13 diagnósticos');
+  });
+
+  it('avisa quando o gargalo do recorte é outro que o do conjunto', async () => {
+    /** É o achado que o recorte existe para expor — e o que a prescrição do
+     * Agente 3, que segue o gargalo do conjunto, ainda não leva em conta. */
+    await criar(comRecorte);
+
+    component.selecionarCadencia('RAPIDA');
+    fixture.detectChanges();
+
+    expect(component.gargaloDivergeDoGeral()).toBe(true);
+    const aviso = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="gargalo-diverge"]'
+    );
+    expect(aviso?.textContent).toContain('Em Rápida o gargalo é');
+    expect(aviso?.textContent).toContain('Finais');
+    expect(aviso?.textContent).toContain('Tática');
+  });
+
+  it('não avisa divergência quando o gargalo coincide, nem no total', async () => {
+    await criar(comRecorte);
+
+    expect(component.gargaloDivergeDoGeral()).toBe(false);
+
+    component.selecionarCadencia('BLITZ');
+    fixture.detectChanges();
+
+    expect(component.gargaloDivergeDoGeral()).toBe(false);
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="gargalo-diverge"]')
+    ).toBeNull();
+  });
+
+  it('cadência sem bloco não vira seleção', async () => {
+    /** Aceitar acenderia o chip errado sobre o hexágono do total. */
+    await criar(comRecorte);
+
+    component.selecionarCadencia('CLASSICA');
+
+    expect(component.cadenciaSelecionada()).toBeNull();
+    expect(component.metricasExibidas()).toBe(comRecorte);
+  });
+
+  it('a ressalva oferece ver só a cadência dominante, e o clique aplica o recorte', async () => {
+    await criar(comRecorte);
+
+    expect(component.podeRecortarDominante()).toBe(true);
+    const botao = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('button')
+    ).find((b) => b.textContent?.includes('Ver o Hexágono só de Blitz'));
+    expect(botao).toBeDefined();
+
+    botao!.click();
+    fixture.detectChanges();
+
+    expect(component.cadenciaSelecionada()).toBe('BLITZ');
+    // Já recortado na dominante, o atalho some — repetir seria ruído.
+    expect(texto()).not.toContain('Ver o Hexágono só de Blitz');
+  });
+
+  it('sem análise nenhuma, o seletor e o rodapé de escala não aparecem', async () => {
+    await criar(null);
+
+    expect(component.cadenciasDisponiveis()).toEqual([]);
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="escala-do-recorte"]')
+    ).toBeNull();
+  });
+});

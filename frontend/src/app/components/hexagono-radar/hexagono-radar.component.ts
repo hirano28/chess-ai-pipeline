@@ -99,6 +99,10 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
    * é. `null` enquanto não carregou ou se a consulta falhou. */
   readonly composicaoCadencia = signal<ComposicaoCadencia | null>(null);
   readonly rotulosCadencia = ROTULOS_CADENCIA;
+  /** Recorte do Hexágono por cadência (D-63). `null` = todas as partidas. É a
+   * resposta à ressalva acima: em vez de só avisar que 72% é blitz, deixa o
+   * usuário ver o hexágono só das blitz, ou só das rápidas. */
+  readonly cadenciaSelecionada = signal<string | null>(null);
 
   private readonly supabaseService = inject(SupabaseService);
   private readonly treinoService = inject(TreinoService);
@@ -109,7 +113,9 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
   constructor() {
     // Cria/atualiza o gráfico apenas quando dados e canvas existem no DOM.
     effect(() => {
-      const analise = this.dados();
+      // `metricasExibidas()` lê `dados` e `cadenciaSelecionada`, então trocar o
+      // recorte redesenha o radar pelo mesmo caminho que trocar o modo.
+      const analise = this.metricasExibidas();
       const canvas = this.radarCanvas();
       const modo = this.modoVisualizacao();
       if (!analise?.frequencia_por_categoria || !canvas) {
@@ -157,6 +163,68 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
     if (resultado.success && resultado.composicao) {
       this.composicaoCadencia.set(resultado.composicao);
     }
+  }
+
+  /** As métricas que o radar e o rodapé mostram: o recorte escolhido, ou o
+   * total. Análises gravadas antes do D-63 não têm `por_cadencia`, e aí só o
+   * total existe — o seletor nem aparece. */
+  metricasExibidas(): AnaliseHexagonoMetricas | null {
+    const analise = this.dados();
+    const cadencia = this.cadenciaSelecionada();
+    if (!analise) {
+      return null;
+    }
+    const bloco = cadencia ? analise.por_cadencia?.[cadencia] : undefined;
+    return bloco ?? analise;
+  }
+
+  /** Cadências com recorte próprio, da que tem mais diagnósticos para a que
+   * tem menos — mesma ordem da ressalva, para as duas listas não brigarem. */
+  cadenciasDisponiveis(): { cadencia: string; partidas: number; diagnosticos: number }[] {
+    const blocos = this.dados()?.por_cadencia ?? {};
+    return Object.entries(blocos)
+      .map(([cadencia, bloco]) => ({
+        cadencia,
+        partidas: bloco.partidas_distintas ?? 0,
+        diagnosticos: bloco.total_diagnosticos ?? 0
+      }))
+      .sort((a, b) => b.diagnosticos - a.diagnosticos);
+  }
+
+  selecionarCadencia(cadencia: string | null): void {
+    // Cadência sem bloco não vira seleção: mostraria o total com o chip errado
+    // aceso, e o usuário leria o hexágono de tudo achando que é o de blitz.
+    if (cadencia && !this.dados()?.por_cadencia?.[cadencia]) {
+      return;
+    }
+    this.cadenciaSelecionada.set(cadencia);
+  }
+
+  gargaloExibido(): string | null {
+    return this.metricasExibidas()?.gargalo_sistemico_atual ?? null;
+  }
+
+  rotuloGargalo(gargalo: string | null): string {
+    return (gargalo && this.rotulosCategoria[gargalo]) || 'dados insuficientes';
+  }
+
+  /** true quando o gargalo do recorte é OUTRO que o do conjunto. É o achado
+   * que este recorte existe para expor — e o que a prescrição do Agente 3,
+   * que segue o gargalo do conjunto, ainda não leva em conta. */
+  gargaloDivergeDoGeral(): boolean {
+    if (!this.cadenciaSelecionada()) {
+      return false;
+    }
+    const geral = this.dados()?.gargalo_sistemico_atual ?? null;
+    const recorte = this.gargaloExibido();
+    return !!geral && !!recorte && geral !== recorte;
+  }
+
+  /** A ressalva vira ação: se a cadência que domina o corpus tem recorte,
+   * oferece ver o hexágono só dela em vez de apenas avisar. */
+  podeRecortarDominante(): boolean {
+    const dominante = this.composicaoCadencia()?.dominante;
+    return !!dominante && !!this.dados()?.por_cadencia?.[dominante];
   }
 
   /** true quando já sabemos que a categoria não tem exercício de catálogo. */

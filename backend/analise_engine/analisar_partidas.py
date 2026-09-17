@@ -329,11 +329,22 @@ def evaluate_position(
     return perspective_score(score_cp, color)
 
 
+# Variantes cujo PGN o Stockfish padrão sabe avaliar (D-63). "From Position" é
+# xadrez com as regras de sempre a partir de uma posição própria: python-chess
+# lê `[FEN]`/`[SetUp]` em `game.board()` e o motor avalia qualquer FEN legal, então
+# nada mais neste módulo precisa mudar para ela. Antes do D-62 essas partidas
+# nem chegavam aqui com o header — a reconstrução do PGN o apagava e elas eram
+# analisadas em silêncio a partir da posição inicial ERRADA. Tudo o mais
+# (Crazyhouse, Atomic, Antichess, King of the Hill...) muda as regras do jogo, e
+# uma avaliação de xadrez padrão sobre isso seria um número sem sentido.
+VARIANTES_ANALISAVEIS = frozenset({"standard", "from position"})
+
+
 def validate_standard_game(game: chess.pgn.Game, partida_id: Any) -> None:
     """Rejeita variantes e PGNs que não podem ser analisados com segurança."""
 
     variant = (game.headers.get("Variant") or "").strip().lower()
-    if variant and variant not in {"standard", ""}:
+    if variant and variant not in VARIANTES_ANALISAVEIS:
         raise ValueError(
             f"Partida {partida_id} usa variante não padrão: "
             f"{game.headers.get('Variant')}"

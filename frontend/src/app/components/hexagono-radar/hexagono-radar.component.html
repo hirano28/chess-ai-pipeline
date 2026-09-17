@@ -31,6 +31,17 @@
               <span>{{ rotuloCadencia(item.cadencia) }}: {{ item.total }}&nbsp;&nbsp;</span>
             }
           </span>
+          <!-- D-63: a ressalva deixa de ser só aviso e passa a oferecer a
+               saída — ver o hexágono só da cadência que domina. -->
+          @if (podeRecortarDominante() && cadenciaSelecionada() !== composicaoCadencia()!.dominante) {
+            <button
+              type="button"
+              class="btn btn-secundario btn-pequeno mt-2.5"
+              (click)="selecionarCadencia(composicaoCadencia()!.dominante)"
+            >
+              Ver o Hexágono só de {{ rotuloCadencia(composicaoCadencia()!.dominante) }}
+            </button>
+          }
         </span>
       </div>
     }
@@ -65,6 +76,43 @@
           </div>
         </div>
 
+        <!--
+          Recorte por cadência (D-63). Só aparece quando a análise traz
+          `por_cadencia` — as gravadas antes do D-63 não trazem, e um seletor
+          com um único "Todas" seria um botão que não faz nada.
+        -->
+        @if (cadenciasDisponiveis(); as disponiveis) {
+          @if (disponiveis.length > 0) {
+            <div class="mb-4 flex flex-wrap items-center gap-3">
+              <span class="text-[11px] font-semibold uppercase tracking-[0.14em] text-bruma-500">
+                Cadência
+              </span>
+              <div class="segmentado" role="group" aria-label="Recorte por cadência">
+                <button
+                  type="button"
+                  class="segmentado-opcao"
+                  [class.segmentado-opcao-ativa]="cadenciaSelecionada() === null"
+                  [attr.aria-pressed]="cadenciaSelecionada() === null"
+                  (click)="selecionarCadencia(null)"
+                >
+                  Todas
+                </button>
+                @for (item of disponiveis; track item.cadencia) {
+                  <button
+                    type="button"
+                    class="segmentado-opcao"
+                    [class.segmentado-opcao-ativa]="cadenciaSelecionada() === item.cadencia"
+                    [attr.aria-pressed]="cadenciaSelecionada() === item.cadencia"
+                    (click)="selecionarCadencia(item.cadencia)"
+                  >
+                    {{ rotuloCadencia(item.cadencia) }}
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        }
+
         @if (loading()) {
           <div class="flex min-h-[25rem] flex-col items-center justify-center gap-5" role="status">
             <div class="esqueleto h-48 w-48 rounded-full"></div>
@@ -94,6 +142,42 @@
               role="img"
             ></canvas>
           </div>
+
+          <!-- Escala do que está no radar (D-63): quantos diagnósticos, em
+               quantas partidas, e qual gargalo eles apontam. -->
+          @if (metricasExibidas(); as exibidas) {
+            @if (exibidas.total_diagnosticos !== undefined) {
+              <p class="legenda mt-3" data-testid="escala-do-recorte">
+                {{ exibidas.total_diagnosticos }} diagnósticos
+                @if (exibidas.partidas_distintas !== undefined) {
+                  em {{ exibidas.partidas_distintas }} partidas
+                }
+                @if (cadenciaSelecionada()) {
+                  de {{ rotuloCadencia(cadenciaSelecionada()) }}
+                }
+                · gargalo:
+                <strong class="font-medium text-bruma-300">{{ rotuloGargalo(gargaloExibido()) }}</strong>
+              </p>
+            }
+          }
+
+          <!--
+            O achado que o recorte existe para expor. Fica ao lado do radar e não
+            no topo da página porque só faz sentido com uma cadência escolhida.
+          -->
+          @if (gargaloDivergeDoGeral()) {
+            <div class="aviso aviso-latao mt-3" role="note" data-testid="gargalo-diverge">
+              <span aria-hidden="true">◈</span>
+              <span>
+                Em {{ rotuloCadencia(cadenciaSelecionada()) }} o gargalo é
+                <strong class="text-marfim">{{ rotuloGargalo(gargaloExibido()) }}</strong>;
+                no conjunto das partidas, é
+                <strong class="text-marfim">{{ rotuloGargalo(dados()?.gargalo_sistemico_atual ?? null) }}</strong>.
+                A sprint prescrita abaixo segue o gargalo do conjunto — se você quer treinar
+                para esta cadência, o alvo pode ser outro.
+              </span>
+            </div>
+          }
         }
       </section>
 

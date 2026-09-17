@@ -128,9 +128,12 @@ def fetch_diagnosticos(
 
     rows: list[dict[str, Any]] = []
     offset = 0
+    # `partida_id` e `cadencia` entraram no D-63: o primeiro para contar
+    # partidas distintas (o hexágono é de diagnósticos, e "N diagnósticos em M
+    # partidas" é o que dá escala ao número), o segundo para o recorte.
     select = (
-        "*, lances_criticos!inner(queda_win_percent, numero_lance, "
-        "partidas!inner(data_partida, eco_abertura, user_id))"
+        "*, lances_criticos!inner(queda_win_percent, numero_lance, partida_id, "
+        "partidas!inner(data_partida, eco_abertura, user_id, cadencia))"
     )
     while True:
         response = (
@@ -170,8 +173,10 @@ def build_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
                 "tags_falha": [tag for tag in tags if tag in TAGS_VOCABULARY],
                 "queda_win_percent": lance.get("queda_win_percent"),
                 "numero_lance": lance.get("numero_lance"),
+                "partida_id": lance.get("partida_id"),
                 "data_partida": partida.get("data_partida"),
                 "eco_abertura": partida.get("eco_abertura"),
+                "cadencia": partida.get("cadencia"),
             }
         )
     return pd.DataFrame(
@@ -181,8 +186,10 @@ def build_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
             "tags_falha",
             "queda_win_percent",
             "numero_lance",
+            "partida_id",
             "data_partida",
             "eco_abertura",
+            "cadencia",
         ],
     )
 
@@ -294,6 +301,68 @@ def calcular_metricas_hexagono(df: pd.DataFrame) -> dict:
     return metrics
 
 
+# Mínimo de partidas distintas para uma cadência ganhar o próprio recorte
+# (D-63). Uma ou duas partidas não sustentam hexágono nenhum, e um chip
+# "Cadência desconhecida · 1 partida" no seletor da tela seria ruído permanente
+# para quem colou um único PGN à mão.
+CADENCIA_MIN_PARTIDAS = 3
+
+
+def _contar_partidas(df: pd.DataFrame) -> int:
+    """Partidas distintas por trás dos diagnósticos do DataFrame."""
+
+    if "partida_id" not in df.columns:
+        return 0
+    return int(df["partida_id"].dropna().nunique())
+
+
+def calcular_metricas_por_cadencia(df: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    """Um hexágono completo para cada cadência presente nos diagnósticos (D-63).
+
+    Por que isto existe: 72% das partidas do dono principal são blitz, e o
+    hexágono somado dizia "seu gargalo é tática" sem conseguir separar "calcula
+    mal" de "joga rápido demais". O D-57 pôs a ressalva na tela; este recorte é
+    o que permite ao usuário RESPONDER à ressalva, olhando o hexágono só das
+    rápidas ou só das blitz.
+
+    Cada bloco tem exatamente o shape de `calcular_metricas_hexagono()`, de
+    propósito: a tela reaproveita o mesmo código de render para o total e para
+    qualquer recorte. Só `frequencia_tags_por_eco` sai — é informativo, pesa no
+    jsonb e ninguém lê por cadência. Diagnóstico sem cadência conta no total e
+    em bloco nenhum, e cadência com menos de `CADENCIA_MIN_PARTIDAS` partidas
+    não ganha bloco.
+    """
+
+    if df.empty or "cadencia" not in df.columns:
+        return {}
+
+    por_cadencia: dict[str, dict[str, Any]] = {}
+    for cadencia, grupo in df.dropna(subset=["cadencia"]).groupby("cadencia"):
+        partidas = _contar_partidas(grupo)
+        if partidas < CADENCIA_MIN_PARTIDAS:
+            continue
+        bloco = calcular_metricas_hexagono(grupo.reset_index(drop=True))
+        bloco.pop("frequencia_tags_por_eco", None)
+        bloco["partidas_distintas"] = partidas
+        por_cadencia[str(cadencia)] = bloco
+    return por_cadencia
+
+
+def calcular_metricas_completas(df: pd.DataFrame) -> dict[str, Any]:
+    """Hexágono do total mais o recorte por cadência, no mesmo dicionário.
+
+    O gargalo de primeiro nível continua sendo o de TODAS as partidas: é ele
+    que o Agente 3 lê para prescrever e que `medir_eficacia.py` acompanha, e
+    mudar isso é decisão de produto (treinar para qual cadência?), não de
+    cálculo — ver D-63. O recorte informa; ainda não prescreve.
+    """
+
+    metrics = calcular_metricas_hexagono(df)
+    metrics["partidas_distintas"] = _contar_partidas(df)
+    metrics["por_cadencia"] = calcular_metricas_por_cadencia(df)
+    return metrics
+
+
 def _identify_bottleneck(metrics: dict[str, Any]) -> str | None:
     """Escolhe a categoria com pior combinação de frequência e gravidade recentes."""
 
@@ -326,13 +395,26 @@ def _identify_bottleneck(metrics: dict[str, Any]) -> str | None:
 def build_prompt(metrics: dict[str, Any]) -> str:
     """Monta um prompt curto com apenas os números já calculados."""
 
+    por_cadencia = metrics.get("por_cadencia") or {}
     resumo = {
         "total_diagnosticos": metrics["total_diagnosticos"],
+        "partidas_distintas": metrics.get("partidas_distintas"),
         "top_3_tags_recentes": metrics["top_3_tags"],
         "frequencia_por_categoria_total": metrics["frequencia_por_categoria"],
         "frequencia_por_categoria_recente": metrics["frequencia_por_categoria_recente"],
         "gravidade_media_por_categoria_recente": metrics["gravidade_media_por_categoria_recente"],
         "gargalo_sistemico_atual": metrics["gargalo_sistemico_atual"],
+        # D-63: o único dado novo que o narrador recebe. Deixar o modelo ver os
+        # gargalos lado a lado é o que permite a frase que mais vale para o
+        # jogador ("em rápidas o seu problema é outro").
+        "gargalo_por_cadencia": {
+            cadencia: bloco.get("gargalo_sistemico_atual")
+            for cadencia, bloco in por_cadencia.items()
+        },
+        "partidas_por_cadencia": {
+            cadencia: bloco.get("partidas_distintas")
+            for cadencia, bloco in por_cadencia.items()
+        },
         "janela_recente_dias": RECENT_WINDOW_DAYS,
     }
     return (
@@ -341,7 +423,11 @@ def build_prompt(metrics: dict[str, Any]) -> str:
         "em linguagem natural explicando o que esses padrões significam para o "
         "jogador e onde ele deve focar seus estudos. Compare a situação recente "
         f"(últimos {RECENT_WINDOW_DAYS} dias) com o acumulado geral para "
-        "identificar se houve evolução ou regressão. Não invente dados além dos "
+        "identificar se houve evolução ou regressão. Se o gargalo mudar de uma "
+        "cadência para outra em `gargalo_por_cadencia`, diga isso "
+        "explicitamente: é a informação mais útil para o jogador, porque separa "
+        "erro de entendimento de erro sob pressão de relógio. Se for igual em "
+        "todas, não force uma diferença. Não invente dados além dos "
         "fornecidos.\n\n"
         f"{json.dumps(resumo, ensure_ascii=False, indent=2)}"
     )
@@ -385,7 +471,7 @@ def analisar_usuario(
         logger, f"Usuário {user_id}: {len(rows)} diagnósticos carregados."
     )
     df = build_dataframe(rows)
-    metrics = calcular_metricas_hexagono(df)
+    metrics = calcular_metricas_completas(df)
     if metrics["total_diagnosticos"] == 0:
         log_and_print(
             logger, f"Usuário {user_id}: sem diagnósticos ainda; análise pulada."
