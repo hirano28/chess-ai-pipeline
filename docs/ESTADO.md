@@ -16,8 +16,8 @@ atualize também a data no cabeçalho.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **687**, todos passando, em 36 módulos |
-| Testes de frontend (Vitest) | **223**, todos passando, em 27 arquivos |
+| Testes de backend | **726**, todos passando, em 37 módulos |
+| Testes de frontend (Vitest) | **233**, todos passando, em 27 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
 `.github/workflows/deploy-backend.yml` lista os 35 módulos de teste do backend
@@ -47,7 +47,7 @@ pendência P-11 abaixo).
 
 | Tabela | Linhas |
 |---|---|
-| `partidas` | 239 (02/07/2026 a 15/09/2026); todas as 239 com status `concluido`, 230 com `abertura_normalizada` preenchida (ver D-12 e D-39 em `DECISOES.md`) |
+| `partidas` | 240 (02/07/2026 a 15/09/2026); todas com status `concluido`, 230 com `abertura_normalizada` e **todas as 240 com `cadencia`** preenchida (D-57) |
 | `lances_criticos` | 714 |
 | `diagnosticos` | 714 |
 | `puzzle_atividade` | 660, em 41 dias distintos |
@@ -60,27 +60,38 @@ pendência P-11 abaixo).
 | `explicacoes_posicao` | 7 (tabela nova, ver D-11 em `DECISOES.md`) |
 | `metricas_lichess_partida` | 18, para 67 partidas do Lichess; 14 já têm `precisao_abertura`/`precisao_meiojogo` preenchidas e 12 têm `precisao_final` — colunas novas (ver `BANCO.md`) sendo preenchidas prospectivamente pelo pipeline automatizado (D-37), sem reprocessamento retroativo das linhas mais antigas |
 | `analises_hexagono` | 5 |
-| `sessoes_treino` | 5 prescritas, **1 concluída** e 0 com eficácia medida. A primeira conclusão da história do produto saiu do D-54, na validação real da tela de execução — antes disso eram 5/0/0, e `medir_eficacia.py` nunca teve o que medir |
+| `sessoes_treino` | 5 prescritas, **0 concluídas**, 0 com eficácia medida. A validação do D-54 concluiu uma sessão de verdade (5/0/0 → 5/1/0, a primeira da história do produto) e **foi revertida de propósito**: aquele treino não aconteceu — os 12 exercícios foram respondidos por script, com lances quaisquer. Deixar a marca produziria a primeira medição de eficácia do produto em cima de um treino inexistente. O caminho está validado; o número volta a subir quando houver sessão real |
 | `resumo_partida` | 135 |
-| `fila_treino_espacado` | 676 (632 `lance_critico`, D-48, escalonados em 64 dias a 10 novos/dia; 28 `exercicio_tatico`, D-49; 16 `exercicio_posicional`, D-55) — 27 já respondidas, quase todas nas validações reais do D-54 e do D-55 |
+| `fila_treino_espacado` | 632, todas `lance_critico` (D-48), escalonadas em 64 dias a 10 novas/dia até 17/11/2026 — **19 vencidas hoje e 9 atrasadas**. Os cards de catálogo das validações do D-54/D-55 foram removidos junto com a reversão da sessão. A fila cresce 10/dia independentemente do consumo, e é isso que o teto do D-56 protege |
 | `exercicios_taticos` | 1.200 (D-49); 300 por categoria em `TATICA`/`CALCULO`/`FINAIS`/`ESTRUTURA_DE_PEOES` — `ESTRATEGIA`/`GESTAO_DE_TEMPO` seguem sem cobertura AQUI, e é esperado: não existe tema de puzzle equivalente |
-| `exercicios_posicionais` | 1.200 (tabela nova, D-55), de 616 partidas OTB em 69 torneios (broadcasts do Lichess, agosto/2026); 300 em cada uma de `ESTRATEGIA`/`GESTAO_DE_TEMPO`/`FINAIS`/`ESTRUTURA_DE_PEOES` |
-| **Catálogo somado, por categoria** | `TATICA` 300, `CALCULO` 300, `ESTRATEGIA` 300, `GESTAO_DE_TEMPO` 300, `FINAIS` 600, `ESTRUTURA_DE_PEOES` 600 — **as 6 categorias do Hexágono têm material pela primeira vez** (fecha o P-15) |
+| `exercicios_posicionais` | **2.381** (tabela nova, D-55), de **1.764 partidas OTB em 510 torneios** distintos (broadcasts do Lichess, maio a agosto/2026), 451 delas com um GM; ~594 em cada uma de `ESTRATEGIA`/`GESTAO_DE_TEMPO`/`FINAIS`/`ESTRUTURA_DE_PEOES`. A primeira leva do D-55 tinha 1.200 exercícios de só **69 torneios**, quase todos do mesmo dia — a amostragem por reservatório do D-58 é o que multiplicou a variedade por 7 |
+| **Catálogo somado, por categoria** | `TATICA` 300, `CALCULO` 300, `ESTRATEGIA` 593, `GESTAO_DE_TEMPO` 600, `FINAIS` 894, `ESTRUTURA_DE_PEOES` 894 — **as 6 categorias do Hexágono têm material pela primeira vez** (fecha o P-15) |
 
 ## 3. Composição do corpus — dado que muda a leitura de tudo
 
-| Cadência (`TimeControl` do PGN) | Partidas analisadas |
-|---|---|
-| 180 s (blitz 3 min) | 87 |
-| 300 s (blitz 5 min) | 47 |
-| Lichess, sem header de TimeControl | 40 |
-| 600 s (rapid 10 min) | 7 |
+`verificado_em: 16/09/2026`, agora pela coluna `partidas.cadencia` (D-57) e
+não mais por contagem manual de `TimeControl`.
 
-**74% do corpus analisado é blitz de 3 a 5 minutos**, e não existe coluna de
-cadência em `partidas` — não dá nem para filtrar. Qualquer conclusão sobre "o
-gargalo do jogador" está hoje misturada com o efeito do relógio. A tag mais
-frequente é `calculo_tatico_deficiente` (29,8% de todas as tags), o que é
-esperado a ~2 segundos por lance.
+| Cadência | Partidas analisadas |
+|---|---|
+| BLITZ | 142 |
+| DESCONHECIDA | 68 |
+| RAPIDA | 30 |
+| **Total** | **240** |
+
+**59% do corpus analisado é blitz**, e outros 28% são partidas do Lichess sem
+header de `TimeControl` — cadência que o PGN simplesmente não informa, e que o
+D-57 grava como `DESCONHECIDA` em vez de chutar. Não há nenhuma partida
+clássica no acervo. Qualquer conclusão sobre "o gargalo do jogador" continua
+misturada com o efeito do relógio; a diferença desde o D-57 é que agora **dá
+para filtrar**, e o Hexágono exibe a ressalva acima do diagnóstico em vez de
+deixá-la só aqui. A tag mais frequente é `calculo_tatico_deficiente` (29,8% de
+todas as tags), o que é esperado a ~2 segundos por lance.
+
+**O que ainda falta:** o Agente 2 continua calculando o Hexágono sobre TODAS
+as partidas juntas. Separar "o gargalo em clássicas" de "o gargalo em blitz"
+exige mexer nele e decidir o que fazer com as análises já gravadas — ver a
+ressalva no fim do D-57.
 
 Sinal na direção oposta: nos puzzles, ~60% de acerto em puzzles de rating médio
 ~2000, contra rating de blitz ~1424. Escalas diferentes, não comparáveis
@@ -682,6 +693,40 @@ rendeu 616 partidas em 69 torneios com GM/IM/WGM. Licença: broadcasts são CC
 BY-SA 4.0 (os puzzles do D-49 são CC0), então a procedência é exibida depois
 da resposta. Testes: 628 → **687** no backend, 216 → **223** no frontend.
 
+**A fila ganhou teto e a sessão ganhou atalho (16/09/2026, D-56).** O D-55
+acrescentou 1200 exercícios a um sistema cujo gargalo não era falta de
+material: a fila cresce 10 cards/dia venha alguém respondê-los ou não, e o
+bloco de prática da sessão caía no fim dela — o botão "Ir para os exercícios"
+levava a uma tela onde os 12 cards da sessão ficavam atrás de dezenas de
+outros. Agora `GET /treino/fila?sessao_id=` filtra pela sessão, e
+`TREINO_TETO_FILA` (20) limita o que a tela mostra **sem** esconder o tamanho
+do atraso (`vencidos_total`).
+
+**Cadência das partidas (16/09/2026, D-57).** A maior ressalva do produto
+saiu da documentação para a tela. `partidas` ganhou `cadencia`/
+`tempo_base_segundos`/`incremento_segundos`, o acervo inteiro foi backfillado
+(240 partidas: 142 blitz, 30 rápidas, 68 sem header) e o Hexágono passou a
+exibir, acima do diagnóstico, que 59% do corpus é blitz e que o gargalo lido
+ali carrega junto o efeito do relógio. **Ainda falta** filtrar o próprio
+Hexágono por cadência — ver a ressalva no fim do D-57.
+
+**Caminho da medição de eficácia validado (16/09/2026).** Com uma sessão
+concluída, `medir_eficacia.py` rodou pela primeira vez com trabalho real:
+encontrou a sessão elegível, extraiu a categoria do `diagnostico_gargalo` e
+reportou corretamente "aguardando mais dados pós-treino (0/3 diagnósticos)".
+O caminho funciona ponta a ponta; ele exige 3 diagnósticos da categoria na
+janela de 15 dias após a conclusão. A sessão de teste foi revertida depois
+(ver a linha de `sessoes_treino` na seção 2).
+
+**Catálogo posicional reamostrado e títulos limpos (16/09/2026, D-58/D-59).**
+O import passou a ler o mês inteiro e sortear por reservatório, em vez de
+aceitar os primeiros N e parar — a primeira leva vinha toda de um único dia.
+Reimportado sobre 3 meses (125.974 partidas lidas): a variedade foi de **69
+para 510 torneios distintos**, e de 616 para 1.764 partidas.
+E 7 linhas de `indice_conceitual` com sujeira de OCR (`| OJOGO CONTRA A. A
+PEÇA C CRAVADA`), que apareciam na tela como citação de fonte, foram
+corrigidas; o import agora limpa as pontas sozinho.
+
 ### P-12 — Deploy automático não sincronizava env vars com os Secrets ✅ RESOLVIDA em 13/09/2026
 
 Não era decisão deliberada, era lacuna: `deploy-backend.yml` só propagava
@@ -831,6 +876,18 @@ order by 1, 3 desc;
 -- o loop fechou? (D-54 tornou a conclusão automática; antes dele era 5/0/0)
 select count(*) total, count(data_concluida) concluidas, count(eficacia_medida) medidas
 from sessoes_treino;
+
+-- composição do corpus por cadência (D-57): é a ressalva que o Hexágono
+-- mostra acima do diagnóstico. Nenhuma partida sem cadência preenchida.
+select cadencia, count(*) from partidas group by 1 order by 2 desc;
+select count(*) sem_cadencia from partidas where cadencia is null;
+
+-- a fila está consumível? (D-56) A população acrescenta 10/dia venha alguém
+-- respondê-los ou não; `atrasados` crescendo mês a mês é o sinal de alerta.
+select count(*) filter (where proxima_revisao_data <= current_date) vencidos,
+       count(*) filter (where proxima_revisao_data < current_date) atrasados,
+       count(*) total
+from fila_treino_espacado;
 
 -- catálogo somado por categoria (D-49 + D-55): as 6 precisam ter material,
 -- senão o Hexágono volta a esconder botão de "Focar" (P-15)

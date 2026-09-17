@@ -14,7 +14,7 @@ fonte: introspecção direta do projeto Supabase pmzmershonrqzwbmhaco
 
 | Tabela | Colunas relevantes | Papel |
 |---|---|---|
-| `partidas` | `id`, `plataforma`, `external_id`, `pgn`, `data_partida`, `resultado`, `cor_jogada`, `rating_proprio`, `rating_oponente`, `eco_abertura`, `abertura_normalizada`, `status_processamento`, `created_at` | toda partida coletada |
+| `partidas` | `id`, `plataforma`, `external_id`, `pgn`, `data_partida`, `resultado`, `cor_jogada`, `rating_proprio`, `rating_oponente`, `eco_abertura`, `abertura_normalizada`, `cadencia` (D-57), `tempo_base_segundos`, `incremento_segundos`, `status_processamento`, `created_at` | toda partida coletada |
 | `lances_criticos` | `partida_id`, `numero_lance`, `numero_lance_fim`, `tipo_evento`, `gravidade_cpl`, `queda_win_percent`, `fen_antes_lance`, `origem` | lances e janelas ruins achados pelo Stockfish. `fen_antes_lance` (D-27) é o FEN de antes do lance (ou do início da janela, em EROSAO); `origem` (D-43) indica se o lance foi detectado pelo motor (`'GRAVIDADE'`) ou promovido por anotação de pensamento do jogador no estudo (`'ANOTACAO'`) |
 | `diagnosticos` | `lance_id`, `tags_falha[]`, `diagnostico_mecanico`, `tipo_erro` | causa do erro, gerada pelo Gemini; `tipo_erro` (D-43) categoriza `PROCESSO` vs `CONTEUDO` vs `INDETERMINADO` contrastando o raciocínio do jogador com a avaliação do motor |
 | `analises_hexagono` | `data_analise`, `metricas` (jsonb), `narrativa`, `gargalo_sistemico_atual` | saída do Agente 2 |

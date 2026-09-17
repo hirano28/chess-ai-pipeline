@@ -20,6 +20,30 @@ from supabase import Client, create_client  # noqa: E402
 
 BATCH_SIZE = 50
 
+# Sujeira de OCR que aparece grudada no começo/fim de títulos de capítulo
+# extraídos de livro digitalizado: barras verticais que eram bordas de tabela,
+# vírgulas de quebra de linha, aspas tipográficas de citação.
+LIXO_DE_BORDA = " \t|,;.·—–-‘’“”\"'"
+
+
+def limpar_titulo_capitulo(titulo: str | None) -> str | None:
+    """Tira a sujeira de OCR das PONTAS do título do capítulo (D-59).
+
+    Deliberadamente conservador: só mexe nas bordas e em espaço repetido.
+    Nada de "corrigir" o miolo — um título de livro pode legitimamente conter
+    pontuação, e uma limpeza esperta erraria em silêncio num dado que vai
+    aparecer na tela como citação de fonte.
+
+    Erros de OCR no meio da palavra (ex.: "OJOGO" por "O JOGO") continuam
+    passando, e é proposital: adivinhar onde cabe um espaço estragaria
+    títulos legítimos. Esses poucos casos foram corrigidos à mão no banco.
+    """
+
+    if titulo is None:
+        return None
+    limpo = " ".join(titulo.split()).strip(LIXO_DE_BORDA).strip()
+    return limpo or None
+
 
 def carregar_sugestoes(json_path: Path) -> tuple[str, list[dict[str, Any]]]:
     """Lê o arquivo JSON de sugestões e extrai os registros prontos para inserção."""
@@ -33,7 +57,7 @@ def carregar_sugestoes(json_path: Path) -> tuple[str, list[dict[str, Any]]]:
 
     registros: list[dict[str, Any]] = []
     for cap in conteudo.get("capitulos", []):
-        capitulo = cap.get("capitulo")
+        capitulo = limpar_titulo_capitulo(cap.get("capitulo"))
         pagina = cap.get("pagina_min", 1)
         for conc in cap.get("conceitos_sugeridos", []):
             conceito = conc.get("conceito", "").strip()

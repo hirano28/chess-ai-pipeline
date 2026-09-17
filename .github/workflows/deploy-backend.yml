@@ -64,6 +64,7 @@ jobs:
             backend.analise_engine.test_backfill_fen_lances_criticos \
             backend.api.test_api_server \
             backend.common.test_chess_math \
+            backend.common.test_cadencia \
             backend.common.test_lichess_explorer \
             backend.common.test_lichess_oauth \
             backend.common.test_notacao_pt \

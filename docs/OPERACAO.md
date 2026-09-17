@@ -44,6 +44,7 @@ python -m unittest \
   backend.analise_engine.test_backfill_fen_lances_criticos \
   backend.api.test_api_server \
   backend.common.test_chess_math \
+  backend.common.test_cadencia \
   backend.common.test_lichess_explorer \
   backend.common.test_lichess_oauth \
   backend.common.test_notacao_pt \
@@ -111,8 +112,14 @@ python backend/ingestao/importar_anotacoes_lichess.py   # anotações de Lichess
 python backend/ingestao/backfill_eco_abertura.py        # ECO faltante (execução única)
 python backend/agentes/normalizar_aberturas.py          # abertura_normalizada (após novas levas de partidas)
 python backend/rag/importar_exercicios_taticos.py       # catálogo de exercícios táticos (D-49) — baixa o dump do Lichess, ~1-2min
-python backend/rag/importar_exercicios_posicionais.py   # catálogo posicional de partidas OTB (D-55) — broadcasts do Lichess, ~2-4min
+python backend/rag/importar_exercicios_posicionais.py   # catálogo posicional de partidas OTB (D-55) — broadcasts do Lichess, ~10min/mês
+python backend/ingestao/backfill_cadencia.py            # preenche partidas.cadencia (D-57) — execução única; --todas recalcula
 ```
+
+O importador posicional lê o mês **inteiro** de broadcasts e amostra por
+reservatório (D-58), então demora ~10 minutos por mês pedido. Vale a espera:
+a versão anterior parava ao bater o teto e trazia tudo do mesmo punhado de
+torneios dos primeiros dias.
 
 Os scripts `importar_puzzle_activity.py`, `enriquecer_partidas_lichess.py`, `gerar_perguntas_pendentes.py` e `gerar_resumo_partida.py` foram automatizados no `pipeline-diario.yml`, e `medir_eficacia.py` no `pipeline-semanal.yml` (ver D-37 em `DECISOES.md`). `popular_fila_treino_espacado.py` também roda no `pipeline-diario.yml`, logo após `agente1_linter.py` (D-48). `importar_exercicios_taticos.py` (D-49) fica de fora de propósito: importa conteúdo de referência estático (o catálogo de puzzles do Lichess não muda dia a dia), não dado de usuário — rodar de novo só acrescenta puzzles novos ou amplia a faixa de rating, sem necessidade de agenda diária. `importar_exercicios_posicionais.py` (D-55) fica de fora pelo mesmo motivo, com uma diferença: o default dele é o último mês completo de broadcasts, calculado na hora, então rodar de novo daqui a alguns meses traz partidas novas sem precisar editar nada.
 
@@ -167,7 +174,11 @@ commitados.
 `LICHESS_OAUTH_CLIENT_ID`, `LICHESS_OAUTH_REDIRECT_URI`,
 `LICHESS_OAUTH_SCOPES`, `FRONTEND_URL`, `TREINO_NOVOS_POR_DIA`,
 `TREINO_FOCO_QTD_EXERCICIOS`, `EXERCICIO_RATING_MIN`, `EXERCICIO_RATING_MAX`,
-`EXERCICIO_POPULARIDADE_MIN`, `EXERCICIOS_POR_CATEGORIA`.
+`EXERCICIO_POPULARIDADE_MIN`, `EXERCICIOS_POR_CATEGORIA`,
+`SESSAO_QTD_EXERCICIOS`, `TREINO_TETO_FILA`, `POSICIONAL_MESES`,
+`POSICIONAL_EVAL_MAX_CP`, `POSICIONAL_QUEDA_MIN_CP`,
+`POSICIONAL_SEGUNDOS_PRESSAO`, `POSICIONAL_PECAS_FINAL`,
+`POSICIONAL_POR_CATEGORIA`, `POSICIONAL_EXIGIR_TITULO`.
 
 **OAuth do Lichess (D-33).** As 4 últimas são opcionais, com default no código.
 Nenhuma delas é segredo: o Lichess usa cliente público, sem `client_secret` e
@@ -234,6 +245,12 @@ real, antes do filtro existir.
 bloco de prática ao iniciar uma sessão de treino focado — maior que o
 `TREINO_FOCO_QTD_EXERCICIOS` do "Focar" avulso de propósito: a sessão é o
 formato longo, com começo e fim.
+
+`TREINO_TETO_FILA` (default 20, D-56) é quantos cards `GET /treino/fila`
+mostra de uma vez. O teto corta a EXIBIÇÃO, nunca o agendamento: os cortados
+continuam vencidos e aparecem conforme os outros são respondidos, e o campo
+`vencidos_total` da resposta continua dizendo o tamanho real do atraso.
+`0` desliga o teto.
 
 `API_SECRET_KEYS`/`API_SECRET_KEY` (o antigo esquema de header `X-API-Key`,
 aposentado como gate de acesso desde D-25) foram **removidas de vez** numa

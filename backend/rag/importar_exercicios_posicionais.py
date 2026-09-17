@@ -41,6 +41,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import random
 import re
 import sys
 from collections.abc import Iterable, Iterator
@@ -390,22 +391,46 @@ def extrair_exercicios_do_jogo(
     return exercicios
 
 
-def categoria_ainda_aceita(
-    contador_por_categoria: dict[str, int], categoria: str, teto: int
-) -> bool:
-    """True se a categoria ainda não bateu o teto de exercícios importados."""
+class ReservatorioPorCategoria:
+    """Amostragem por reservatório: N exercícios por categoria, sorteados
+    uniformemente do mês INTEIRO, sem guardar o mês inteiro em memória.
 
-    return contador_por_categoria.get(categoria, 0) < teto
+    A primeira versão do D-55 simplesmente aceitava os primeiros N e parava de
+    ler. O resultado foi 1200 exercícios tirados quase todos do mesmo dia, de
+    meia dúzia de torneios — aumentar o teto não resolveria, porque o viés
+    estava em *onde* no arquivo a leitura parava. Com reservatório, ler o mês
+    todo custa alguns minutos e devolve material espalhado por todos os
+    torneios daquele mês.
 
+    O algoritmo é o clássico (Vitter R): enquanto cabe, guarda; depois disso,
+    o k-ésimo candidato entra com probabilidade N/k, sorteando quem sai.
+    """
 
-def todas_categorias_completas(contador_por_categoria: dict[str, int], teto: int) -> bool:
-    """True quando todas as categorias aplicáveis bateram o teto - sinal pra
-    parar de ler o stream antes do fim do arquivo."""
+    def __init__(self, tamanho: int) -> None:
+        self.tamanho = tamanho
+        self.itens: dict[str, list[dict[str, Any]]] = {}
+        self.vistos: dict[str, int] = {}
 
-    return all(
-        contador_por_categoria.get(categoria, 0) >= teto
-        for categoria in CATEGORIAS_APLICAVEIS
-    )
+    def oferecer(self, categoria: str, registro: dict[str, Any]) -> None:
+        reservatorio = self.itens.setdefault(categoria, [])
+        self.vistos[categoria] = vistos = self.vistos.get(categoria, 0) + 1
+
+        if self.tamanho <= 0:
+            return
+        if len(reservatorio) < self.tamanho:
+            reservatorio.append(registro)
+            return
+        sorteado = random.randrange(vistos)
+        if sorteado < self.tamanho:
+            reservatorio[sorteado] = registro
+
+    def coletar(self) -> list[dict[str, Any]]:
+        return [
+            registro for reservatorio in self.itens.values() for registro in reservatorio
+        ]
+
+    def contagem(self) -> dict[str, int]:
+        return {categoria: len(itens) for categoria, itens in self.itens.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -446,21 +471,19 @@ def importar(
     exigir_titulo: bool = POSICIONAL_EXIGIR_TITULO,
     **limites: int,
 ) -> dict[str, int]:
-    """Faz o streaming dos broadcasts, filtra/classifica e faz upsert em lote."""
+    """Lê os broadcasts inteiros, amostra por reservatório e faz upsert em lote.
 
-    contador_por_categoria: dict[str, int] = {}
-    registros: list[dict[str, Any]] = []
+    Lê o mês todo de propósito, sem parar ao bater o teto: parar cedo foi o que
+    fez a primeira importação sair enviesada para os primeiros dias do mês.
+    """
+
+    reservatorio = ReservatorioPorCategoria(teto_por_categoria)
     vistos: set[tuple[str, int]] = set()
     total_jogos = 0
 
     for jogo in iterar_jogos_broadcast(meses or meses_padrao(), logger):
         total_jogos += 1
         for registro in extrair_exercicios_do_jogo(jogo, exigir_titulo, **limites):
-            categoria = registro["categoria_hexagono"]
-            if not categoria_ainda_aceita(
-                contador_por_categoria, categoria, teto_por_categoria
-            ):
-                continue
             chave = (registro["jogo_url"], registro["ply"])
             if chave in vistos:
                 # O mesmo jogo pode aparecer duas vezes no dump (rodadas
@@ -468,22 +491,16 @@ def importar(
                 # duas vezes no MESMO lote é que o Postgres recusa.
                 continue
             vistos.add(chave)
-            registros.append(registro)
-            contador_por_categoria[categoria] = contador_por_categoria.get(categoria, 0) + 1
+            reservatorio.oferecer(registro["categoria_hexagono"], registro)
 
-        if total_jogos % 2000 == 0:
+        if total_jogos % 5000 == 0:
             log_and_print(
                 logger,
-                f"{total_jogos} partidas lidas, {len(registros)} exercícios "
-                f"aceitos até agora ({dict(contador_por_categoria)}).",
+                f"{total_jogos} partidas lidas, reservatório em "
+                f"{reservatorio.contagem()}.",
             )
 
-        if todas_categorias_completas(contador_por_categoria, teto_por_categoria):
-            log_and_print(
-                logger, "Todas as categorias bateram o teto - encerrando a leitura."
-            )
-            break
-
+    registros = reservatorio.coletar()
     for inicio in range(0, len(registros), BATCH_SIZE):
         lote = registros[inicio : inicio + BATCH_SIZE]
         client.table("exercicios_posicionais").upsert(
@@ -493,7 +510,7 @@ def importar(
     return {
         "partidas_lidas": total_jogos,
         "exercicios_importados": len(registros),
-        **contador_por_categoria,
+        **reservatorio.contagem(),
     }
 
 

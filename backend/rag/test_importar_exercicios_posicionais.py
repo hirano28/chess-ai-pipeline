@@ -41,7 +41,7 @@ from backend.rag.importar_exercicios_posicionais import (  # noqa: E402
     nome_do_jogador,
     partida_tem_titulado,
     registro_do_erro,
-    todas_categorias_completas,
+    ReservatorioPorCategoria,
 )
 
 # Meio-jogo equilibrado, brancas a jogar, com peças de sobra.
@@ -384,11 +384,75 @@ class ImportarTest(unittest.TestCase):
         self.assertEqual(resumo["exercicios_importados"], 0)
         client.table.return_value.upsert.assert_not_called()
 
-    def test_para_quando_todas_as_categorias_completam(self) -> None:
-        contador = {categoria: 300 for categoria in CATEGORIAS_APLICAVEIS}
-        self.assertTrue(todas_categorias_completas(contador, 300))
-        contador["ESTRATEGIA"] = 10
-        self.assertFalse(todas_categorias_completas(contador, 300))
+    def test_le_o_mes_inteiro_em_vez_de_parar_no_teto(self) -> None:
+        """Parar cedo foi o que enviesou a primeira importação para os
+        primeiros dias do mês. Agora o reservatório vê tudo."""
+        client = MagicMock()
+        jogos = [carregar_jogo() for _ in range(5)]
+        with patch(
+            "backend.rag.importar_exercicios_posicionais.iterar_jogos_broadcast",
+            return_value=iter(jogos),
+        ):
+            resumo = importar(client, MagicMock(), meses=["2022-11"], teto_por_categoria=1)
+
+        self.assertEqual(resumo["partidas_lidas"], 5)
+
+
+class ReservatorioTest(unittest.TestCase):
+    """Amostragem por reservatório (D-58).
+
+    A primeira importação do D-55 aceitava os primeiros N e parava de ler: os
+    1200 exercícios saíram quase todos do mesmo dia, de meia dúzia de torneios.
+    Aumentar o teto não resolveria — o viés estava em onde a leitura parava.
+    """
+
+    def _registro(self, i: int) -> dict[str, int]:
+        return {"id": i}
+
+    def test_guarda_tudo_enquanto_cabe(self) -> None:
+        reservatorio = ReservatorioPorCategoria(3)
+        for i in range(3):
+            reservatorio.oferecer("ESTRATEGIA", self._registro(i))
+
+        self.assertEqual(reservatorio.contagem(), {"ESTRATEGIA": 3})
+        self.assertEqual(len(reservatorio.coletar()), 3)
+
+    def test_nunca_passa_do_teto(self) -> None:
+        reservatorio = ReservatorioPorCategoria(5)
+        for i in range(500):
+            reservatorio.oferecer("ESTRATEGIA", self._registro(i))
+
+        self.assertEqual(reservatorio.contagem(), {"ESTRATEGIA": 5})
+
+    def test_amostra_o_stream_inteiro_e_nao_so_o_comeco(self) -> None:
+        """O teste que importa: com 5 vagas e 1000 candidatos, a amostra tem
+        que alcançar o fim do arquivo, não só os primeiros itens."""
+        vindos_do_fim = 0
+        for _ in range(40):
+            reservatorio = ReservatorioPorCategoria(5)
+            for i in range(1000):
+                reservatorio.oferecer("ESTRATEGIA", self._registro(i))
+            if any(item["id"] > 500 for item in reservatorio.coletar()):
+                vindos_do_fim += 1
+
+        # Com amostragem uniforme, a chance de NENHUM dos 5 vir da segunda
+        # metade é (1/2)^5 ≈ 3%; em 40 rodadas, exigir 30 é folgado.
+        self.assertGreater(vindos_do_fim, 30)
+
+    def test_separa_as_categorias(self) -> None:
+        reservatorio = ReservatorioPorCategoria(2)
+        for i in range(10):
+            reservatorio.oferecer("ESTRATEGIA", self._registro(i))
+        for i in range(10):
+            reservatorio.oferecer("FINAIS", self._registro(i))
+
+        self.assertEqual(reservatorio.contagem(), {"ESTRATEGIA": 2, "FINAIS": 2})
+
+    def test_teto_zero_nao_guarda_nada(self) -> None:
+        reservatorio = ReservatorioPorCategoria(0)
+        reservatorio.oferecer("ESTRATEGIA", self._registro(1))
+
+        self.assertEqual(reservatorio.coletar(), [])
 
 
 class MesesPadraoTest(unittest.TestCase):

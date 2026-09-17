@@ -5,7 +5,11 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-from backend.rag.importar_indice_conceitual import carregar_sugestoes, importar_indice
+from backend.rag.importar_indice_conceitual import (
+    carregar_sugestoes,
+    importar_indice,
+    limpar_titulo_capitulo,
+)
 
 
 class TestImportarIndiceConceitual(TestCase):
@@ -93,3 +97,47 @@ class TestImportarIndiceConceitual(TestCase):
         delete_mock.eq.assert_called_once_with("livro", "Livro B")
         table_mock.insert.assert_called_once_with(registros)
 
+
+
+class TestLimparTituloCapitulo(TestCase):
+    """D-59: títulos vindos de livro digitalizado chegam com sujeira de OCR
+    grudada nas pontas, e isso aparece na tela como citação de fonte
+    ("Fonte: Meu Sistema · | OJOGO CONTRA A. A PEÇA C CRAVADA · pág. 127")."""
+
+    def test_remove_barra_de_borda_de_tabela(self) -> None:
+        self.assertEqual(
+            limpar_titulo_capitulo("| POSIÇÕES AGRESSIVAS DE TORRE"),
+            "POSIÇÕES AGRESSIVAS DE TORRE",
+        )
+
+    def test_remove_virgula_de_quebra_de_linha(self) -> None:
+        self.assertEqual(
+            limpar_titulo_capitulo("POSIÇÕES AGRESSIVAS DE TORRE,"),
+            "POSIÇÕES AGRESSIVAS DE TORRE",
+        )
+
+    def test_remove_aspas_tipograficas(self) -> None:
+        self.assertEqual(
+            limpar_titulo_capitulo("‘SILMAN THINKING TECHNIQUE’"),
+            "SILMAN THINKING TECHNIQUE",
+        )
+
+    def test_colapsa_espaco_repetido(self) -> None:
+        self.assertEqual(limpar_titulo_capitulo("A  PEÇA   CRAVADA"), "A PEÇA CRAVADA")
+
+    def test_nao_mexe_no_miolo(self) -> None:
+        """Adivinhar onde cabe um espaço estragaria títulos legítimos: a
+        limpeza é só nas bordas, de propósito."""
+        self.assertEqual(
+            limpar_titulo_capitulo("O JOGO CONTRA A PEÇA CRAVADA"),
+            "O JOGO CONTRA A PEÇA CRAVADA",
+        )
+        self.assertEqual(
+            limpar_titulo_capitulo("Capítulo 4: O peão isolado"),
+            "Capítulo 4: O peão isolado",
+        )
+
+    def test_titulo_ausente_ou_so_sujeira(self) -> None:
+        self.assertIsNone(limpar_titulo_capitulo(None))
+        self.assertIsNone(limpar_titulo_capitulo("   "))
+        self.assertIsNone(limpar_titulo_capitulo("|,"))

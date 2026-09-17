@@ -2902,6 +2902,134 @@ ESTRATEGIA 300, GESTAO_DE_TEMPO 300, FINAIS 600, ESTRUTURA_DE_PEOES 600.
 
 ---
 
+### D-56 — A fila ganha teto e a sessão ganha caminho reto até ela
+
+O D-55 acrescentou 1200 exercícios a um sistema onde o gargalo não era falta
+de material. A fila cresce **10 cards por dia** (D-48), venha alguém
+respondê-los ou não, e o que não é respondido vira atraso acumulado. Hoje são
+19 vencidos e 9 atrasados sobre 632 agendados até novembro; em um mês parado,
+são centenas — e uma tela que abre com centenas de cards é a forma mais
+eficiente de fazer alguém desistir.
+
+Pior: o bloco de prática do D-54 caía no fim dessa mesma fila. O botão "Ir
+para os exercícios" da sessão levava a uma tela onde os 12 cards dela ficavam
+atrás de dezenas de outros vencidos. A sessão tinha começo e fim, mas nenhum
+caminho reto entre os dois — exatamente o que ela veio resolver.
+
+**Duas mudanças, uma para cada metade do problema:**
+
+1. `GET /treino/fila?sessao_id=<uuid>` devolve só os exercícios daquela
+   sessão que ainda não foram respondidos. Dentro da sessão o critério não é
+   "venceu hoje" e sim "ainda não respondido": um card respondido agora é
+   reagendado para amanhã e sumiria da sessão no meio dela.
+2. `TREINO_TETO_FILA` (default 20) limita quantos cards a tela mostra de uma
+   vez.
+
+**O teto corta a exibição, nunca o agendamento.** Os cards cortados continuam
+vencidos e aparecem conforme os outros são respondidos. E a resposta carrega
+`vencidos_total` com o número real, que a tela exibe ("Mostrando 20 de 47"):
+esconder o tamanho do atraso seria trocar um problema de usabilidade por uma
+mentira por omissão, e a diferença entre as duas coisas é justamente o que
+separa um produto honesto de um que só parece organizado.
+
+**Testes:** 4 novos no backend, 6 no frontend.
+
+---
+
+### D-57 — Cadência: o diagnóstico para de esconder o efeito do relógio
+
+A ressalva mais séria do produto estava documentada no `ESTADO.md` e invisível
+na tela: **74% do corpus analisado é blitz de 3 a 5 minutos**, e não existia
+coluna de cadência em `partidas` — não dava nem para filtrar. A tag mais
+frequente ser `calculo_tatico_deficiente` podia significar "calcula mal" ou
+"joga rápido demais", e não havia como distinguir. Um produto que se propõe a
+dizer onde você é fraco não pode entregar esse diagnóstico sem a ressalva.
+
+`partidas` ganhou `cadencia`, `tempo_base_segundos` e `incremento_segundos`,
+derivadas do header `TimeControl` do PGN pelos cortes do Lichess sobre
+`base + 40 * incremento`. Adotar a convenção de uma plataforma conhecida, em
+vez de inventar faixas, mantém o vocabulário familiar e comparável com as
+estatísticas que o usuário já vê lá.
+
+**Não existe fallback, e isso é o principal.** `parse_time_control` (do
+backfill de tempos) chuta 300s quando falta o header, e faz bem: lá o chute é
+melhor que não calcular nada. Aqui seria pior que admitir — uma partida sem
+header viraria "blitz" e contaminaria exatamente a estatística que a coluna
+veio limpar. `DESCONHECIDA` é um valor legítimo e frequente.
+
+**Backfill real do acervo:** 240 partidas classificadas — 142 blitz, 30
+rápidas, **68 sem cadência registrada** (28% do corpus; parte das partidas do
+Lichess vem sem o header). Nenhuma bullet, nenhuma clássica.
+
+A classificação passou a acontecer em `common_ingestao.insert_game`, por onde
+os dois coletores passam, e em `analisar_pgn_avulso.inserir_partida` — num
+lugar só cada, para que nenhuma partida nova volte a nascer sem ritmo.
+
+**A ressalva agora aparece no Hexágono**, acima do diagnóstico e não depois
+dele: "59,2% das 240 partidas analisadas são Blitz. O diagnóstico abaixo
+mistura a sua habilidade com o efeito do relógio." Só aparece quando uma
+cadência de fato passa de 50% do corpus — abaixo disso viraria ruído em toda
+visita.
+
+**O que isto ainda NÃO faz**, e é o próximo passo natural: filtrar o próprio
+Hexágono por cadência. Hoje a coluna existe, está preenchida e a contaminação
+está visível; separar "o gargalo do Edson em clássicas" de "o gargalo do Edson
+em blitz" exige mexer no Agente 2 e decidir o que fazer com as análises já
+gravadas — decisão maior, que merece a sua própria entrada.
+
+**Testes:** 20 novos em `backend/common/test_cadencia.py` + 4 no endpoint de
+composição + 4 no frontend.
+
+---
+
+### D-58 — Amostragem por reservatório no catálogo posicional
+
+A primeira importação do D-55 aceitava os primeiros N exercícios de cada
+categoria e parava de ler assim que todas batiam o teto. O efeito só apareceu
+ao olhar os dados: **1200 exercícios tirados de um único dia**, de meia dúzia
+de torneios. Aumentar o teto não resolveria, porque o viés não estava no
+tamanho da amostra e sim em *onde no arquivo* a leitura parava.
+
+Agora o import lê o mês inteiro e sorteia com o algoritmo clássico de
+reservatório (Vitter R): enquanto cabe, guarda; depois, o k-ésimo candidato
+entra com probabilidade N/k. Custa ~10 minutos por mês pedido, e devolve
+material espalhado por todos os torneios daquele mês, sem nunca carregar o
+mês inteiro em memória.
+
+O teste que importa não verifica o tamanho da amostra — verifica que ela
+**alcança o fim do arquivo**: com 5 vagas e 1000 candidatos, em 40 rodadas a
+amostra tem que tocar a segunda metade quase sempre.
+
+**Resultado medido**, reimportando sobre 3 meses (125.974 partidas lidas):
+a variedade foi de **69 para 510 torneios distintos** e de 616 para 1.764
+partidas, com 451 exercícios envolvendo um GM. O catálogo posicional passou de
+1.200 para 2.381 exercícios.
+
+**Testes:** 5 novos.
+
+---
+
+### D-59 — Limpeza conservadora dos títulos de capítulo
+
+Sujeira de OCR vinda dos livros digitalizados aparecia na tela como citação de
+fonte: `Fonte: Meu Sistema · | OJOGO CONTRA A. A PEÇA C CRAVADA · pág. 127`.
+Eram 7 linhas de `indice_conceitual` em 3 títulos distintos — pouca coisa, mas
+visível ao usuário toda vez que uma sessão de treino cita a fonte.
+
+`limpar_titulo_capitulo()` passa a rodar no import e tira a sujeira das
+**pontas**: barras verticais que eram bordas de tabela, vírgulas de quebra de
+linha, aspas tipográficas, espaço repetido.
+
+**Deliberadamente não mexe no miolo.** "OJOGO" continuaria passando, e é
+proposital: adivinhar onde cabe um espaço estragaria títulos legítimos, e
+errar em silêncio num dado que vai para a tela é pior que deixar passar. Os
+três títulos existentes foram corrigidos à mão no banco, incluindo o que o
+limpador genérico não alcança.
+
+**Testes:** 6 novos.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a
