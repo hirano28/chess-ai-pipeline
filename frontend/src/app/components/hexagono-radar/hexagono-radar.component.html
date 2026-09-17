@@ -122,12 +122,59 @@
             </div>
           </div>
         } @else if (semAnalise()) {
+          <!--
+            D-65: o estado vazio deixa de ser um beco. Antes daqui, um usuário
+            recém-cadastrado esperava o cron das 6h e o Agente 2 de segunda —
+            até 7 dias para ver o produto funcionar. O caminho principal agora
+            é importar as próprias partidas na hora; colar um PGN vira a
+            alternativa, não a única saída.
+          -->
           <div class="estado-vazio min-h-[25rem]">
             <span class="text-2xl" aria-hidden="true">♟</span>
-            <p>Ainda não há uma análise de partidas disponível.</p>
-            <a routerLink="/analisador" class="btn btn-secundario btn-pequeno mt-2">
-              Analisar minha primeira partida
-            </a>
+            <p>Ainda não há uma análise das suas partidas.</p>
+
+            @if (progressoImportacao(); as progresso) {
+              <p class="legenda mt-1 flex items-center gap-2" role="status">
+                <span class="pulso" aria-hidden="true"></span>
+                <span>{{ progresso }}</span>
+              </p>
+            } @else {
+              <p class="legenda mt-1 max-w-sm">
+                Importe suas últimas partidas do Lichess ou do Chess.com e receba o
+                diagnóstico em alguns minutos.
+              </p>
+            }
+
+            <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                class="btn btn-primario btn-pequeno"
+                [disabled]="importando()"
+                (click)="importarPartidas()"
+              >
+                @if (importando()) {
+                  <span class="pulso" aria-hidden="true"></span>
+                  <span>Importando…</span>
+                } @else {
+                  <span>Importar minhas partidas</span>
+                }
+              </button>
+              <a routerLink="/analisador" class="btn btn-secundario btn-pequeno">
+                Colar um PGN
+              </a>
+            </div>
+
+            @if (avisoImportacao(); as aviso) {
+              <div
+                class="aviso mt-4 max-w-md text-left surgir"
+                [class.aviso-erro]="aviso.tipo === 'erro'"
+                [class.aviso-info]="aviso.tipo === 'info'"
+                [attr.role]="aviso.tipo === 'erro' ? 'alert' : 'status'"
+              >
+                <span aria-hidden="true">{{ aviso.tipo === 'erro' ? '!' : 'ⓘ' }}</span>
+                <span>{{ aviso.texto }}</span>
+              </div>
+            }
           </div>
         } @else if (error()) {
           <div class="flex min-h-[25rem] items-center justify-center" role="alert">

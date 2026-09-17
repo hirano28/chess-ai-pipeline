@@ -27,7 +27,8 @@ import { ROTULOS_CATEGORIA_HEXAGONO, TreinoService } from '../../services/treino
 import {
   ComposicaoCadencia,
   ROTULOS_CADENCIA,
-  RevisaoAvulsaService
+  RevisaoAvulsaService,
+  StatusImportacao
 } from '../../services/revisao-avulsa.service';
 import { SessoesTreinoComponent } from '../sessoes-treino/sessoes-treino.component';
 import { NarrativaAnaliseComponent } from '../narrativa-analise/narrativa-analise.component';
@@ -103,6 +104,13 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
    * resposta à ressalva acima: em vez de só avisar que 72% é blitz, deixa o
    * usuário ver o hexágono só das blitz, ou só das rápidas. */
   readonly cadenciaSelecionada = signal<string | null>(null);
+  /** Importação sob demanda (D-65). Sem ela, um usuário novo depende do cron
+   * das 6h e do Agente 2 de segunda: até 7 dias entre cadastrar a conta e ver
+   * o produto funcionar. */
+  readonly importando = signal(false);
+  readonly statusImportacao = signal<StatusImportacao | null>(null);
+  readonly avisoImportacao = signal<{ texto: string; tipo: 'erro' | 'info' } | null>(null);
+  private pollImportacao?: ReturnType<typeof setInterval>;
 
   private readonly supabaseService = inject(SupabaseService);
   private readonly treinoService = inject(TreinoService);
@@ -249,6 +257,87 @@ export class HexagonoRadarComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.chart?.destroy();
+    this.pararAcompanhamento();
+  }
+
+  /** Dispara a importação e passa a acompanhar o progresso (D-65). */
+  async importarPartidas(): Promise<void> {
+    if (this.importando()) {
+      return;
+    }
+    this.importando.set(true);
+    this.avisoImportacao.set(null);
+
+    const resultado = await this.revisaoAvulsaService.importarPartidas();
+    if (!resultado.success) {
+      this.importando.set(false);
+      this.avisoImportacao.set({
+        texto: resultado.error ?? 'Não foi possível iniciar a importação agora.',
+        tipo: 'erro'
+      });
+      return;
+    }
+
+    this.avisoImportacao.set({
+      texto: resultado.importacao?.detalhe ?? 'Importação iniciada.',
+      tipo: 'info'
+    });
+    await this.atualizarStatusImportacao();
+    // A importação leva minutos (coleta + Stockfish + diagnóstico por lance),
+    // então a tela pergunta de tempos em tempos em vez de segurar a requisição.
+    this.pollImportacao = setInterval(() => void this.atualizarStatusImportacao(), 5000);
+  }
+
+  private pararAcompanhamento(): void {
+    if (this.pollImportacao) {
+      clearInterval(this.pollImportacao);
+      this.pollImportacao = undefined;
+    }
+  }
+
+  private async atualizarStatusImportacao(): Promise<void> {
+    const resultado = await this.revisaoAvulsaService.obterStatusImportacao();
+    if (!resultado.success || !resultado.status) {
+      return;
+    }
+    this.statusImportacao.set(resultado.status);
+
+    if (resultado.status.pronto) {
+      this.pararAcompanhamento();
+      this.importando.set(false);
+      this.avisoImportacao.set(null);
+      // O Hexágono acabou de nascer: recarregar é o que tira o estado vazio da
+      // tela sem exigir um F5 de quem acabou de esperar alguns minutos.
+      await this.carregarAnalise();
+      void this.carregarComposicaoCadencia();
+    }
+  }
+
+  /** Texto de progresso, em linguagem de quem está esperando.
+   *
+   * O status é inferido do próprio dado sendo produzido, não de uma tabela de
+   * "job" — o que tem um limite conhecido: durante a COLETA ainda não existe
+   * partida pendente, então `em_andamento` é falso embora nada tenha
+   * terminado. Por isso a ordem dos casos abaixo importa, e a frase do último
+   * caso é verdadeira tanto coletando quanto calculando: afirmar a fase errada
+   * seria pior que falar de forma mais geral.
+   */
+  progressoImportacao(): string | null {
+    const status = this.statusImportacao();
+    if (!status) {
+      return null;
+    }
+    if (status.partidas === 0) {
+      return 'Buscando suas partidas nas plataformas…';
+    }
+    if (status.em_andamento) {
+      const restantes = status.pendentes + status.processando;
+      return `Analisando suas partidas… ${status.concluidas} prontas, ${restantes} na fila.`;
+    }
+    if (!status.tem_hexagono) {
+      return 'Preparando o seu diagnóstico…';
+    }
+    return null;
   }
 
   selecionarModo(modo: 'erros' | 'forcas'): void {

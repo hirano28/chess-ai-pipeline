@@ -4060,3 +4060,132 @@ if __name__ == "__main__":
     unittest.main()
 
 
+
+
+class ImportarPartidasEndpointTest(unittest.TestCase):
+    """D-65: importação sob demanda — o que encurta o tempo até o primeiro valor.
+
+    Sem ela o primeiro diagnóstico depende de dois crons (coleta às 6h, Agente 2
+    na segunda): até 7 dias entre cadastrar a conta e ver o produto funcionar.
+    """
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _client_com_perfil(self, perfil: dict | None) -> MagicMock:
+        supabase = MagicMock()
+        (
+            supabase.table.return_value.select.return_value.eq.return_value
+            .limit.return_value.execute
+        ).return_value = MagicMock(data=[perfil] if perfil else [])
+        return supabase
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            self.assertEqual(self.client.post("/perfis/importar").status_code, 401)
+
+    def test_sem_perfil_cadastrado_explica_o_que_fazer(self) -> None:
+        """Um usuário novo sem conta cadastrada não tem de onde importar — e
+        precisa saber que o caminho é o Perfil, não um erro genérico."""
+        api_server._state["supabase_client"] = self._client_com_perfil(None)
+
+        resposta = self.client.post("/perfis/importar", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 400)
+        self.assertIn("Perfil", resposta.json()["detail"])
+
+    @patch("backend.api.api_server._executar_importacao_background")
+    def test_chesscom_dispara_sem_precisar_de_token(self, _bg: MagicMock) -> None:
+        api_server._state["supabase_client"] = self._client_com_perfil(
+            {"chesscom_username": "edinho230", "lichess_username": None}
+        )
+
+        resposta = self.client.post("/perfis/importar", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 202)
+        self.assertEqual(resposta.json()["fontes"], ["chesscom"])
+
+    @patch("backend.api.api_server.obter_access_token_lichess", return_value=None)
+    def test_lichess_sem_token_e_dito_na_resposta(self, _token: MagicMock) -> None:
+        """A API de partidas do Lichess responde 404 sem `Authorization`
+        (verificado em 17/09/2026). Falhar calado faria o usuário ver só
+        partidas do Chess.com chegando, sem entender por quê."""
+        api_server._state["supabase_client"] = self._client_com_perfil(
+            {"chesscom_username": None, "lichess_username": "tantofaz123"}
+        )
+
+        with patch.dict(os.environ, {"LICHESS_TOKEN": ""}, clear=False):
+            resposta = self.client.post("/perfis/importar", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 400)
+        self.assertIn("conecte", resposta.json()["detail"].lower())
+
+    @patch("backend.api.api_server._executar_importacao_background")
+    @patch("backend.api.api_server.obter_access_token_lichess", return_value="tok")
+    def test_lichess_com_token_do_usuario_entra_nas_fontes(
+        self, _token: MagicMock, _bg: MagicMock
+    ) -> None:
+        api_server._state["supabase_client"] = self._client_com_perfil(
+            {"chesscom_username": "edinho230", "lichess_username": "tantofaz123"}
+        )
+
+        resposta = self.client.post("/perfis/importar", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 202)
+        self.assertEqual(sorted(resposta.json()["fontes"]), ["chesscom", "lichess"])
+
+
+class StatusImportacaoEndpointTest(unittest.TestCase):
+    def setUp(self) -> None:
+        api_server._state.clear()
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _supabase(self, contagens: dict[str, int]) -> MagicMock:
+        """Devolve um client cujo `count` varia conforme a tabela consultada."""
+        supabase = MagicMock()
+
+        def _table(nome: str) -> MagicMock:
+            tabela = MagicMock()
+            cadeia = MagicMock()
+            tabela.select.return_value = cadeia
+            cadeia.eq.return_value = cadeia
+            cadeia.limit.return_value = cadeia
+            cadeia.execute.return_value = MagicMock(count=contagens.get(nome, 0))
+            return tabela
+
+        supabase.table.side_effect = _table
+        return supabase
+
+    def test_sem_sessao_recebe_401(self) -> None:
+        with gate_de_sessao_real():
+            self.assertEqual(self.client.get("/perfis/importacao").status_code, 401)
+
+    def test_em_andamento_enquanto_houver_pendente(self) -> None:
+        api_server._state["supabase_client"] = self._supabase(
+            {"partidas": 4, "diagnosticos": 0, "analises_hexagono": 0}
+        )
+
+        corpo = self.client.get("/perfis/importacao", headers=HEADERS_SESSAO).json()
+
+        self.assertTrue(corpo["em_andamento"])
+        self.assertFalse(corpo["pronto"])
+
+    def test_pronto_exige_hexagono_e_nao_so_fim_do_processamento(self) -> None:
+        """"Pronto" é ter o que o usuário veio ver. Terminar de processar sem
+        Hexágono ainda o deixaria olhando uma tela vazia."""
+        api_server._state["supabase_client"] = self._supabase(
+            {"partidas": 0, "diagnosticos": 30, "analises_hexagono": 1}
+        )
+
+        corpo = self.client.get("/perfis/importacao", headers=HEADERS_SESSAO).json()
+
+        self.assertTrue(corpo["tem_hexagono"])
+        self.assertFalse(corpo["em_andamento"])
+        self.assertTrue(corpo["pronto"])

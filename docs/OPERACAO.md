@@ -195,6 +195,7 @@ commitados.
 `LIMITE_DIARIO_ANALISAR_PGN`, `LIMITE_DIARIO_EXPLICAR_POSICAO`,
 `LIMITE_DIARIO_REVISAR_AVULSO`, `LIMITE_DIARIO_RECONHECER_POSICAO`,
 `LIMITE_DIARIO_REPROCESSAR`, `LIMITE_DIARIO_TREINO_RESPONDER`,
+`LIMITE_DIARIO_IMPORTAR_PARTIDAS`, `IMPORTACAO_MAX_PARTIDAS`,
 `LICHESS_OAUTH_CLIENT_ID`, `LICHESS_OAUTH_REDIRECT_URI`,
 `LICHESS_OAUTH_SCOPES`, `FRONTEND_URL`, `TREINO_NOVOS_POR_DIA`,
 `TREINO_FOCO_QTD_EXERCICIOS`, `EXERCICIO_RATING_MIN`, `EXERCICIO_RATING_MAX`,
@@ -284,6 +285,21 @@ real, antes do filtro existir.
 bloco de prática ao iniciar uma sessão de treino focado — maior que o
 `TREINO_FOCO_QTD_EXERCICIOS` do "Focar" avulso de propósito: a sessão é o
 formato longo, com começo e fim.
+
+**Importação sob demanda (D-65).** `IMPORTACAO_MAX_PARTIDAS` (default 10) é
+quantas partidas `POST /perfis/importar` analisa por execução — o número que
+governa o custo do onboarding, já que cada partida custa Stockfish mais uma
+chamada de Gemini por lance crítico. `LIMITE_DIARIO_IMPORTAR_PARTIDAS`
+(default 3) é o menor teto de `LIMITES_DIARIOS_ENV`: a rota serve ao
+onboarding, não ao uso repetido. A importação **não** gera resumo por partida,
+de propósito — é a etapa mais cara em Gemini e a menos urgente; o pipeline
+diário a faz depois.
+
+**Atenção ao token do Lichess.** A API de partidas responde **404 sem
+`Authorization`** (verificado em 17/09/2026), e o Cloud Run não recebe
+`LICHESS_TOKEN` — o `deploy-backend.yml` manda só 4 variáveis (D-20). Por isso
+a importação usa o token **OAuth do próprio usuário**; quem não conectou a
+conta do Lichess importa só do Chess.com, e a resposta diz isso.
 
 **Válvula da fila (D-64).** `TREINO_HORIZONTE_DIAS` (default 60) é até quantos
 dias à frente `popular_fila_treino_espacado.py` pode agendar material NOVO.

@@ -511,6 +511,7 @@ def executar_pipeline_partida(
     linter_settings: LinterSettings,
     logger: logging.Logger | None = None,
     engine_lock: Any | None = None,
+    gerar_resumo: bool = True,
 ) -> dict[str, Any] | None:
     """Executa as 3 etapas de análise (Stockfish -> Diagnóstico -> Resumo) para uma partida.
 
@@ -519,6 +520,12 @@ def executar_pipeline_partida(
     2. Se ocorrer qualquer falha durante a execução, marca status_processamento='falhou'
        na tabela partidas para que a partida não fique indefinidamente presa em 'processando'.
     3. Retorna o resultado do resumo, ou None se a partida não teve lances críticos detectados.
+
+    `gerar_resumo=False` pula a etapa 3 (D-65). A narrativa por partida é a
+    parte mais cara em Gemini e a menos urgente: ela só é lida quando alguém
+    abre AQUELA partida no Analisador. Na importação em massa do onboarding,
+    gerar uma para cada partida seria pagar dezenas de chamadas por texto que
+    ninguém pediu — o pipeline diário as gera depois, no seu ritmo.
     """
 
     logger = logger or configure_logging()
@@ -549,6 +556,10 @@ def executar_pipeline_partida(
         )
 
         # --- Etapa 3: Resumo Narrativo ---
+        if not gerar_resumo:
+            update_status(client, partida_id, "concluido")
+            return None
+
         if engine_lock is not None:
             with engine_lock:
                 resultado = etapa_resumo(

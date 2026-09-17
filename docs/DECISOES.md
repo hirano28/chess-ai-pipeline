@@ -3368,6 +3368,73 @@ para expandir a lista antes de afirmar sobre a segunda pergunta.
 
 ---
 
+### D-65 — Importar as próprias partidas sob demanda: de até 7 dias para minutos
+
+Item F1 do planejamento de 17/09, e o maior bloqueio de mercado que a varredura
+achou. Até aqui o primeiro valor do produto dependia de **dois crons**: a coleta
+das 6h e o Agente 2 de segunda-feira. Um usuário que se cadastrasse numa
+terça-feira à tarde esperava **até 7 dias** para ver um Hexágono — e o estado
+vazio da tela só oferecia "cole um PGN", que resolve uma partida, não o
+diagnóstico.
+
+`POST /perfis/importar` responde **202** e roda em `BackgroundTasks`, o mesmo
+padrão de `/analisar-pgn`: o trabalho leva minutos e segurar a resposta só
+produziria timeout. Ele faz o pipeline diário inteiro para uma pessoa só —
+coleta, Stockfish, Agente 1, Agente 2 — disparado por ela.
+
+**Três economias deliberadas**, porque esta é a rota mais cara que existe:
+
+1. **Teto de `IMPORTACAO_MAX_PARTIDAS`** (10) partidas por execução. 10 bastam
+   para o Agente 2 achar um gargalo (ele exige 5 diagnósticos numa categoria)
+   sem transformar um clique em dezenas de chamadas pagas.
+2. **Sem gerar resumo por partida.** `executar_pipeline_partida` ganhou
+   `gerar_resumo=False`. A narrativa por partida é a parte mais cara em Gemini
+   e a menos urgente — só é lida quando alguém abre AQUELA partida no
+   Analisador. O pipeline diário as gera depois, no seu ritmo.
+3. **Limite diário de 3** (`LIMITE_DIARIO_IMPORTAR_PARTIDAS`), o menor de todos
+   em `LIMITES_DIARIOS_ENV`. A rota serve ao onboarding, não ao uso repetido.
+
+**O achado que mudou o desenho da autenticação.** A API de partidas do Lichess
+responde **404 sem `Authorization`** — verificado em 17/09/2026, com e sem
+token, lado a lado. E o Cloud Run **não tem `LICHESS_TOKEN`**: o D-20 manda só
+4 variáveis para produção. Então a importação usa **o token OAuth do próprio
+usuário** (`obter_access_token_lichess`, D-33), com a env var como reserva. É o
+desenho correto para multiusuário de qualquer forma — cada importação corre sob
+a credencial de quem pediu, não sob uma chave compartilhada. Chess.com não pede
+credencial nenhuma e funciona sempre.
+
+Quando o usuário tem Lichess cadastrado mas nenhum token, isso é **dito na
+resposta**, não escondido no log: sem essa frase ele veria só partidas do
+Chess.com chegando e não teria como saber por quê.
+
+**`GET /perfis/importacao` não tem tabela de job.** O progresso é lido do
+próprio dado sendo produzido (`partidas.status_processamento`, diagnósticos,
+hexágono). Uma tabela de controle poderia divergir do que de fato aconteceu;
+estas contagens não têm como. `pronto` exige **ter o Hexágono**, não apenas ter
+terminado de processar — "pronto" é ter o que o usuário veio ver.
+
+**O limite conhecido desse desenho, e como a tela lida com ele:** durante a
+COLETA ainda não existe partida pendente, então `em_andamento` é falso embora
+nada tenha terminado. Para um usuário novo — o alvo do recurso — esse é
+justamente o primeiro minuto. A tela trata `partidas == 0` como "Buscando suas
+partidas…" antes de olhar `em_andamento`, e a frase do último caso
+("Preparando o seu diagnóstico…") é verdadeira tanto coletando quanto
+calculando. Afirmar a fase errada seria pior que falar de forma mais geral.
+
+**Verificado com a conta real**, e o método importa: como o dono principal já
+tem todas as partidas coletadas, a importação vira quase um no-op que ainda
+assim exercita o caminho inteiro — custo de **uma** chamada de Gemini. Resultado
+medido: 202 com `fontes: ["chesscom","lichess"]`, coleta das duas plataformas
+sem erro, e uma `analises_hexagono` nova com narrativa de 2.074 caracteres. De
+quebra, essa execução devolveu a narrativa que o estouro de cota do D-63 tinha
+deixado vazia.
+
+**Testes:** 9 nos endpoints, 6 no componente. O teste do estado vazio foi
+atualizado: "Analisar minha primeira partida" deixou de ser a única saída e
+virou a alternativa ("Colar um PGN").
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

@@ -46,7 +46,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from backend.agentes.agente1_linter import (  # noqa: E402
     load_settings as load_linter_settings,
 )
-from backend.agentes.agente2_analista import HEXAGON_CATEGORIES  # noqa: E402
+from backend.agentes.agente2_analista import (  # noqa: E402
+    HEXAGON_CATEGORIES,
+    analisar_usuario as analisar_usuario_hexagono,
+)
 from backend.agentes.analisar_pgn_avulso import (  # noqa: E402
     executar_pipeline_partida,
     gerar_external_id,
@@ -104,6 +107,14 @@ from backend.common.syzygy_tablebase import (  # noqa: E402
     consultar_syzygy,
 )
 from backend.ingestao.common_ingestao import create_supabase_client  # noqa: E402
+from backend.ingestao.coletar_partidas import (  # noqa: E402
+    Settings as SettingsLichess,
+    coletar_para_perfil as coletar_lichess_para_perfil,
+)
+from backend.ingestao.coletar_partidas_chesscom import (  # noqa: E402
+    coletar_para_perfil as coletar_chesscom_para_perfil,
+    load_settings as carregar_settings_chesscom,
+)
 
 DEFAULT_ALLOWED_ORIGINS = (
     "http://localhost:4200",
@@ -143,6 +154,11 @@ LIMITES_DIARIOS_ENV: dict[str, tuple[str, int]] = {
     # rotas caras acima, só pra conter abuso/loop, não pra frear o uso normal
     # (o propósito do D-48 é permitir muitas repetições por dia).
     "treino-responder": ("LIMITE_DIARIO_TREINO_RESPONDER", 200),
+    # D-65: a importação sob demanda dispara coleta + Stockfish + Agente 1 de
+    # várias partidas de uma vez. É a rota mais cara que existe, por isso o
+    # menor teto — ela serve ao onboarding ("quero ver meu Hexágono agora"),
+    # não ao uso repetido; para o dia a dia existe o pipeline diário.
+    "importar-partidas": ("LIMITE_DIARIO_IMPORTAR_PARTIDAS", 3),
 }
 MENSAGEM_LIMITE_DIARIO = "Limite diário atingido, tente novamente amanhã."
 
@@ -413,6 +429,33 @@ class DisponibilidadeFocoResponse(BaseModel):
     """
 
     por_categoria: dict[str, int]
+
+
+class ImportacaoResponse(BaseModel):
+    """Retorno do disparo da importação sob demanda (D-65)."""
+
+    iniciada: bool
+    fontes: list[str]
+    detalhe: str
+
+
+class StatusImportacaoResponse(BaseModel):
+    """Progresso da importação, para a tela poder acompanhar (D-65).
+
+    Não existe tabela de "job": o progresso é lido do próprio dado que está
+    sendo produzido (`partidas.status_processamento`, diagnósticos, hexágono).
+    Uma tabela de controle poderia divergir do que de fato aconteceu; estas
+    contagens não têm como.
+    """
+
+    partidas: int
+    pendentes: int
+    processando: int
+    concluidas: int
+    diagnosticos: int
+    tem_hexagono: bool
+    em_andamento: bool
+    pronto: bool
 
 
 class ComposicaoCadenciaResponse(BaseModel):
@@ -875,6 +918,7 @@ verificar_limite_revisar_avulso = limite_diario("revisar-avulso")
 verificar_limite_reconhecer_posicao = limite_diario("reconhecer-posicao")
 verificar_limite_reprocessar = limite_diario("reprocessar")
 verificar_limite_treino_responder = limite_diario("treino-responder")
+verificar_limite_importar = limite_diario("importar-partidas")
 
 
 @app.post(
@@ -2302,6 +2346,301 @@ def reprocessar_partida_endpoint(
     background_tasks.add_task(_executar_analise_pgn_background, partida_id)
 
     return AnalisarPgnResponse(partida_id=partida_id, external_id=external_id)
+
+
+# D-65: quantas partidas a importação sob demanda analisa por execução. É o
+# número que governa o custo do onboarding: cada partida custa Stockfish (CPU) e
+# uma chamada de Gemini por lance crítico encontrado. 10 partidas bastam para o
+# Agente 2 achar um gargalo (ele exige 5 diagnósticos numa categoria) sem
+# transformar um clique em dezenas de chamadas pagas.
+IMPORTACAO_MAX_PARTIDAS = int(os.getenv("IMPORTACAO_MAX_PARTIDAS", "10"))
+
+
+def _perfil_do_usuario(client: Any, user_id: str) -> dict[str, Any] | None:
+    """Linha de `perfis_usuario` do dono da sessão, ou None se não cadastrou."""
+
+    resposta = (
+        client.table("perfis_usuario")
+        .select("lichess_username, chesscom_username")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    linhas = resposta.data or []
+    return linhas[0] if linhas else None
+
+
+def _token_lichess_para_coleta(client: Any, user_id: str) -> str | None:
+    """Token a usar na coleta do Lichess, na ordem certa de preferência.
+
+    O do próprio usuário (OAuth, D-33) vem primeiro: é dele a conta, e num
+    produto multiusuário cada importação deve correr sob a credencial de quem
+    pediu. O `LICHESS_TOKEN` do ambiente é o reserva, e em produção ele
+    simplesmente não existe — o Cloud Run só recebe as 4 variáveis do D-20.
+
+    Sem nenhum dos dois não dá para coletar do Lichess: a API de partidas
+    responde **404** sem `Authorization`, verificado em 17/09/2026.
+    """
+
+    try:
+        token = obter_access_token_lichess(client, user_id)
+    except Exception:
+        token = None
+    return token or os.getenv("LICHESS_TOKEN") or None
+
+
+def _coletar_partidas_do_perfil(
+    client: Any, user_id: str, perfil: dict[str, Any], logger: Any
+) -> list[str]:
+    """Coleta das plataformas cadastradas. Devolve as fontes que funcionaram.
+
+    Cada plataforma é isolada: a queda de uma não pode impedir a outra de
+    trazer partidas — mesmo princípio do `continue-on-error` do pipeline
+    diário (D-61).
+    """
+
+    fontes: list[str] = []
+
+    chesscom_username = (perfil.get("chesscom_username") or "").strip()
+    if chesscom_username:
+        try:
+            settings_cc = carregar_settings_chesscom()
+            coletar_chesscom_para_perfil(
+                client, settings_cc, logger, user_id, chesscom_username
+            )
+            fontes.append("chesscom")
+        except Exception as error:
+            if logger:
+                logger.error("Importação: falha na coleta do Chess.com: %s", error)
+
+    lichess_username = (perfil.get("lichess_username") or "").strip()
+    if lichess_username:
+        token = _token_lichess_para_coleta(client, user_id)
+        if not token:
+            if logger:
+                logger.warning(
+                    "Importação: usuário %s tem Lichess cadastrado mas nenhum "
+                    "token disponível; a API de partidas exige autenticação.",
+                    user_id,
+                )
+        else:
+            try:
+                settings_li = SettingsLichess(
+                    supabase_url="",
+                    supabase_service_role_key="",
+                    lichess_token=token,
+                    limit=IMPORTACAO_MAX_PARTIDAS,
+                )
+                coletar_lichess_para_perfil(
+                    client, settings_li, logger, user_id, lichess_username
+                )
+                fontes.append("lichess")
+            except Exception as error:
+                if logger:
+                    logger.error("Importação: falha na coleta do Lichess: %s", error)
+
+    return fontes
+
+
+def _executar_importacao_background(user_id: str) -> None:
+    """Coleta, analisa e recalcula o Hexágono de um usuário, sob demanda (D-65).
+
+    É o pipeline diário inteiro, para uma pessoa só, disparado por ela. Sem
+    isso o primeiro valor do produto depende de dois crons: a coleta das 6h e o
+    Agente 2 de segunda — até **7 dias** entre cadastrar a conta e ver um
+    diagnóstico.
+
+    Duas economias deliberadas: no máximo `IMPORTACAO_MAX_PARTIDAS` partidas
+    por execução, e **sem gerar resumo por partida** (a etapa mais cara em
+    Gemini e a menos urgente — o pipeline diário a faz depois).
+    """
+
+    client = _state.get("supabase_client")
+    logger = _state.get("logger")
+    if not client:
+        return
+
+    try:
+        perfil = _perfil_do_usuario(client, user_id)
+        if not perfil:
+            return
+
+        _coletar_partidas_do_perfil(client, user_id, perfil, logger)
+
+        # Só as pendentes DESTE usuário, e no máximo o teto: uma importação não
+        # pode virar um varredor do backlog alheio nem da conta inteira.
+        resposta = (
+            client.table("partidas")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("status_processamento", "pendente")
+            .order("data_partida", desc=True)
+            .limit(IMPORTACAO_MAX_PARTIDAS)
+            .execute()
+        )
+        pendentes = [linha["id"] for linha in resposta.data or []]
+
+        analysis_settings = load_analysis_settings()
+        linter_settings = load_linter_settings()
+        for partida_id in pendentes:
+            try:
+                executar_pipeline_partida(
+                    client=client,
+                    partida_id=partida_id,
+                    gemini_client=_state.get("gemini_client"),
+                    analysis_settings=analysis_settings,
+                    linter_settings=linter_settings,
+                    logger=logger,
+                    engine_lock=_state.get("engine_lock"),
+                    gerar_resumo=False,
+                )
+            except Exception as error:
+                # `executar_pipeline_partida` já marcou a partida como
+                # `falhou`; uma partida ruim não aborta a importação.
+                if logger:
+                    logger.error(
+                        "Importação: falha ao analisar a partida %s: %s",
+                        partida_id,
+                        error,
+                    )
+
+        # O Hexágono é o que o usuário veio ver. Sem esta chamada ele teria as
+        # partidas analisadas e continuaria olhando uma tela vazia até segunda.
+        try:
+            analisar_usuario_hexagono(
+                client, _state.get("gemini_client"), logger, user_id
+            )
+        except Exception as error:
+            if logger:
+                logger.error("Importação: falha ao recalcular o Hexágono: %s", error)
+    except Exception as error:
+        if logger:
+            logger.error("Importação: falha geral para o usuário %s: %s", user_id, error)
+
+
+@app.post("/perfis/importar", status_code=202, response_model=ImportacaoResponse)
+def importar_partidas_endpoint(
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(verificar_limite_importar),
+) -> ImportacaoResponse:
+    """Dispara a importação sob demanda das partidas de quem está logado (D-65).
+
+    Responde 202 na hora e trabalha em `BackgroundTasks`, como `/analisar-pgn`:
+    o trabalho leva minutos e segurar a resposta só produziria timeout.
+    """
+
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    perfil = _perfil_do_usuario(client, user_id)
+    if not perfil:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cadastre seu usuário do Lichess ou do Chess.com no Perfil "
+                "antes de importar."
+            ),
+        )
+
+    fontes: list[str] = []
+    detalhes: list[str] = []
+    if (perfil.get("chesscom_username") or "").strip():
+        fontes.append("chesscom")
+    if (perfil.get("lichess_username") or "").strip():
+        if _token_lichess_para_coleta(client, user_id):
+            fontes.append("lichess")
+        else:
+            # Dito na resposta, não escondido no log: sem isso o usuário veria
+            # só partidas do Chess.com chegando e não teria como saber por quê.
+            detalhes.append(
+                "A importação do Lichess exige conexão da conta — conecte no "
+                "Perfil para incluir as partidas de lá."
+            )
+
+    if not fontes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                detalhes[0]
+                if detalhes
+                else "Nenhuma plataforma cadastrada para importar."
+            ),
+        )
+
+    background_tasks.add_task(_executar_importacao_background, user_id)
+
+    return ImportacaoResponse(
+        iniciada=True,
+        fontes=fontes,
+        detalhe=" ".join(detalhes)
+        or "Importação iniciada. Isso leva alguns minutos.",
+    )
+
+
+@app.get("/perfis/importacao", response_model=StatusImportacaoResponse)
+def status_importacao_endpoint(
+    user_id: str = Depends(verificar_sessao),
+) -> StatusImportacaoResponse:
+    """Progresso da importação, para a tela acompanhar sem recarregar (D-65)."""
+
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    def _contar(**filtros: str) -> int:
+        consulta = (
+            client.table("partidas").select("id", count="exact").eq("user_id", user_id)
+        )
+        for coluna, valor in filtros.items():
+            consulta = consulta.eq(coluna, valor)
+        return consulta.limit(1).execute().count or 0
+
+    try:
+        total = _contar()
+        pendentes = _contar(status_processamento="pendente")
+        processando = _contar(status_processamento="processando")
+        concluidas = _contar(status_processamento="concluido")
+
+        # `!inner` nos dois embeds transforma o embed em join de verdade, que é
+        # o que permite filtrar pela coluna aninhada `partidas.user_id` (mesmo
+        # cuidado do D-28 em `agente2_analista.fetch_diagnosticos`). Sem ele o
+        # filtro só afetaria o conteúdo do embed, e a contagem viria global.
+        diagnosticos = (
+            client.table("diagnosticos")
+            .select(
+                "id, lances_criticos!inner(partidas!inner(user_id))", count="exact"
+            )
+            .eq("lances_criticos.partidas.user_id", user_id)
+            .limit(1)
+            .execute()
+        ).count or 0
+
+        hexagono = (
+            client.table("analises_hexagono")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        ).count or 0
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar a importação: {error}"
+        ) from error
+
+    em_andamento = pendentes > 0 or processando > 0
+    return StatusImportacaoResponse(
+        partidas=total,
+        pendentes=pendentes,
+        processando=processando,
+        concluidas=concluidas,
+        diagnosticos=diagnosticos,
+        tem_hexagono=hexagono > 0,
+        em_andamento=em_andamento,
+        # "Pronto" é ter o que o usuário veio ver — o Hexágono —, não apenas
+        # ter terminado de processar.
+        pronto=hexagono > 0 and not em_andamento,
+    )
 
 
 @app.get("/partidas/composicao", response_model=ComposicaoCadenciaResponse)

@@ -67,8 +67,11 @@ describe('HexagonoRadarComponent', () => {
     expect(component.semAnalise()).toBe(true);
     expect(component.error()).toBeNull();
     const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(texto).toContain('Ainda não há uma análise de partidas disponível');
-    expect(texto).toContain('Analisar minha primeira partida');
+    expect(texto).toContain('Ainda não há uma análise das suas partidas');
+    // D-65: importar virou o caminho principal e colar PGN a alternativa —
+    // antes o estado vazio só oferecia o PGN, ou esperar dois crons.
+    expect(texto).toContain('Importar minhas partidas');
+    expect(texto).toContain('Colar um PGN');
   });
 
   it('deve exibir uma mensagem de erro quando a busca falha de verdade', async () => {
@@ -494,5 +497,163 @@ describe('HexagonoRadarComponent — recorte por cadência (D-63)', () => {
     expect(
       (fixture.nativeElement as HTMLElement).querySelector('[data-testid="escala-do-recorte"]')
     ).toBeNull();
+  });
+});
+
+describe('HexagonoRadarComponent — importação sob demanda (D-65)', () => {
+  let component: HexagonoRadarComponent;
+  let fixture: ComponentFixture<HexagonoRadarComponent>;
+  let revisaoService: RevisaoAvulsaService;
+
+  async function criar(): Promise<void> {
+    fixture = TestBed.createComponent(HexagonoRadarComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  function texto(): string {
+    return (fixture.nativeElement as HTMLElement).textContent ?? '';
+  }
+
+  beforeEach(async () => {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [HexagonoRadarComponent],
+      providers: [provideHttpClient(), provideRouter([]), SupabaseService, TreinoService]
+    }).compileComponents();
+
+    revisaoService = TestBed.inject(RevisaoAvulsaService);
+    vi.spyOn(TestBed.inject(TreinoService), 'disponibilidadeFoco').mockResolvedValue({
+      success: true,
+      porCategoria: {}
+    });
+    // Estado de usuário novo: nenhuma análise ainda.
+    vi.spyOn(TestBed.inject(SupabaseService), 'getUltimaAnaliseHexagono').mockResolvedValue(null);
+    vi.spyOn(revisaoService, 'obterComposicaoCadencia').mockResolvedValue({
+      success: false
+    });
+    vi.spyOn(
+      HexagonoRadarComponent.prototype as unknown as { renderizarGrafico: () => void },
+      'renderizarGrafico'
+    ).mockImplementation(() => undefined);
+  });
+
+  it('o estado vazio oferece importar, e colar PGN vira a alternativa', async () => {
+    /** Antes do D-65 o único caminho era "Analisar minha primeira partida":
+     * um usuário recém-cadastrado colava um PGN ou esperava até 7 dias pelos
+     * dois crons. */
+    await criar();
+
+    expect(texto()).toContain('Importar minhas partidas');
+    expect(texto()).toContain('Colar um PGN');
+  });
+
+  it('importar() mostra o detalhe que o backend devolveu', async () => {
+    vi.spyOn(revisaoService, 'importarPartidas').mockResolvedValue({
+      success: true,
+      importacao: { iniciada: true, fontes: ['chesscom'], detalhe: 'Importação iniciada.' }
+    });
+    vi.spyOn(revisaoService, 'obterStatusImportacao').mockResolvedValue({
+      success: true,
+      status: {
+        partidas: 10, pendentes: 8, processando: 1, concluidas: 1,
+        diagnosticos: 3, tem_hexagono: false, em_andamento: true, pronto: false
+      }
+    });
+    await criar();
+
+    await component.importarPartidas();
+    fixture.detectChanges();
+
+    expect(component.avisoImportacao()?.texto).toBe('Importação iniciada.');
+    expect(component.progressoImportacao()).toContain('1 prontas, 9 na fila');
+  });
+
+  it('falha ao importar explica em vez de ficar girando', async () => {
+    vi.spyOn(revisaoService, 'importarPartidas').mockResolvedValue({
+      success: false,
+      error: 'Cadastre seu usuário do Lichess ou do Chess.com no Perfil antes de importar.'
+    });
+    await criar();
+
+    await component.importarPartidas();
+    fixture.detectChanges();
+
+    expect(component.importando()).toBe(false);
+    expect(component.avisoImportacao()?.tipo).toBe('erro');
+    expect(texto()).toContain('no Perfil antes de importar');
+  });
+
+  it('terminar de processar sem Hexágono ainda conta como em andamento', async () => {
+    /** "Pronto" é ter o que o usuário veio ver. Parar o acompanhamento aqui o
+     * deixaria olhando o estado vazio achando que acabou. */
+    vi.spyOn(revisaoService, 'importarPartidas').mockResolvedValue({
+      success: true,
+      importacao: { iniciada: true, fontes: ['chesscom'], detalhe: 'ok' }
+    });
+    vi.spyOn(revisaoService, 'obterStatusImportacao').mockResolvedValue({
+      success: true,
+      status: {
+        partidas: 10, pendentes: 0, processando: 0, concluidas: 10,
+        diagnosticos: 30, tem_hexagono: false, em_andamento: false, pronto: false
+      }
+    });
+    await criar();
+
+    await component.importarPartidas();
+
+    expect(component.progressoImportacao()).toContain('Preparando o seu diagnóstico');
+    expect(component.importando()).toBe(true);
+  });
+
+  it('durante a coleta nao afirma que as partidas ja foram analisadas', async () => {
+    /** O status sai do dado sendo produzido, nao de uma tabela de job: enquanto
+     * a coleta roda ainda nao existe partida pendente, entao `em_andamento` e
+     * falso embora nada tenha terminado. Para um usuario NOVO — o alvo deste
+     * recurso — esse e justamente o primeiro minuto. */
+    vi.spyOn(revisaoService, 'importarPartidas').mockResolvedValue({
+      success: true,
+      importacao: { iniciada: true, fontes: ['chesscom'], detalhe: 'ok' }
+    });
+    vi.spyOn(revisaoService, 'obterStatusImportacao').mockResolvedValue({
+      success: true,
+      status: {
+        partidas: 0, pendentes: 0, processando: 0, concluidas: 0,
+        diagnosticos: 0, tem_hexagono: false, em_andamento: false, pronto: false
+      }
+    });
+    await criar();
+
+    await component.importarPartidas();
+
+    expect(component.progressoImportacao()).toContain('Buscando suas partidas');
+    expect(component.importando()).toBe(true);
+  });
+
+  it('quando fica pronto, recarrega a análise e para de acompanhar', async () => {
+    const supabase = TestBed.inject(SupabaseService);
+    vi.spyOn(revisaoService, 'importarPartidas').mockResolvedValue({
+      success: true,
+      importacao: { iniciada: true, fontes: ['chesscom'], detalhe: 'ok' }
+    });
+    vi.spyOn(revisaoService, 'obterStatusImportacao').mockResolvedValue({
+      success: true,
+      status: {
+        partidas: 10, pendentes: 0, processando: 0, concluidas: 10,
+        diagnosticos: 30, tem_hexagono: true, em_andamento: false, pronto: true
+      }
+    });
+    await criar();
+    const recarga = vi.spyOn(supabase, 'getUltimaAnaliseHexagono');
+    recarga.mockClear();
+
+    await component.importarPartidas();
+
+    expect(component.importando()).toBe(false);
+    expect(component.progressoImportacao()).toBeNull();
+    // Sem esta recarga o usuário esperaria minutos e teria que dar F5.
+    expect(recarga).toHaveBeenCalled();
   });
 });

@@ -265,6 +265,40 @@ export interface ComposicaoCadenciaResult {
   sessaoExpirada?: boolean;
 }
 
+/** Retorno do disparo da importação sob demanda (D-65). */
+export interface Importacao {
+  iniciada: boolean;
+  fontes: string[];
+  detalhe: string;
+}
+
+export interface ImportacaoResult {
+  success: boolean;
+  importacao?: Importacao;
+  error?: string;
+  sessaoExpirada?: boolean;
+}
+
+/** Progresso da importação (D-65). Sai do próprio dado sendo produzido, não
+ * de uma tabela de controle que poderia divergir do que de fato aconteceu. */
+export interface StatusImportacao {
+  partidas: number;
+  pendentes: number;
+  processando: number;
+  concluidas: number;
+  diagnosticos: number;
+  tem_hexagono: boolean;
+  em_andamento: boolean;
+  pronto: boolean;
+}
+
+export interface StatusImportacaoResult {
+  success: boolean;
+  status?: StatusImportacao;
+  error?: string;
+  sessaoExpirada?: boolean;
+}
+
 /** Rótulos de `backend/common/cadencia.py`. */
 export const ROTULOS_CADENCIA: Record<string, string> = {
   BULLET: 'Bullet',
@@ -456,6 +490,47 @@ export class RevisaoAvulsaService {
         )
       );
       return { success: true, composicao };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        return { success: false, error: MENSAGEM_SESSAO_EXPIRADA, sessaoExpirada: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  /** Dispara a importação sob demanda das partidas do usuário (D-65).
+   *
+   * Responde 202 na hora; o trabalho de verdade roda em segundo plano no
+   * backend e é acompanhado por `obterStatusImportacao()`.
+   */
+  async importarPartidas(): Promise<ImportacaoResult> {
+    try {
+      const importacao = await firstValueFrom(
+        this.http.post<Importacao>(
+          `${environment.apiLocalUrl}/perfis/importar`,
+          {},
+          { headers: await this.headersComSessao() }
+        )
+      );
+      return { success: true, importacao };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        return { success: false, error: MENSAGEM_SESSAO_EXPIRADA, sessaoExpirada: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  /** Progresso da importação, para a tela acompanhar sem recarregar (D-65). */
+  async obterStatusImportacao(): Promise<StatusImportacaoResult> {
+    try {
+      const status = await firstValueFrom(
+        this.http.get<StatusImportacao>(
+          `${environment.apiLocalUrl}/perfis/importacao`,
+          { headers: await this.headersComSessao() }
+        )
+      );
+      return { success: true, status };
     } catch (cause: unknown) {
       if (this.isUnauthorized(cause)) {
         return { success: false, error: MENSAGEM_SESSAO_EXPIRADA, sessaoExpirada: true };
