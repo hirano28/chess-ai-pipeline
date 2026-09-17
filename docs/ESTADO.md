@@ -35,8 +35,8 @@ independentemente do que as seções seguintes digam.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **726**, todos passando, em 37 módulos |
-| Testes de frontend (Vitest) | **233**, todos passando, em 27 arquivos |
+| Testes de backend | **750**, todos passando, em 38 módulos |
+| Testes de frontend (Vitest) | **242**, todos passando, em 28 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
 `.github/workflows/deploy-backend.yml` lista os **37** módulos de teste do
@@ -388,6 +388,23 @@ O hábito consistente de puzzles (660 puzzles em 41 dias distintos) foi plenamen
 3. Criados `PuzzlesService` e o componente visual `PuzzlesInsightsComponent` integrado ao dashboard, fornecendo cards de métricas, diagnóstico narrativo do Gap Tático, temas vulneráveis com barra de progresso e links diretos de treino no Lichess (`https://lichess.org/training/{slug}`), além de badges para pontos fortes dominados.
 
 ### P-9 — Pendências menores 🟢
+
+`verificado_em: 17/09/2026.` **Duas foram fechadas nesta data:**
+
+- ✅ **FK `fila_treino_espacado.posicional_id` sem índice.** O D-55 criou a
+  coluna mas não o índice que as outras duas origens de card ganharam em
+  `indices_fk_faltantes.sql`. A unique `(user_id, posicional_id)` não cobria:
+  índice composto só serve a busca que começa pela primeira coluna, e a
+  checagem de FK filtra por `posicional_id` puro. Resolvido por
+  `backend/db/indice_fk_posicional_id.sql`; o advisor de performance do
+  Supabase parou de apontar `unindexed_foreign_keys`.
+- ✅ **`sessao.service.ts` sem spec.** Era o serviço mais novo (D-54) e o único
+  sem teste. 9 casos, cobrindo inclusive dois que só aparecem em uso real: o
+  bloco de índice `0` (valor falsy que é índice válido) e o 404 de sessão de
+  outro dono, que **não** pode ser tratado como "sessão expirada" — mandaria o
+  usuário relogar para resolver o que não é problema de autenticação.
+
+Seguem em aberto:
 
 - Livro "How to Calculate Chess Tactics" (inglês): pipeline adaptado em D-44 com
   parâmetro `--ocr-lang eng`, cache diferenciado por idioma e detecção de capítulos
