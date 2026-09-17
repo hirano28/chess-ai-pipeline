@@ -50,6 +50,19 @@ export interface ConsultaAoVivo {
   gerado_por: 'gemini' | 'fallback';
   consultas_restantes: number;
   criado_em: string | null;
+  plataforma: PlataformaEspelho | null;
+  adversario: string | null;
+  /** D-68: o que o jogador fez depois, preenchido quando a coleta traz a partida. */
+  desfecho: DesfechoConsulta;
+}
+
+export interface DesfechoConsulta {
+  status: 'pendente' | 'casada' | 'sem_partida';
+  lance_jogado: string | null;
+  queda_win_percent: number | null;
+  era_candidato: boolean | null;
+  era_o_melhor: boolean | null;
+  ligada_a_lance_critico: boolean;
 }
 
 export interface NovaConsulta {
@@ -60,6 +73,29 @@ export interface NovaConsulta {
   plataforma: PlataformaEspelho;
   adversario: string | null;
   pensamento: PensamentoConsulta | null;
+  /** D-69: com isto o servidor busca a partida na plataforma e ignora lances e cor. */
+  sincronizada?: { plataforma: 'LICHESS' | 'CHESSCOM'; game_id: string } | null;
+}
+
+/** Uma partida em andamento do dono, numa das plataformas (D-69). */
+export interface PartidaEmAndamento {
+  plataforma: 'LICHESS' | 'CHESSCOM';
+  game_id: string;
+  partida_espelho_id: string;
+  cor: CorJogador;
+  fen: string;
+  vez_do_jogador: boolean;
+  adversario: string;
+  ranqueada: boolean;
+  ritmo: string;
+  url: string;
+}
+
+export interface EstadoPartidaSincronizada extends PartidaEmAndamento {
+  fen_inicial: string | null;
+  lances: string[];
+  /** False quando o atraso do Lichess não pôde ser reconstruído: a posição é exata, a lista de lances não. */
+  historico_completo: boolean;
 }
 
 export interface ResultadoServico<T> {
@@ -127,6 +163,57 @@ export class ConsultaAoVivoService {
       return { success: true, dados };
     } catch (cause: unknown) {
       return this.falha(cause, 'Não foi possível consultar a posição.');
+    }
+  }
+
+  /** Suas partidas em andamento no Lichess e no Chess.com, e o que não deu para listar (D-69). */
+  async listarPartidasEmAndamento(): Promise<
+    ResultadoServico<{ partidas: PartidaEmAndamento[]; avisos: string[] }>
+  > {
+    try {
+      const dados = await firstValueFrom(
+        this.http.get<{ partidas: PartidaEmAndamento[]; avisos: string[] }>(
+          `${this.apiUrl}/consulta-ao-vivo/sincronizar`,
+          { headers: await this.headers() }
+        )
+      );
+      return { success: true, dados };
+    } catch (cause: unknown) {
+      return this.falha(cause, 'Não foi possível listar suas partidas em andamento.');
+    }
+  }
+
+  /** Posição e lances atuais de uma partida sincronizada. 404 = a partida terminou. */
+  async estadoPartida(
+    plataforma: string,
+    gameId: string
+  ): Promise<ResultadoServico<EstadoPartidaSincronizada> & { terminou?: boolean }> {
+    try {
+      const dados = await firstValueFrom(
+        this.http.get<EstadoPartidaSincronizada>(
+          `${this.apiUrl}/consulta-ao-vivo/sincronizar/${encodeURIComponent(plataforma)}/${encodeURIComponent(gameId)}`,
+          { headers: await this.headers() }
+        )
+      );
+      return { success: true, dados };
+    } catch (cause: unknown) {
+      const resultado = this.falha<EstadoPartidaSincronizada>(cause, 'Não foi possível atualizar a partida.');
+      const terminou = cause instanceof HttpErrorResponse && cause.status === 404;
+      return { ...resultado, terminou };
+    }
+  }
+
+  /** As últimas dúvidas de todas as partidas, com o desfecho de cada uma (D-68). */
+  async listarRecentes(limite = 20): Promise<ResultadoServico<ConsultaAoVivo[]>> {
+    try {
+      const dados = await firstValueFrom(
+        this.http.get<ConsultaAoVivo[]>(`${this.apiUrl}/consulta-ao-vivo/recentes?limite=${limite}`, {
+          headers: await this.headers()
+        })
+      );
+      return { success: true, dados };
+    } catch (cause: unknown) {
+      return this.falha(cause, 'Não foi possível carregar as dúvidas anteriores.');
     }
   }
 

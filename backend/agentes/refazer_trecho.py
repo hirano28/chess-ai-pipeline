@@ -48,7 +48,7 @@ class PassoDoTrecho:
     fim_por_fim_de_jogo: bool
 
 
-def _win_percent(engine: Stockfish, board: chess.Board, cor: str) -> float:
+def win_percent_na_posicao(engine: Stockfish, board: chess.Board, cor: str) -> float:
     """win% da posição SEMPRE pela perspectiva do jogador do card.
 
     É a mesma leitura que `processar_partida` usa para detectar a erosão, com a
@@ -137,9 +137,9 @@ def jogar_passo_do_trecho(
 
     lance_oponente: str | None = None
     with _acquire_engine_lock(engine_lock):
-        antes = _win_percent(engine, board, cor)
+        antes = win_percent_na_posicao(engine, board, cor)
         board.push(resolvido.move)
-        depois = _win_percent(engine, board, cor)
+        depois = win_percent_na_posicao(engine, board, cor)
 
         lances.append(san_do_jogador)
         win_antes.append(antes)

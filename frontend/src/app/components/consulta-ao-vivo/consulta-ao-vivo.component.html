@@ -4,8 +4,8 @@
       <p class="sobrelinha">Partida em andamento</p>
       <h1 class="titulo-pagina">Consulta ao vivo</h1>
       <p class="subtitulo">
-        Espelhe aqui, lance a lance, a partida que você está jogando contra um bot. Quando travar,
-        peça ajuda para pensar: primeiro vêm as perguntas e os planos, depois as ideias candidatas, e
+        Sincronize com uma partida em andamento no Lichess ou no Chess.com — ou espelhe aqui, lance a
+        lance. Quando travar, peça ajuda para pensar: primeiro vêm as perguntas e os planos, depois as ideias candidatas, e
         só por último — se você pedir — o lance do motor.
       </p>
     </header>
@@ -22,7 +22,78 @@
       <div class="contents lg:col-start-1 lg:row-start-1 lg:flex lg:flex-col lg:gap-5">
       <!-- Tabuleiro -->
       <section class="cartao order-1 space-y-4">
+        <!-- D-69: sincronização com a partida real. -->
+        @if (sincronizada(); as sinc) {
+          <div class="aviso aviso-latao" role="status">
+            <span class="pulso" aria-hidden="true"></span>
+            <span class="min-w-0 flex-1">
+              Sincronizada com o {{ sinc.plataforma === 'LICHESS' ? 'Lichess' : 'Chess.com' }}
+              · contra {{ partida().adversario }} · {{ sinc.ritmo }} · {{ sinc.ranqueada ? 'ranqueada' : 'casual' }}.
+              O tabuleiro acompanha a partida sozinho.
+              @if (!sinc.historicoCompleto) {
+                <span class="block text-xs text-bruma-400">
+                  A posição é exata, mas o Lichess atrasa a lista de lances e ela não pôde ser
+                  reconstruída agora.
+                </span>
+              }
+            </span>
+            <button type="button" class="btn btn-secundario btn-pequeno" (click)="pararSincronizacao()">
+              Parar
+            </button>
+          </div>
+        } @else {
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="btn btn-secundario btn-pequeno"
+              [disabled]="buscandoPartidas()"
+              (click)="buscarPartidas()"
+            >
+              {{ buscandoPartidas() ? 'Buscando…' : 'Sincronizar com uma partida em andamento' }}
+            </button>
+          </div>
+        }
+
+        @if (erroSincronizacao()) {
+          <div class="aviso aviso-erro" role="alert">
+            <span aria-hidden="true">!</span>
+            <span>{{ erroSincronizacao() }}</span>
+          </div>
+        }
+        @if (avisoFimDePartida()) {
+          <p class="aviso aviso-latao" role="status">
+            <span aria-hidden="true">♚</span>
+            <span>{{ avisoFimDePartida() }}</span>
+          </p>
+        }
+
+        @if (partidasDisponiveis(); as partidas) {
+          <div class="painel space-y-2" aria-label="Suas partidas em andamento">
+            @if (partidas.length === 0) {
+              <p class="text-sm text-bruma-300">Nenhuma partida em andamento encontrada.</p>
+            }
+            @for (p of partidas; track p.plataforma + p.game_id) {
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="min-w-0 text-sm text-bruma-200">
+                  {{ rotuloPartida(p) }}
+                  @if (p.vez_do_jogador) { <span class="selo selo-latao ml-1">sua vez</span> }
+                </span>
+                <button type="button" class="btn btn-primario btn-pequeno" (click)="sincronizar(p)">
+                  Sincronizar
+                </button>
+              </div>
+            }
+            @for (aviso of avisosSincronizacao(); track $index) {
+              <p class="legenda">{{ aviso }}</p>
+            }
+            <button type="button" class="text-xs text-bruma-500 underline" (click)="partidasDisponiveis.set(null)">
+              Fechar
+            </button>
+          </div>
+        }
+
         <div class="flex flex-wrap items-center justify-between gap-2">
+          @if (!sincronizada()) {
           <div class="flex items-center gap-1.5" role="group" aria-label="Com que cor você joga">
             @for (cor of ['BRANCAS', 'PRETAS']; track cor) {
               <button
@@ -36,6 +107,9 @@
               </button>
             }
           </div>
+          } @else {
+            <span class="text-sm text-bruma-300">Você joga de {{ rotuloCor(partida().cor) }}</span>
+          }
           <span class="selo" [class]="vezDoJogador() ? 'selo-latao' : 'selo-neutro'">
             {{ fimDeJogo() ? 'Partida terminada' : vezDoJogador() ? 'Sua vez' : 'Vez do adversário' }}
           </span>
@@ -46,10 +120,13 @@
           [fen]="fen()"
           [orientacao]="partida().cor"
           [ultimoLance]="ultimoLance()"
-          [bloqueado]="consultando() || fimDeJogo()"
+          [bloqueado]="consultando() || fimDeJogo() || !!sincronizada()"
           (lanceJogado)="jogarDoTabuleiro($event)"
         />
 
+        <!-- Na partida sincronizada o tabuleiro só acompanha: um lance à mão faria
+             o espelho divergir da partida real. -->
+        @if (!sincronizada()) {
         <div class="flex gap-2">
           <label class="sr-only" for="campo-lance-espelho">Digitar lance</label>
           <input
@@ -75,6 +152,7 @@
             Desfazer
           </button>
         </div>
+        }
 
         @if (erroLance()) {
           <div class="aviso aviso-erro" role="alert">
@@ -102,6 +180,7 @@
           }
         </div>
 
+        @if (!sincronizada()) {
         <details class="painel" [open]="configurando()" (toggle)="configurando.set($any($event.target).open)">
           <summary class="cursor-pointer text-sm font-medium text-bruma-200">Configurar partida</summary>
           <div class="mt-3 space-y-3">
@@ -155,6 +234,7 @@
             </button>
           </div>
         </details>
+        }
       </section>
       </div>
 
@@ -215,6 +295,12 @@
                 <span class="legenda">Resposta simplificada (IA indisponível)</span>
               }
             </div>
+
+            @if (consulta.dados.desfecho.status !== 'pendente') {
+              <p class="text-sm font-medium" [class]="classeDesfecho(consulta.dados)">
+                {{ descreverDesfecho(consulta.dados) }}
+              </p>
+            }
 
             <div class="space-y-3">
               <p class="text-sm leading-6 text-bruma-200">{{ consulta.dados.camada_pensar.leitura_da_posicao }}</p>
@@ -284,6 +370,33 @@
               }
             }
           </article>
+        }
+
+        <!-- D-68: o que aconteceu com as dúvidas das partidas anteriores. -->
+        @if (duvidasAnteriores().length > 0) {
+          <section class="cartao space-y-3" aria-labelledby="titulo-duvidas-anteriores">
+            <h2 id="titulo-duvidas-anteriores" class="text-base font-semibold text-marfim">
+              Suas dúvidas anteriores
+            </h2>
+            <ul class="space-y-3">
+              @for (duvida of duvidasAnteriores(); track duvida.id ?? $index) {
+                <li class="painel space-y-1">
+                  <p class="text-xs text-bruma-500">
+                    Lance {{ duvida.numero_lance }} · {{ rotuloCor(duvida.cor_jogador) }}
+                    @if (duvida.adversario) { · contra {{ duvida.adversario }} }
+                    @if (duvida.criado_em) { · {{ duvida.criado_em.slice(0, 10) }} }
+                  </p>
+                  <p class="text-sm" [class]="classeDesfecho(duvida)">{{ descreverDesfecho(duvida) }}</p>
+                  @if (duvida.desfecho.ligada_a_lance_critico) {
+                    <p class="legenda">
+                      O motor também marcou este lance como crítico: ele alimenta o seu Treino, e o
+                      card dele, se ainda não foi respondido, passa à frente da fila.
+                    </p>
+                  }
+                </li>
+              }
+            </ul>
+          </section>
         }
       </section>
     </div>

@@ -14,6 +14,7 @@ import os
 import random
 import re
 import secrets
+import uuid
 import sys
 import threading
 from datetime import date, datetime, time, timedelta, timezone
@@ -110,6 +111,15 @@ from backend.common.progress import log_and_print  # noqa: E402
 from backend.common.spaced_repetition import (  # noqa: E402
     atualizar_agendamento,
     nota_sm2_da_qualidade_lance,
+)
+from backend.common.partidas_em_andamento import (  # noqa: E402
+    CacheDeEstado,
+    PartidaEmAndamento,
+    PlataformaIndisponivelError,
+    estado_chesscom,
+    estado_lichess,
+    listar_chesscom,
+    listar_lichess,
 )
 from backend.common.treino_trecho import (  # noqa: E402
     ProgressoCorrompidoError,
@@ -642,20 +652,61 @@ class PensamentoConsulta(BaseModel):
     trava: str | None = None
 
 
+class PartidaSincronizadaRef(BaseModel):
+    """Qual partida em andamento a consulta usa (D-69)."""
+
+    plataforma: str
+    game_id: str = Field(min_length=1, max_length=40)
+
+
 class ConsultaAoVivoRequest(BaseModel):
     """Uma consulta durante a partida espelhada (D-67).
 
     Manda os LANCES, não a posição: o servidor reconstrói a posição, sabe o
     número do lance e guarda a partida inteira para casar depois com a real.
+
+    Com `sincronizada` (D-69), nem os lances vêm do cliente: o servidor busca a
+    partida na plataforma, e a cor, o adversário e o identificador saem de lá.
     """
 
-    partida_espelho_id: str
+    partida_espelho_id: str | None = None
     lances: list[str] = Field(default_factory=list, max_length=600)
     fen_inicial: str | None = None
-    cor_jogador: str
+    cor_jogador: str | None = None
     plataforma: str = "LICHESS"
     adversario: str | None = Field(default=None, max_length=80)
     pensamento: PensamentoConsulta | None = None
+    sincronizada: PartidaSincronizadaRef | None = None
+
+
+class PartidaEmAndamentoResponse(BaseModel):
+    """Uma partida em andamento do dono, para a tela escolher qual sincronizar."""
+
+    plataforma: str
+    game_id: str
+    partida_espelho_id: str
+    cor: str
+    fen: str
+    vez_do_jogador: bool
+    adversario: str
+    ranqueada: bool
+    ritmo: str
+    url: str
+
+
+class PartidasEmAndamentoResponse(BaseModel):
+    partidas: list[PartidaEmAndamentoResponse] = Field(default_factory=list)
+    # O que não deu para listar e por quê: conta não conectada, plataforma fora
+    # do ar, ou o limite do Chess.com de só expor partidas diárias.
+    avisos: list[str] = Field(default_factory=list)
+
+
+class EstadoPartidaSincronizadaResponse(PartidaEmAndamentoResponse):
+    fen_inicial: str | None = None
+    lances: list[str] = Field(default_factory=list)
+    # False quando os lances escondidos pelo atraso do Lichess não puderam ser
+    # reconstruídos: a POSIÇÃO continua exata, só a lista de lances fica curta.
+    historico_completo: bool = True
 
 
 class PlanoConsultaResponse(BaseModel):
@@ -698,6 +749,22 @@ class CamadaMotor(BaseModel):
     linhas: list[LinhaMotor] = Field(default_factory=list)
 
 
+class DesfechoConsulta(BaseModel):
+    """O que o jogador fez depois de consultar (D-68), preenchido pelo pipeline.
+
+    `status`: 'pendente' (a partida ainda não foi coletada), 'casada' ou
+    'sem_partida' (procurada por dias sem sucesso). `lance_jogado` é None também
+    quando a partida acabou exatamente na posição consultada.
+    """
+
+    status: str = "pendente"
+    lance_jogado: str | None = None
+    queda_win_percent: float | None = None
+    era_candidato: bool | None = None
+    era_o_melhor: bool | None = None
+    ligada_a_lance_critico: bool = False
+
+
 class ConsultaAoVivoResponse(BaseModel):
     id: str | None = None
     partida_espelho_id: str
@@ -712,6 +779,9 @@ class ConsultaAoVivoResponse(BaseModel):
     gerado_por: str
     consultas_restantes: int
     criado_em: str | None = None
+    plataforma: str | None = None
+    adversario: str | None = None
+    desfecho: DesfechoConsulta = Field(default_factory=DesfechoConsulta)
 
 
 class AcessoConsultaAoVivoResponse(BaseModel):
@@ -2518,6 +2588,20 @@ def _consulta_para_resposta(row: dict[str, Any], restantes: int) -> ConsultaAoVi
         gerado_por=row.get("gerado_por") or resposta.get("gerado_por") or "gemini",
         consultas_restantes=restantes,
         criado_em=row.get("criado_em"),
+        plataforma=row.get("plataforma"),
+        adversario=row.get("adversario"),
+        desfecho=DesfechoConsulta(
+            status=row.get("casamento_status") or "pendente",
+            lance_jogado=row.get("lance_jogado"),
+            queda_win_percent=(
+                float(row["queda_win_percent_jogado"])
+                if row.get("queda_win_percent_jogado") is not None
+                else None
+            ),
+            era_candidato=row.get("lance_jogado_era_candidato"),
+            era_o_melhor=row.get("lance_jogado_era_o_melhor"),
+            ligada_a_lance_critico=bool(row.get("lance_critico_id")),
+        ),
     )
 
 
@@ -2535,6 +2619,164 @@ def _contar_consultas_da_partida(client: Any, user_id: str, partida_espelho_id: 
 
 def _uuid_valido(valor: str) -> bool:
     return bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", valor or ""))
+
+
+# D-69: último estado de cada partida sincronizada. Ver CacheDeEstado.
+_CACHE_PARTIDAS_SINCRONIZADAS = CacheDeEstado()
+
+
+def id_espelho_da_partida(plataforma: str, game_id: str) -> str:
+    """Identificador estável da partida espelhada, derivado da partida real.
+
+    Determinístico de propósito: recarregar a tela, trocar de aparelho ou
+    sincronizar de novo cai na MESMA partida espelhada — e o teto de consultas
+    por partida continua contando certo em vez de zerar a cada recarga.
+    """
+
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"consulta-ao-vivo:{plataforma}:{game_id}"))
+
+
+def _estado_sincronizado(
+    client: Any, user_id: str, plataforma: str, game_id: str, aceitar_recente: bool = True
+) -> PartidaEmAndamento | None:
+    """Estado atual de uma partida em andamento do dono, com cache curto.
+
+    Só usa credenciais do PRÓPRIO dono: o token OAuth do Lichess dele (nunca o
+    `LICHESS_TOKEN` do ambiente, que seria a conta de outra pessoa) e o usuário
+    do Chess.com do perfil dele.
+    """
+
+    chave = (user_id, plataforma, game_id)
+    if aceitar_recente:
+        achou, valor = _CACHE_PARTIDAS_SINCRONIZADAS.recente(chave)
+        if achou:
+            return valor
+
+    if plataforma == "LICHESS":
+        token = obter_access_token_lichess(client, user_id)
+        if not token:
+            raise PlataformaIndisponivelError(
+                "Conecte sua conta do Lichess no Perfil para sincronizar partidas de lá."
+            )
+        estado = estado_lichess(token, game_id, _CACHE_PARTIDAS_SINCRONIZADAS.ultimo(chave))
+    elif plataforma == "CHESSCOM":
+        usuario = (_perfil_do_usuario(client, user_id) or {}).get("chesscom_username")
+        if not usuario:
+            raise PlataformaIndisponivelError(
+                "Cadastre seu usuário do Chess.com no Perfil para sincronizar partidas de lá."
+            )
+        estado = estado_chesscom(usuario, game_id)
+    else:
+        raise ValueError("Plataforma inválida para sincronizar: use LICHESS ou CHESSCOM.")
+
+    _CACHE_PARTIDAS_SINCRONIZADAS.guardar(chave, estado)
+    return estado
+
+
+def _estado_sincronizado_ou_erro(
+    client: Any, user_id: str, plataforma: str, game_id: str, aceitar_recente: bool = True
+) -> PartidaEmAndamento:
+    try:
+        estado = _estado_sincronizado(
+            client, user_id, (plataforma or "").strip().upper(), game_id, aceitar_recente
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except PlataformaIndisponivelError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    if estado is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Essa partida não está mais em andamento (terminou, ou não é sua).",
+        )
+    return estado
+
+
+def _partida_para_resposta(partida: PartidaEmAndamento) -> dict[str, Any]:
+    return {
+        "plataforma": partida.plataforma,
+        "game_id": partida.game_id,
+        "partida_espelho_id": id_espelho_da_partida(partida.plataforma, partida.game_id),
+        "cor": partida.cor,
+        "fen": partida.fen,
+        "vez_do_jogador": partida.vez_do_jogador,
+        "adversario": partida.adversario,
+        "ranqueada": partida.ranqueada,
+        "ritmo": partida.ritmo,
+        "url": partida.url,
+    }
+
+
+@app.get("/consulta-ao-vivo/sincronizar", response_model=PartidasEmAndamentoResponse)
+def listar_partidas_em_andamento(
+    user_id: str = Depends(verificar_acesso_consulta_ao_vivo),
+) -> PartidasEmAndamentoResponse:
+    """Partidas em andamento do dono no Lichess e no Chess.com (D-69).
+
+    Qualquer partida — contra bot, amigo, aluno ou professor. Cada plataforma é
+    isolada: a queda de uma vira aviso, e a outra continua listando.
+    """
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    partidas: list[PartidaEmAndamento] = []
+    avisos: list[str] = []
+
+    try:
+        token = obter_access_token_lichess(client, user_id)
+    except Exception:
+        token = None
+    if token:
+        try:
+            partidas.extend(listar_lichess(token))
+        except PlataformaIndisponivelError as error:
+            avisos.append(f"Lichess: {error}")
+    else:
+        avisos.append("Conecte sua conta do Lichess no Perfil para ver suas partidas de lá.")
+
+    usuario_chesscom = (_perfil_do_usuario(client, user_id) or {}).get("chesscom_username")
+    if usuario_chesscom:
+        try:
+            partidas.extend(listar_chesscom(usuario_chesscom))
+        except PlataformaIndisponivelError as error:
+            avisos.append(f"Chess.com: {error}")
+        avisos.append(
+            "Do Chess.com só aparecem partidas diárias: a API pública não expõe partidas ao "
+            "vivo em andamento. Nelas, espelhe à mão ou cole o PGN."
+        )
+
+    return PartidasEmAndamentoResponse(
+        partidas=[PartidaEmAndamentoResponse(**_partida_para_resposta(p)) for p in partidas],
+        avisos=avisos,
+    )
+
+
+@app.get(
+    "/consulta-ao-vivo/sincronizar/{plataforma}/{game_id}",
+    response_model=EstadoPartidaSincronizadaResponse,
+)
+def estado_partida_sincronizada(
+    plataforma: str,
+    game_id: str,
+    user_id: str = Depends(verificar_acesso_consulta_ao_vivo),
+) -> EstadoPartidaSincronizadaResponse:
+    """Posição e lances atuais de uma partida em andamento (D-69).
+
+    A tela chama isto a cada poucos segundos durante a partida. O cache curto do
+    servidor segura a frequência com que a plataforma é consultada.
+    """
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    estado = _estado_sincronizado_ou_erro(client, user_id, plataforma, game_id)
+    return EstadoPartidaSincronizadaResponse(
+        **_partida_para_resposta(estado),
+        fen_inicial=estado.fen_inicial,
+        lances=estado.lances,
+        historico_completo=estado.historico_completo,
+    )
 
 
 @app.get("/consulta-ao-vivo/acesso", response_model=AcessoConsultaAoVivoResponse)
@@ -2567,17 +2809,40 @@ def consultar_ao_vivo(
     client = _state.get("supabase_client")
     if not client:
         raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
-    if not _uuid_valido(payload.partida_espelho_id):
-        raise HTTPException(status_code=400, detail="Identificador de partida inválido.")
-    try:
-        plataforma = normalizar_escolha(payload.plataforma, PLATAFORMAS_CONSULTA, "Plataforma")
-        cor = normalizar_escolha(payload.cor_jogador, ("BRANCAS", "PRETAS"), "Cor do jogador")
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    adversario = (payload.adversario or "").strip() or None
+    lances = payload.lances
+    fen_inicial = payload.fen_inicial
+    partida_externa_id: str | None = None
+    if payload.sincronizada is not None:
+        # D-69: a partida vem da plataforma, não do cliente. Busca sempre fresca
+        # (sem o atalho de 3 s): a consulta tem que ser sobre a posição de agora.
+        estado = _estado_sincronizado_ou_erro(
+            client, user_id, payload.sincronizada.plataforma, payload.sincronizada.game_id,
+            aceitar_recente=False,
+        )
+        partida_espelho_id = id_espelho_da_partida(estado.plataforma, estado.game_id)
+        plataforma, cor, adversario = estado.plataforma, estado.cor, estado.adversario
+        partida_externa_id = estado.game_id if estado.plataforma == "LICHESS" else estado.url
+        if estado.historico_completo:
+            lances, fen_inicial = estado.lances, estado.fen_inicial
+        else:
+            # Sem histórico completo, a posição exata vale mais que uma lista de
+            # lances que não chega nela.
+            lances, fen_inicial = [], estado.fen
+    else:
+        partida_espelho_id = payload.partida_espelho_id or ""
+        if not _uuid_valido(partida_espelho_id):
+            raise HTTPException(status_code=400, detail="Identificador de partida inválido.")
+        try:
+            plataforma = normalizar_escolha(payload.plataforma, PLATAFORMAS_CONSULTA, "Plataforma")
+            cor = normalizar_escolha(payload.cor_jogador, ("BRANCAS", "PRETAS"), "Cor do jogador")
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     limite = limite_consultas_por_partida()
     try:
-        feitas = _contar_consultas_da_partida(client, user_id, payload.partida_espelho_id)
+        feitas = _contar_consultas_da_partida(client, user_id, partida_espelho_id)
     except Exception as error:
         raise HTTPException(
             status_code=500, detail=f"Falha ao contar as consultas da partida: {error}"
@@ -2592,15 +2857,14 @@ def consultar_ao_vivo(
             ),
         )
 
-    adversario = (payload.adversario or "").strip() or None
     try:
         resultado = consultar_posicao(
             _state["engine"],
             _state.get("gemini_client"),
             _state["logger"],
-            payload.lances,
+            lances,
             cor,
-            fen_inicial=payload.fen_inicial,
+            fen_inicial=fen_inicial,
             pensamento=payload.pensamento.model_dump() if payload.pensamento else None,
             adversario=adversario,
             engine_lock=_state.get("engine_lock"),
@@ -2617,7 +2881,8 @@ def consultar_ao_vivo(
     pensamento = resultado["pensamento"]
     linha: dict[str, Any] = {
         "user_id": user_id,
-        "partida_espelho_id": payload.partida_espelho_id,
+        "partida_espelho_id": partida_espelho_id,
+        "partida_externa_id": partida_externa_id,
         "plataforma": plataforma,
         "adversario": adversario,
         "cor_jogador": resultado["cor_jogador"],
@@ -2681,6 +2946,39 @@ def listar_consultas_da_partida(
     linhas = resposta.data or []
     restantes = max(0, limite_consultas_por_partida() - len(linhas))
     return [_consulta_para_resposta(row, restantes) for row in linhas]
+
+
+@app.get("/consulta-ao-vivo/recentes", response_model=list[ConsultaAoVivoResponse])
+def listar_consultas_recentes(
+    limite: int = 20,
+    user_id: str = Depends(verificar_acesso_consulta_ao_vivo),
+) -> list[ConsultaAoVivoResponse]:
+    """As últimas dúvidas de todas as partidas, com o desfecho de cada uma (D-68).
+
+    É onde o casamento com a partida real fica visível: a partida do dia já
+    terminou quando a coleta a traz, e a tela de uma partida nova não mostraria
+    nada do que aconteceu com as dúvidas da anterior.
+    """
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resposta = (
+            client.table("consultas_ao_vivo")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("criado_em", desc=True)
+            .limit(max(1, min(limite, 50)))
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar as dúvidas recentes: {error}"
+        ) from error
+
+    # Aqui "restantes" não tem sentido (cada item é de uma partida diferente).
+    return [_consulta_para_resposta(row, 0) for row in resposta.data or []]
 
 
 @app.post(

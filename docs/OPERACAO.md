@@ -30,6 +30,7 @@ python -m unittest \
   backend.agentes.test_agente2_analista \
   backend.agentes.test_agente3_prescritor \
   backend.agentes.test_analisar_pgn_avulso \
+  backend.agentes.test_casar_consultas_ao_vivo \
   backend.agentes.test_consulta_ao_vivo \
   backend.agentes.test_explicador_posicao \
   backend.agentes.test_gerar_perguntas_pendentes \
@@ -50,6 +51,7 @@ python -m unittest \
   backend.common.test_lichess_explorer \
   backend.common.test_lichess_oauth \
   backend.common.test_notacao_pt \
+  backend.common.test_partidas_em_andamento \
   backend.common.test_progress \
   backend.common.test_settings \
   backend.common.test_spaced_repetition \
@@ -114,6 +116,7 @@ python backend/ingestao/coletar_partidas_chesscom.py   # Chess.com
 python backend/analise_engine/analisar_partidas.py     # Stockfish
 python backend/agentes/agente1_linter.py               # diagnóstico por lance
 python backend/agentes/popular_fila_treino_espacado.py # fila de repetição espaçada (D-48)
+python backend/agentes/casar_consultas_ao_vivo.py      # desfecho das consultas ao vivo (D-68)
 python backend/agentes/agente2_analista.py             # estatística + narrativa
 python backend/agentes/agente3_prescritor.py           # sprint de treino
 ```
@@ -148,7 +151,7 @@ reservatório (D-58), então demora ~10 minutos por mês pedido. Vale a espera:
 a versão anterior parava ao bater o teto e trazia tudo do mesmo punhado de
 torneios dos primeiros dias.
 
-Os scripts `importar_puzzle_activity.py`, `enriquecer_partidas_lichess.py`, `gerar_perguntas_pendentes.py` e `gerar_resumo_partida.py` foram automatizados no `pipeline-diario.yml`, e `medir_eficacia.py` no `pipeline-semanal.yml` (ver D-37 em `DECISOES.md`). `popular_fila_treino_espacado.py` também roda no `pipeline-diario.yml`, logo após `agente1_linter.py` (D-48). `importar_exercicios_taticos.py` (D-49) fica de fora de propósito: importa conteúdo de referência estático (o catálogo de puzzles do Lichess não muda dia a dia), não dado de usuário — rodar de novo só acrescenta puzzles novos ou amplia a faixa de rating, sem necessidade de agenda diária. `importar_exercicios_posicionais.py` (D-55) fica de fora pelo mesmo motivo, com uma diferença: o default dele é o último mês completo de broadcasts, calculado na hora, então rodar de novo daqui a alguns meses traz partidas novas sem precisar editar nada.
+Os scripts `importar_puzzle_activity.py`, `enriquecer_partidas_lichess.py`, `gerar_perguntas_pendentes.py` e `gerar_resumo_partida.py` foram automatizados no `pipeline-diario.yml`, e `medir_eficacia.py` no `pipeline-semanal.yml` (ver D-37 em `DECISOES.md`). `popular_fila_treino_espacado.py` também roda no `pipeline-diario.yml`, logo após `agente1_linter.py` (D-48), e `casar_consultas_ao_vivo.py` logo depois dela (D-68) — precisa da partida coletada, do Stockfish e dos cards já existentes, porque liga a dúvida ao card que ela tem. `importar_exercicios_taticos.py` (D-49) fica de fora de propósito: importa conteúdo de referência estático (o catálogo de puzzles do Lichess não muda dia a dia), não dado de usuário — rodar de novo só acrescenta puzzles novos ou amplia a faixa de rating, sem necessidade de agenda diária. `importar_exercicios_posicionais.py` (D-55) fica de fora pelo mesmo motivo, com uma diferença: o default dele é o último mês completo de broadcasts, calculado na hora, então rodar de novo daqui a alguns meses traz partidas novas sem precisar editar nada.
 
 ## 5. Processar um livro novo no RAG
 

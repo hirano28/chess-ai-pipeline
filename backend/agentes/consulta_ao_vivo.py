@@ -203,7 +203,7 @@ Seu trabalho NÃO é dar o lance. É ensinar a pensar nesta posição para que E
 POSIÇÃO:
 - FEN: {board.fen()}
 - Lance número: {board.fullmove_number}
-- Partida até aqui (SAN): {' '.join(lances_san) or '(posição inicial)'}
+- Partida até aqui (SAN): {' '.join(lances_san) or '(histórico não disponível; use só a posição)'}
 
 DADOS OBJETIVOS (use para não errar; não repita números ao aluno):
 - Avaliação do motor: {analise['descricao']}

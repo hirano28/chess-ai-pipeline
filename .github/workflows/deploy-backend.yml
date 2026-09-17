@@ -53,6 +53,7 @@ jobs:
             backend.agentes.test_agente2_analista \
             backend.agentes.test_agente3_prescritor \
             backend.agentes.test_analisar_pgn_avulso \
+            backend.agentes.test_casar_consultas_ao_vivo \
             backend.agentes.test_consulta_ao_vivo \
             backend.agentes.test_explicador_posicao \
             backend.agentes.test_gerar_perguntas_pendentes \
@@ -73,6 +74,7 @@ jobs:
             backend.common.test_lichess_explorer \
             backend.common.test_lichess_oauth \
             backend.common.test_notacao_pt \
+            backend.common.test_partidas_em_andamento \
             backend.common.test_progress \
             backend.common.test_settings \
             backend.common.test_spaced_repetition \

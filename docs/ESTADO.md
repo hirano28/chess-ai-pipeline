@@ -55,8 +55,8 @@ independentemente do que as seções seguintes digam.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **901**, todos passando, em 41 módulos |
-| Testes de frontend (Vitest) | **303**, todos passando, em 33 arquivos |
+| Testes de backend | **955**, todos passando, em 43 módulos |
+| Testes de frontend (Vitest) | **314**, todos passando, em 33 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
 `.github/workflows/deploy-backend.yml` lista os **37** módulos de teste do

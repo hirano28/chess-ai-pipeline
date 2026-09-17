@@ -96,6 +96,12 @@ jobs:
         continue-on-error: true
         run: python backend/agentes/popular_fila_treino_espacado.py
 
+      # D-68: depois da fila, porque liga a dúvida ao card que ela já tem.
+      - name: Casar consultas ao vivo com as partidas
+        id: casar_consultas
+        continue-on-error: true
+        run: python backend/agentes/casar_consultas_ao_vivo.py
+
       - name: Gerar perguntas pendentes
         id: gerar_perguntas
         continue-on-error: true
@@ -125,6 +131,7 @@ jobs:
             echo "| Analise Stockfish | ${{ steps.analisar_engine.outcome || 'nao executada' }} |"
             echo "| Agente 1 | ${{ steps.agente1_linter.outcome || 'nao executada' }} |"
             echo "| Fila de treino espacado | ${{ steps.popular_fila_treino.outcome || 'nao executada' }} |"
+            echo "| Consultas ao vivo | ${{ steps.casar_consultas.outcome || 'nao executada' }} |"
             echo "| Perguntas pendentes | ${{ steps.gerar_perguntas.outcome || 'nao executada' }} |"
             echo "| Resumos de partidas | ${{ steps.gerar_resumos.outcome || 'nao executada' }} |"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -164,6 +171,7 @@ jobs:
           || steps.importar_puzzles.outcome == 'failure'
           || steps.enriquecer_lichess.outcome == 'failure'
           || steps.popular_fila_treino.outcome == 'failure'
+          || steps.casar_consultas.outcome == 'failure'
           || steps.gerar_perguntas.outcome == 'failure'
           || steps.gerar_resumos.outcome == 'failure'
         env:

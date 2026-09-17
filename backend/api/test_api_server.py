@@ -4809,3 +4809,228 @@ class ConsultaAoVivoTest(unittest.TestCase):
         with gate_de_sessao_real():
             resposta = self.client.post("/consulta-ao-vivo", json=self._payload())
         self.assertEqual(resposta.status_code, 401)
+
+    def _linha_gravada(self, **extras: Any) -> dict[str, Any]:
+        resultado = _resultado_consulta_fake()
+        linha = {
+            "id": "consulta-1",
+            "partida_espelho_id": PARTIDA_ESPELHO,
+            "numero_lance": 3,
+            "fen": resultado["fen"],
+            "cor_jogador": "BRANCAS",
+            "lances_san": resultado["lances_san"],
+            "plataforma": "LICHESS",
+            "adversario": "amigo_do_clube",
+            "resposta": {
+                chave: resultado[chave]
+                for chave in ("camada_pensar", "camada_ideias", "camada_motor", "gerado_por")
+            },
+            "gerado_por": "gemini",
+            "criado_em": "2026-09-17T14:00:00+00:00",
+        }
+        linha.update(extras)
+        return linha
+
+    def test_recentes_traz_o_desfecho_de_cada_duvida(self) -> None:
+        """D-68: é aqui que o casamento com a partida real fica visível."""
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        (
+            mock_client.table.return_value.select.return_value.eq.return_value.order
+            .return_value.limit.return_value.execute.return_value.data
+        ) = [
+            self._linha_gravada(
+                casamento_status="casada",
+                lance_jogado="Bc4",
+                queda_win_percent_jogado="12.5",
+                lance_jogado_era_candidato=False,
+                lance_jogado_era_o_melhor=False,
+                lance_critico_id="lc-1",
+            ),
+            self._linha_gravada(id="consulta-2"),
+        ]
+
+        resposta = self.client.get("/consulta-ao-vivo/recentes?limite=500", headers=HEADERS_SESSAO)
+
+        self.assertEqual(resposta.status_code, 200)
+        casada, pendente = resposta.json()
+        self.assertEqual(casada["desfecho"]["status"], "casada")
+        self.assertEqual(casada["desfecho"]["lance_jogado"], "Bc4")
+        self.assertEqual(casada["desfecho"]["queda_win_percent"], 12.5)
+        self.assertTrue(casada["desfecho"]["ligada_a_lance_critico"])
+        self.assertEqual(casada["adversario"], "amigo_do_clube")
+        self.assertEqual(pendente["desfecho"]["status"], "pendente")
+        self.assertIsNone(pendente["desfecho"]["lance_jogado"])
+        # O teto do limite é aplicado no servidor.
+        limite = mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit
+        limite.assert_called_once_with(50)
+
+    # --- D-69: sincronização com a partida em andamento ---------------------
+
+    def _partida_sincronizada(self, **extras: Any):
+        from backend.common.partidas_em_andamento import PartidaEmAndamento
+
+        dados = {
+            "plataforma": "LICHESS",
+            "game_id": "abcd1234",
+            "cor": "BRANCAS",
+            "fen": _resultado_consulta_fake()["fen"],
+            "vez_do_jogador": True,
+            "adversario": "Professor (1900)",
+            "ranqueada": False,
+            "ritmo": "rapid",
+            "url": "https://lichess.org/abcd1234",
+            "fen_inicial": None,
+            "lances": ["e4", "e5", "Nf3", "Nc6"],
+            "historico_completo": True,
+        }
+        dados.update(extras)
+        return PartidaEmAndamento(**dados)
+
+    def test_consulta_sincronizada_usa_a_partida_da_plataforma_e_nao_o_cliente(self) -> None:
+        mock_client = self._cliente()
+        partida = self._partida_sincronizada()
+        with patch.object(api_server, "_estado_sincronizado", return_value=partida) as estado, \
+                patch.object(api_server, "consultar_posicao", return_value=_resultado_consulta_fake()) as consultar:
+            resposta = self.client.post(
+                "/consulta-ao-vivo",
+                json={
+                    # O que o cliente manda de lances e cor é ignorado.
+                    "lances": ["d4"],
+                    "cor_jogador": "PRETAS",
+                    "sincronizada": {"plataforma": "lichess", "game_id": "abcd1234"},
+                },
+                headers=HEADERS_SESSAO,
+            )
+
+        self.assertEqual(resposta.status_code, 200)
+        # Posição fresca: a consulta não aceita o atalho de cache.
+        self.assertFalse(estado.call_args.args[4])
+        self.assertEqual(consultar.call_args.args[3], ["e4", "e5", "Nf3", "Nc6"])
+        self.assertEqual(consultar.call_args.args[4], "BRANCAS")
+        self.assertEqual(consultar.call_args.kwargs["adversario"], "Professor (1900)")
+        (gravado,), _ = mock_client.table.return_value.insert.call_args
+        self.assertEqual(gravado["partida_externa_id"], "abcd1234")
+        self.assertEqual(
+            gravado["partida_espelho_id"], api_server.id_espelho_da_partida("LICHESS", "abcd1234")
+        )
+
+    def test_historico_incompleto_consulta_pela_posicao_exata(self) -> None:
+        self._cliente()
+        partida = self._partida_sincronizada(historico_completo=False, lances=["e4"])
+        with patch.object(api_server, "_estado_sincronizado", return_value=partida), \
+                patch.object(api_server, "consultar_posicao", return_value=_resultado_consulta_fake()) as consultar:
+            self.client.post(
+                "/consulta-ao-vivo",
+                json={"sincronizada": {"plataforma": "LICHESS", "game_id": "abcd1234"}},
+                headers=HEADERS_SESSAO,
+            )
+        self.assertEqual(consultar.call_args.args[3], [])
+        self.assertEqual(consultar.call_args.kwargs["fen_inicial"], partida.fen)
+
+    def test_chesscom_grava_a_url_como_id_externo(self) -> None:
+        """É a URL que a coleta do Chess.com grava em partidas.external_id."""
+        mock_client = self._cliente()
+        partida = self._partida_sincronizada(
+            plataforma="CHESSCOM", game_id="123456", url="https://www.chess.com/game/daily/123456"
+        )
+        with patch.object(api_server, "_estado_sincronizado", return_value=partida), \
+                patch.object(api_server, "consultar_posicao", return_value=_resultado_consulta_fake()):
+            self.client.post(
+                "/consulta-ao-vivo",
+                json={"sincronizada": {"plataforma": "CHESSCOM", "game_id": "123456"}},
+                headers=HEADERS_SESSAO,
+            )
+        (gravado,), _ = mock_client.table.return_value.insert.call_args
+        self.assertEqual(gravado["partida_externa_id"], "https://www.chess.com/game/daily/123456")
+
+    def test_partida_que_terminou_devolve_404(self) -> None:
+        self._cliente()
+        with patch.object(api_server, "_estado_sincronizado", return_value=None), \
+                patch.object(api_server, "consultar_posicao") as consultar:
+            resposta = self.client.post(
+                "/consulta-ao-vivo",
+                json={"sincronizada": {"plataforma": "LICHESS", "game_id": "abcd1234"}},
+                headers=HEADERS_SESSAO,
+            )
+        self.assertEqual(resposta.status_code, 404)
+        consultar.assert_not_called()
+
+    def test_plataforma_fora_do_ar_devolve_503_legivel(self) -> None:
+        from backend.common.partidas_em_andamento import PlataformaIndisponivelError
+
+        self._cliente()
+        with patch.object(
+            api_server, "_estado_sincronizado",
+            side_effect=PlataformaIndisponivelError("Tente de novo em um minuto."),
+        ):
+            resposta = self.client.get(
+                "/consulta-ao-vivo/sincronizar/LICHESS/abcd1234", headers=HEADERS_SESSAO
+            )
+        self.assertEqual(resposta.status_code, 503)
+        self.assertIn("um minuto", resposta.json()["detail"])
+
+    def test_estado_da_partida_sincronizada(self) -> None:
+        self._cliente()
+        with patch.object(api_server, "_estado_sincronizado", return_value=self._partida_sincronizada()):
+            corpo = self.client.get(
+                "/consulta-ao-vivo/sincronizar/LICHESS/abcd1234", headers=HEADERS_SESSAO
+            ).json()
+        self.assertEqual(corpo["lances"], ["e4", "e5", "Nf3", "Nc6"])
+        self.assertTrue(corpo["historico_completo"])
+        self.assertEqual(corpo["partida_espelho_id"], api_server.id_espelho_da_partida("LICHESS", "abcd1234"))
+
+    def test_listar_partidas_isola_as_plataformas_e_avisa(self) -> None:
+        from backend.common.partidas_em_andamento import PlataformaIndisponivelError
+
+        self._cliente()
+        with patch.object(api_server, "obter_access_token_lichess", return_value="token"), \
+                patch.object(api_server, "listar_lichess", side_effect=PlataformaIndisponivelError("fora do ar")), \
+                patch.object(api_server, "_perfil_do_usuario", return_value={"chesscom_username": "edinho230"}), \
+                patch.object(api_server, "listar_chesscom", return_value=[
+                    self._partida_sincronizada(plataforma="CHESSCOM", game_id="9", url="https://www.chess.com/game/daily/9")
+                ]):
+            corpo = self.client.get("/consulta-ao-vivo/sincronizar", headers=HEADERS_SESSAO).json()
+
+        self.assertEqual([p["game_id"] for p in corpo["partidas"]], ["9"])
+        self.assertTrue(any("Lichess: fora do ar" in aviso for aviso in corpo["avisos"]))
+        self.assertTrue(any("diárias" in aviso for aviso in corpo["avisos"]))
+
+    def test_sem_conta_do_lichess_conectada_avisa(self) -> None:
+        self._cliente()
+        with patch.object(api_server, "obter_access_token_lichess", return_value=None), \
+                patch.object(api_server, "_perfil_do_usuario", return_value=None), \
+                patch.object(api_server, "listar_lichess") as lichess:
+            corpo = self.client.get("/consulta-ao-vivo/sincronizar", headers=HEADERS_SESSAO).json()
+        lichess.assert_not_called()
+        self.assertEqual(corpo["partidas"], [])
+        self.assertIn("Conecte sua conta do Lichess", corpo["avisos"][0])
+
+    def test_sincronizacao_usa_so_o_token_do_proprio_dono(self) -> None:
+        """Nunca o LICHESS_TOKEN do ambiente: seria a conta de outra pessoa."""
+        mock_client = self._cliente()
+        api_server._CACHE_PARTIDAS_SINCRONIZADAS._itens.clear()
+        with patch.dict(os.environ, {"LICHESS_TOKEN": "token-de-outra-conta"}), \
+                patch.object(api_server, "obter_access_token_lichess", return_value=None), \
+                patch.object(api_server, "estado_lichess") as estado:
+            resposta = self.client.get(
+                "/consulta-ao-vivo/sincronizar/LICHESS/abcd1234", headers=HEADERS_SESSAO
+            )
+        self.assertEqual(resposta.status_code, 503)
+        estado.assert_not_called()
+
+    def test_id_espelho_e_estavel(self) -> None:
+        self.assertEqual(
+            api_server.id_espelho_da_partida("LICHESS", "abcd1234"),
+            api_server.id_espelho_da_partida("LICHESS", "abcd1234"),
+        )
+        self.assertNotEqual(
+            api_server.id_espelho_da_partida("LICHESS", "abcd1234"),
+            api_server.id_espelho_da_partida("CHESSCOM", "abcd1234"),
+        )
+
+    def test_recentes_tambem_e_404_para_quem_nao_esta_liberado(self) -> None:
+        api_server._state["supabase_client"] = MagicMock()
+        with patch.dict(os.environ, {"CONSULTA_AO_VIVO_USUARIOS": ""}):
+            resposta = self.client.get("/consulta-ao-vivo/recentes", headers=HEADERS_SESSAO)
+        self.assertEqual(resposta.status_code, 404)

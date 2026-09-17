@@ -3628,6 +3628,157 @@ serviço e guard) — 901 backend, 303 frontend.
 jogou depois?") e transforma a dúvida em sinal do Hexágono e em card da fila;
 F5.4 sincroniza pelo link do Lichess, só contra bot; F5.5 cobre o Chess.com.
 
+### D-68 — A consulta ao vivo ganha desfecho: o que foi jogado depois da dúvida
+
+**Data:** 17/09/2026
+
+**Contexto.** O D-67 registra a dúvida no momento em que ela acontece, mas o
+sistema nunca ficava sabendo o que aconteceu com ela. A consulta era um fim em
+si: nem o jogador via se seguiu a ajuda, nem o treino aproveitava que aquela
+posição foi declaradamente difícil.
+
+**Decisão.** `casar_consultas_ao_vivo.py` roda no pipeline diário, depois da
+coleta, do Stockfish, do Agente 1 e da fila, e procura na partida coletada a
+posição de cada consulta pendente. Achando, grava o lance jogado depois, se ele
+era uma das ideias candidatas, se era o lance do motor e quanto custou — medido
+pelo mesmo `win_percent_na_posicao` do trecho (D-66), que já trata posição
+terminal sem perguntar ao motor.
+
+**Como acha a partida.** Com `partida_externa_id` (consulta sincronizada, D-69),
+direto por `partidas.external_id`. Sem ele, pelas partidas do dono, mesma cor e
+mesma plataforma numa janela larga de horário — e, entre elas, a que de fato
+passou pela posição. **A posição decide, a janela só evita varrer o acervo**:
+`data_partida` é o início no Lichess e pode ser o fim no Chess.com, então a
+janela é generosa (24 h antes, 6 h depois). A comparação de posição usa peças,
+vez e roques, ignorando en passant e contadores; numa repetição, vale a
+ocorrência com o mesmo número de lance da consulta.
+
+**Três estados, e desistir é um deles.** `pendente` (normal no mesmo dia),
+`casada` ou `sem_partida` — depois de 3 dias sem achar, a partida não virá
+(outro site, tabuleiro físico, variante não coletada). Parar de procurar é o
+certo: insistir para sempre gastaria uma consulta ao banco por dia por nada.
+
+**A dúvida vira prioridade no treino.** Se a posição consultada é um lance
+crítico da partida (PICO naquele lance, ou uma EROSAO cuja janela o cobre), a
+consulta guarda o vínculo, e o card desse lance, **se nunca foi respondido**, é
+trazido para hoje. É o card mais valioso da fila: a dúvida foi declarada e o
+erro aconteceu mesmo assim. Card que o SM-2 já agendou pelo desempenho do
+jogador não é atropelado.
+
+**O que ficou de fora, e por quê:** um sinal de "dúvida" no Hexágono. O plano
+original incluía, mas não existe hoje uma consulta real sequer — só as de
+verificação, já apagadas. Desenhar uma métrica agregada sobre zero pontos seria
+inventar o formato antes de ver o dado. Volta à mesa quando houver algumas
+dezenas de dúvidas casadas.
+
+**Verificado com dado real, e desfeito depois.** Uma consulta de verificação
+sobre a posição de um erro crítico real do dono (lance 25, `Qb6`, queda de
+24,14% registrada pelo pipeline), rodando o script contra produção: casou com a
+partida certa, `lance_jogado = Qb6`, `era_candidato = true` (estava na camada de
+ideias da consulta de teste), `era_o_melhor = false`, vínculo com o lance
+crítico, e o card 514 foi trazido de 05/11 para hoje. A queda medida foi 27,8%
+contra os 24,14% do pipeline: o mesmo motor na mesma profundidade não é
+determinístico entre execuções, e a diferença é desse tamanho. A data do card
+foi restaurada e as duas consultas de verificação (esta e a do D-67) apagadas.
+
+**Na tela.** Cada consulta mostra o desfecho quando existe, e uma seção "Suas
+dúvidas anteriores" lista as das outras partidas — é onde o casamento fica
+visível, já que a coleta só traz a partida depois de ela acabar.
+
+**Testes:** 20 no script, 2 nos endpoints, 3 no componente.
+
+---
+
+### D-69 — Sincronizar a consulta ao vivo com a partida em andamento, contra qualquer adversário
+
+**Data:** 17/09/2026
+
+**Contexto.** O D-67 exigia espelhar cada lance à mão. O plano propunha
+sincronizar pelo link só contra bot; o dono decidiu **sincronizar todas as
+partidas**, porque também joga com amigos, alunos e professores. A feature
+continua exclusiva dele (D-67).
+
+**O que as plataformas permitem, verificado na documentação e na API:**
+
+- **Lichess.** Os endpoints públicos de partida em andamento
+  (`/game/export/{id}`, `/api/stream/game/{id}`, `/api/user/{u}/current-game`)
+  são, nas palavras da documentação, *"delayed by 3 moves, as to prevent cheat
+  bots from using this API"*. A posição atual sem atraso só vem de
+  `/api/account/playing`, que lista as partidas **do dono do token** — FEN e
+  último lance, sem histórico. Funciona com o escopo `puzzle:read` que o OAuth
+  do D-33 já tem (testado: 200). `fullId`, que identifica o jogador dentro da
+  partida e serve para jogar por ele, nunca é lido.
+- **Chess.com.** A API pública só lista partidas **diárias** em andamento, com
+  PGN completo e FEN. Partidas ao vivo em andamento não aparecem em endpoint
+  público nenhum; nelas o espelho continua manual, ou colando o PGN. A tela diz
+  isso em vez de listar vazio sem explicação.
+
+**Posição exata, histórico reconstruído.** Do Lichess vêm a posição atual (sem
+atraso) e o histórico atrasado. Os lances que faltam entre os dois são
+reconstruídos por busca (`completar_lances`). A primeira versão, ingênua,
+estourou 280 s com partidas reais: 6 meios-lances são dezenas de milhões de nós.
+Três podas tornaram viável — só se mexe peça que está numa casa diferente da
+posição final; a paridade da vez elimina metade das profundidades; e o número de
+casas diferentes limita o que ainda cabe —, mais comparação por bitboard e SAN
+gerado só no fim. Medido em 198 cortes de 12 partidas reais:
+
+| Meios-lances faltando | Reconstruídos | Pior tempo |
+|---|---|---|
+| 1–2 | 66/66 | < 0,01 s |
+| 3 | 31/33 | 0,06 s |
+| 4–6 | 85/99 | 4,98 s |
+
+Nenhum resultado errado: os que não são idênticos ao que aconteceu são
+transposições que chegam à mesma posição. Um teto de 60 mil nós garante que a
+busca nunca prende a requisição; passar dele devolve `historico_completo=false`,
+e a consulta usa a posição exata sem a lista de lances.
+
+**Os segundos só na primeira vez.** O servidor guarda o último estado completo
+de cada partida. Nas atualizações seguintes (a tela pede a cada 4 s), faltam um
+ou dois meios-lances **a partir dele**, não do export atrasado — reconstrução
+instantânea, sem nem pedir o export. Um cache de 3 s evita ir à plataforma a
+cada pedido; o Lichess pede uma requisição por vez e um minuto de espera ao
+receber 429, e a tela respeita isso.
+
+**A consulta de partida sincronizada não confia no cliente.** Com
+`sincronizada`, o servidor busca lances, cor e adversário na plataforma — sem o
+cache, porque a consulta tem que ser sobre a posição de agora — e ignora o que
+o cliente mandou. A partida espelhada ganha um id **determinístico** (uuid5 da
+partida real): recarregar a tela ou trocar de aparelho cai na mesma partida, e o
+teto de consultas por partida não zera. A consulta grava `partida_externa_id`,
+que é o que faz o D-68 casar direto, sem janela de horário.
+
+**Credenciais só do próprio dono.** O token OAuth do Lichess dele, nunca o
+`LICHESS_TOKEN` do ambiente — que seria a conta de outra pessoa e listaria as
+partidas dela. Há teste para isso.
+
+**Sobre adversários humanos.** A decisão de sincronizar todas as partidas é do
+dono, e o sistema não tenta adivinhar se o adversário sabe da consulta. Fica
+registrado o fato relevante: as regras do Lichess e do Chess.com proíbem ajuda
+externa em partida contra outra pessoa, e a detecção das plataformas não sabe
+de combinados entre os jogadores. A sincronização não altera o que a consulta
+entrega (as três camadas continuam as mesmas) nem contorna nenhuma detecção —
+usa o endpoint oficial das próprias partidas do dono.
+
+**Na tela.** "Sincronizar com uma partida em andamento" lista as partidas das
+duas plataformas (com os avisos do que não deu para listar). Sincronizada, a
+tela mostra plataforma, adversário, ritmo e se é ranqueada, o tabuleiro só
+acompanha, e o espelho à mão (tabuleiro clicável, campo de lance, desfazer, PGN)
+some para não divergir da partida real. "Parar" volta ao espelho à mão na
+posição em que estava. Quando a partida termina, a tela para de atualizar e
+explica que o desfecho aparece depois da coleta.
+
+**O que não foi verificado de ponta a ponta:** a sincronização com uma partida
+real **sua** em andamento. Nenhuma das duas contas tinha partida em curso
+durante o trabalho; o que foi verificado de verdade foi a listagem real (vazia)
+nas duas plataformas, o parsing de partidas diárias reais de um jogador público
+do Chess.com (os lances reproduzem a FEN), o export real de uma partida ao vivo
+do Lichess e a reconstrução com partidas reais. A primeira partida jogada com a
+tela aberta é o teste que falta.
+
+**Testes:** 22 no módulo de plataformas, 10 nos endpoints, 8 no componente —
+955 backend, 314 frontend.
+
 ---
 
 ## Decisões tomadas sobre o que NÃO fazer

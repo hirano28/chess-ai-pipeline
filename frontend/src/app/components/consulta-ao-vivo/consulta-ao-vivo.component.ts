@@ -1,9 +1,11 @@
-import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { Chess } from 'chess.js';
 import {
   ConsultaAoVivo,
   ConsultaAoVivoService,
   CorJogador,
+  EstadoPartidaSincronizada,
+  PartidaEmAndamento,
   PlataformaEspelho
 } from '../../services/consulta-ao-vivo.service';
 import {
@@ -28,6 +30,11 @@ export interface ConsultaExibida {
   dados: ConsultaAoVivo;
 }
 
+/** De quanto em quanto tempo a partida sincronizada é atualizada. */
+export const INTERVALO_SINCRONIZACAO_MS = 4000;
+/** Quanto esperar depois de a plataforma recusar (o Lichess pede um minuto). */
+export const ESPERA_APOS_RECUSA_MS = 60000;
+
 /**
  * Consulta ao vivo (D-67): espelhar uma partida em andamento e pedir ajuda
  * para PENSAR quando travar. Exclusiva do dono do projeto.
@@ -35,6 +42,10 @@ export interface ConsultaExibida {
  * A resposta chega inteira, mas é aberta em camadas: primeiro o que pensar,
  * depois as ideias candidatas, e só por último o lance do motor. Pular direto
  * para a terceira é possível — a tela só não oferece isso como primeiro passo.
+ *
+ * Desde o D-69 a partida também pode vir da plataforma (Lichess ou Chess.com):
+ * a tela atualiza sozinha a cada poucos segundos, e o tabuleiro deixa de aceitar
+ * lance à mão para não divergir da partida real.
  */
 @Component({
   selector: 'app-consulta-ao-vivo',
@@ -42,8 +53,19 @@ export interface ConsultaExibida {
   imports: [TabuleiroInterativoComponent],
   templateUrl: './consulta-ao-vivo.component.html'
 })
-export class ConsultaAoVivoComponent implements OnInit {
+export class ConsultaAoVivoComponent implements OnInit, OnDestroy {
   private readonly service = inject(ConsultaAoVivoService);
+
+  // --- D-69: sincronização com a partida em andamento -----------------------
+  readonly buscandoPartidas = signal(false);
+  readonly partidasDisponiveis = signal<PartidaEmAndamento[] | null>(null);
+  readonly avisosSincronizacao = signal<string[]>([]);
+  readonly erroSincronizacao = signal<string | null>(null);
+  readonly avisoFimDePartida = signal<string | null>(null);
+  readonly sincronizada = computed(() => this.partida().sincronizada ?? null);
+  private temporizador: ReturnType<typeof setInterval> | null = null;
+  private pausadoAte = 0;
+  private atualizando = false;
 
   readonly partida = signal<PartidaEspelho>(novaPartida('BRANCAS', 'LICHESS', ''));
   readonly consultas = signal<ConsultaExibida[]>([]);
@@ -60,6 +82,12 @@ export class ConsultaAoVivoComponent implements OnInit {
 
   readonly consultando = signal(false);
   readonly erroConsulta = signal<string | null>(null);
+
+  /** D-68: dúvidas de partidas anteriores, com o que aconteceu depois. */
+  readonly recentes = signal<ConsultaAoVivo[]>([]);
+  readonly duvidasAnteriores = computed(() =>
+    this.recentes().filter((consulta) => consulta.partida_espelho_id !== this.partida().id)
+  );
 
   readonly configurando = signal(false);
   readonly textoPgn = signal('');
@@ -138,9 +166,180 @@ export class ConsultaAoVivoComponent implements OnInit {
     if (acesso.limitePorPartida > 0) {
       this.limitePorPartida.set(acesso.limitePorPartida);
     }
-    if (salva) {
-      await this.carregarConsultas(salva.id);
+    const [, recentes] = await Promise.all([
+      salva ? this.carregarConsultas(salva.id) : Promise.resolve(),
+      this.service.listarRecentes()
+    ]);
+    if (recentes.success && recentes.dados) {
+      this.recentes.set(recentes.dados);
     }
+    if (salva?.sincronizada) {
+      this.iniciarAtualizacao();
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.pararTemporizador();
+  }
+
+  // --- D-69: sincronização --------------------------------------------------
+
+  /** Lista as suas partidas em andamento nas duas plataformas. */
+  async buscarPartidas(): Promise<void> {
+    this.buscandoPartidas.set(true);
+    this.erroSincronizacao.set(null);
+    const resposta = await this.service.listarPartidasEmAndamento();
+    this.buscandoPartidas.set(false);
+    if (!resposta.success || !resposta.dados) {
+      this.erroSincronizacao.set(resposta.error ?? 'Não foi possível listar suas partidas.');
+      return;
+    }
+    this.partidasDisponiveis.set(resposta.dados.partidas);
+    this.avisosSincronizacao.set(resposta.dados.avisos);
+  }
+
+  /** Passa a acompanhar uma partida da plataforma no lugar do espelho à mão. */
+  async sincronizar(escolhida: PartidaEmAndamento): Promise<void> {
+    this.pararTemporizador();
+    this.avisoFimDePartida.set(null);
+    this.erroSincronizacao.set(null);
+    this.partidasDisponiveis.set(null);
+    this.partida.set({
+      id: escolhida.partida_espelho_id,
+      fenInicial: escolhida.fen,
+      lances: [],
+      cor: escolhida.cor,
+      plataforma: escolhida.plataforma,
+      adversario: escolhida.adversario,
+      sincronizada: {
+        plataforma: escolhida.plataforma,
+        gameId: escolhida.game_id,
+        url: escolhida.url,
+        ranqueada: escolhida.ranqueada,
+        ritmo: escolhida.ritmo,
+        historicoCompleto: false
+      }
+    });
+    this.consultas.set([]);
+    this.revelado.set({});
+    // O id da partida espelhada vem da partida real: consultas feitas antes de
+    // uma recarga, ou em outro aparelho, voltam junto.
+    await Promise.all([this.carregarConsultas(escolhida.partida_espelho_id), this.atualizarPartida()]);
+    // A primeira leitura pode ter descoberto que a partida já terminou.
+    if (this.partida().sincronizada) {
+      this.iniciarAtualizacao();
+    }
+  }
+
+  /** Volta ao espelho à mão, a partir da posição em que a sincronização parou. */
+  pararSincronizacao(): void {
+    this.pararTemporizador();
+    this.partida.update((p) => ({ ...p, sincronizada: null }));
+  }
+
+  /** Busca a posição atual. Chamado pelo temporizador e depois de consultar. */
+  async atualizarPartida(): Promise<void> {
+    const sinc = this.partida().sincronizada;
+    if (!sinc || this.atualizando || Date.now() < this.pausadoAte) {
+      return;
+    }
+    this.atualizando = true;
+    const resposta = await this.service.estadoPartida(sinc.plataforma, sinc.gameId);
+    this.atualizando = false;
+    // A sincronização pode ter sido parada enquanto a resposta vinha.
+    if (this.partida().sincronizada?.gameId !== sinc.gameId) {
+      return;
+    }
+
+    if (resposta.success && resposta.dados) {
+      this.erroSincronizacao.set(null);
+      this.aplicarEstado(resposta.dados);
+      return;
+    }
+    if (resposta.terminou) {
+      this.pararTemporizador();
+      this.partida.update((p) => ({ ...p, sincronizada: null }));
+      this.avisoFimDePartida.set(
+        'A partida terminou. O que aconteceu com as suas dúvidas aparece depois da coleta desta noite.'
+      );
+      return;
+    }
+    // Plataforma recusou ou caiu: espera um minuto antes de insistir.
+    this.pausadoAte = Date.now() + ESPERA_APOS_RECUSA_MS;
+    this.erroSincronizacao.set(resposta.error ?? 'A plataforma não respondeu.');
+  }
+
+  private aplicarEstado(estado: EstadoPartidaSincronizada): void {
+    this.partida.update((p) => ({
+      ...p,
+      // Sem histórico completo, a posição exata vale mais que uma lista de
+      // lances que não chega nela.
+      fenInicial: estado.historico_completo ? estado.fen_inicial : estado.fen,
+      lances: estado.historico_completo ? estado.lances : [],
+      cor: estado.cor,
+      adversario: estado.adversario,
+      sincronizada: p.sincronizada
+        ? { ...p.sincronizada, historicoCompleto: estado.historico_completo }
+        : p.sincronizada
+    }));
+  }
+
+  private iniciarAtualizacao(): void {
+    this.pararTemporizador();
+    this.temporizador = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void this.atualizarPartida();
+      }
+    }, INTERVALO_SINCRONIZACAO_MS);
+  }
+
+  private pararTemporizador(): void {
+    if (this.temporizador !== null) {
+      clearInterval(this.temporizador);
+      this.temporizador = null;
+    }
+  }
+
+  rotuloPartida(p: PartidaEmAndamento): string {
+    const plataforma = p.plataforma === 'LICHESS' ? 'Lichess' : 'Chess.com';
+    const tipo = p.ranqueada ? 'ranqueada' : 'casual';
+    return `${plataforma} · ${this.rotuloCor(p.cor)} contra ${p.adversario} · ${p.ritmo} · ${tipo}`;
+  }
+
+  /** Uma frase sobre o que aconteceu com a dúvida depois (D-68). */
+  descreverDesfecho(consulta: ConsultaAoVivo): string {
+    const desfecho = consulta.desfecho;
+    if (desfecho.status === 'pendente') {
+      return 'Ainda sem desfecho: a partida é procurada na coleta de toda noite.';
+    }
+    if (desfecho.status === 'sem_partida') {
+      return 'A partida não apareceu na coleta — o desfecho desta dúvida ficou desconhecido.';
+    }
+    if (!desfecho.lance_jogado) {
+      return 'A partida terminou nesta posição.';
+    }
+    const relacao = desfecho.era_o_melhor
+      ? 'era o lance do motor'
+      : desfecho.era_candidato
+        ? 'era uma das ideias candidatas'
+        : 'não estava entre as ideias candidatas';
+    const queda = desfecho.queda_win_percent;
+    const custo =
+      queda === null
+        ? ''
+        : queda > 0
+          ? ` e custou ${queda.toFixed(1)}%`
+          : ` e melhorou a posição em ${Math.abs(queda).toFixed(1)}%`;
+    return `Você jogou ${desfecho.lance_jogado}: ${relacao}${custo}.`;
+  }
+
+  /** Cor do desfecho: verde se não perdeu nada relevante, vermelho se a dúvida virou erro. */
+  classeDesfecho(consulta: ConsultaAoVivo): string {
+    const queda = consulta.desfecho.queda_win_percent;
+    if (consulta.desfecho.status !== 'casada' || queda === null) {
+      return 'text-bruma-400';
+    }
+    return queda >= 10 ? 'text-perigo' : queda <= 3 ? 'text-sucesso' : 'text-latao-500';
   }
 
   private async carregarConsultas(partidaId: string): Promise<void> {
@@ -156,6 +355,9 @@ export class ConsultaAoVivoComponent implements OnInit {
   }
 
   jogarDoTabuleiro(lance: LanceTabuleiro): void {
+    if (this.sincronizada()) {
+      return;
+    }
     const copia = new Chess(this.fen());
     try {
       const feito = copia.move({ from: lance.from, to: lance.to, promotion: lance.promotion });
@@ -166,6 +368,9 @@ export class ConsultaAoVivoComponent implements OnInit {
   }
 
   jogarDoTexto(): void {
+    if (this.sincronizada()) {
+      return;
+    }
     const texto = this.lanceDigitado().trim();
     if (!texto) {
       return;
@@ -185,6 +390,9 @@ export class ConsultaAoVivoComponent implements OnInit {
   }
 
   desfazer(): void {
+    if (this.sincronizada()) {
+      return;
+    }
     this.erroLance.set(null);
     this.partida.update((p) => ({ ...p, lances: p.lances.slice(0, -1) }));
   }
@@ -207,6 +415,8 @@ export class ConsultaAoVivoComponent implements OnInit {
     if (atual.lances.length > 0 && !confirm('Começar uma partida nova? A atual deixa de ser espelhada.')) {
       return;
     }
+    this.pararTemporizador();
+    this.avisoFimDePartida.set(null);
     this.partida.set(novaPartida(atual.cor, atual.plataforma, atual.adversario));
     this.consultas.set([]);
     this.revelado.set({});
@@ -217,6 +427,9 @@ export class ConsultaAoVivoComponent implements OnInit {
 
   /** Substitui os lances pelos de um PGN colado (a partida continua a mesma). */
   aplicarPgn(): void {
+    if (this.sincronizada()) {
+      return;
+    }
     try {
       const lido = lerPgnOuFen(this.textoPgn());
       this.partida.update((p) => ({ ...p, fenInicial: lido.fenInicial, lances: lido.lances }));
@@ -249,7 +462,10 @@ export class ConsultaAoVivoComponent implements OnInit {
       cor_jogador: partida.cor,
       plataforma: partida.plataforma,
       adversario: partida.adversario.trim() || null,
-      pensamento: temPensamento ? pensamento : null
+      pensamento: temPensamento ? pensamento : null,
+      sincronizada: partida.sincronizada
+        ? { plataforma: partida.sincronizada.plataforma, game_id: partida.sincronizada.gameId }
+        : null
     });
     this.consultando.set(false);
 

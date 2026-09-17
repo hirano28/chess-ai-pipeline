@@ -9,6 +9,18 @@ export interface PartidaEspelho {
   cor: CorJogador;
   plataforma: PlataformaEspelho;
   adversario: string;
+  /** D-69: presente quando a partida vem da plataforma, e não do espelho à mão. */
+  sincronizada?: PartidaSincronizadaInfo | null;
+}
+
+export interface PartidaSincronizadaInfo {
+  plataforma: 'LICHESS' | 'CHESSCOM';
+  gameId: string;
+  url: string;
+  ranqueada: boolean;
+  ritmo: string;
+  /** False quando o atraso do Lichess não pôde ser reconstruído: a posição é exata, a lista de lances não. */
+  historicoCompleto: boolean;
 }
 
 const CHAVE_ARMAZENAMENTO = 'consulta-ao-vivo:partida';
@@ -35,7 +47,7 @@ export function novaPartida(
   adversario: string,
   fenInicial: string | null = null
 ): PartidaEspelho {
-  return { id: novoIdPartida(), fenInicial, lances: [], cor, plataforma, adversario };
+  return { id: novoIdPartida(), fenInicial, lances: [], cor, plataforma, adversario, sincronizada: null };
 }
 
 /** Reconstrói o jogo a partir da partida. Lance inválido no meio corta ali. */
@@ -129,8 +141,21 @@ export function carregarPartida(): PartidaEspelho | null {
     ) {
       return null;
     }
+    const sinc = dados.sincronizada;
+    const sincronizada: PartidaSincronizadaInfo | null =
+      sinc && typeof sinc.gameId === 'string' && (sinc.plataforma === 'LICHESS' || sinc.plataforma === 'CHESSCOM')
+        ? {
+            plataforma: sinc.plataforma,
+            gameId: sinc.gameId,
+            url: typeof sinc.url === 'string' ? sinc.url : '',
+            ranqueada: Boolean(sinc.ranqueada),
+            ritmo: typeof sinc.ritmo === 'string' ? sinc.ritmo : '',
+            historicoCompleto: sinc.historicoCompleto !== false
+          }
+        : null;
     return {
       id: dados.id,
+      sincronizada,
       fenInicial: typeof dados.fenInicial === 'string' ? dados.fenInicial : null,
       lances: dados.lances.filter((l): l is string => typeof l === 'string'),
       cor: dados.cor,
