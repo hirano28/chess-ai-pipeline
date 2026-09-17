@@ -4027,6 +4027,65 @@ de cache espúrio ficou em `.ocr_cache/`.
 
 ---
 
+### D-73 — Biblioteca pessoal do usuário no Google Drive como fonte de livros; dois materiais curtos de estrutura de peões processados
+
+**Contexto:** seguindo o D-72 ("quero fazer mais OCR's de livros"), o usuário
+apontou uma pasta pessoal no Google Drive com mais de 110 PDFs de xadrez.
+Acessei via o conector do Google Drive (`search_files`/`read_file_content`/
+`download_file_content`) — a pasta pertence ao próprio usuário
+(`edson.hirano28@gmail.com`), sem risco de acessar dado de terceiro.
+
+**Achado de escala:** a pasta é grande demais para processar sem curadoria —
+tem muita duplicata do que já está no RAG (o próprio "How to Calculate Chess
+Tactics", "How to Reassess Your Chess", "Meu Sistema", "Xadrez Vitorioso -
+Táticas", e o "5334 Problems" do Polgár já descartado no D-72), várias cópias
+repetidas do mesmo título, e material de peso bem desigual (biografia agrega
+pouco ao RAG de prescrição tática/estratégica). Perguntei ao usuário como
+priorizar em vez de processar tudo de uma vez — ele escolheu começar pelos
+candidatos a atacar o gargalo de `ESTRUTURA_DE_PEOES` (apontado no D-72).
+
+**Os 4 candidatos de estrutura de peões, o que cada um realmente era:**
+1. `feismo.com-pawn-structure-pr_...pdf` — não é o livro do Soltis, é o verbete
+   da Wikipédia em inglês "Pawn structure" (a lista de 17 formações do
+   Soltis é só citada, não reproduzida). Sem paginação real de livro, não
+   serve ao formato de citação do projeto — descartado.
+2. "Estrutura e Desenvolvimento dos Peões" (FM Bolívar Gonzalez, aula IV do
+   curso FEXPAR) — prosa real, 13 páginas, com partidas citadas de verdade
+   (ex. Portisch–Fischer, Sousse 1967). Processado.
+3. "Estrutura de Peões" (Mestre FIDE Frederico Gazel, @xadrezescolar) —
+   slides bem curtos, 7 conceitos em frases soltas (isolado, passado,
+   dobrado, atrasado, ligados, colgantes, ilha de peões). Processado mesmo
+   sendo raso, porque nomeia certinho o vocabulário da categoria.
+4. "PEÕES NA SÉTIMA.pdf" — 146 páginas, 100% imagem (sem camada de texto,
+   confirmado via leitura direta do PDF), 32MB. Não deu pra baixar pelo
+   conector do Drive (limite de 10MB da ferramenta) — fica pendente até o
+   usuário colocar o arquivo manualmente em `backend/rag/livros_pdf/`.
+
+**Achado que limita o resultado:** os dois materiais processados (#2 e #3)
+não têm título de capítulo que bata no `detect_chapter()` — são textos
+corridos de aula/slide, não livros com "Capítulo N". Resultado:
+`sugerir_indice_conceitual.py` rodou e devolveu **zero sugestões nos dois**
+(`Capítulos elegíveis: 0` ou `1 pulado por amostra curta`), então nenhuma
+linha nova entrou em `indice_conceitual` — o gargalo de citação de livro em
+`ESTRUTURA_DE_PEOES` continua aberto. Os 7 chunks entraram normalmente em
+`livros_chunks` e reforçam a busca vetorial (RAG), que independe de
+capítulo. Decidi não forçar entrada manual de conceito nesses dois: o
+schema de `indice_conceitual` existe para dado citável com página real, e
+"página 8 de um slide" não é uma citação útil pro usuário final. O próximo
+alvo real para fechar esse gargalo continua sendo um livro de verdade sobre
+estrutura de peões, com capítulos — candidato mais forte agora é o próprio
+"PEÕES NA SÉTIMA.pdf" pendente (#4 acima), depois de baixado.
+
+**Verificação real:** `--preview` rodado nos 2 arquivos antes de gastar
+qualquer coisa (0 custo, só extração local) — 6 chunks e 1 chunk
+respectivamente. Depois, processamento completo de verdade contra o
+Supabase de produção (`pmzmershonrqzwbmhaco`): `livros_chunks` confirmado
+em 807 (era 800) por query direta. `sugerir_indice_conceitual.py` rodado
+para os dois, confirmando 0 sugestões em ambos antes de decidir não
+processar `indice_conceitual` para eles.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a
