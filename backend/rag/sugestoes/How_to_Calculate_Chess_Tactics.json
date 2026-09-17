@@ -1,0 +1,176 @@
+{
+  "livro": "How to Calculate Chess Tactics",
+  "capitulos": [
+    {
+      "capitulo": "Part 1: Tactics in Chess",
+      "pagina_min": 7,
+      "pagina_max": 12,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "Falhas no cálculo concreto e a omissão de recursos táticos podem arruinar imediatamente até as melhores posições."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "O julgamento correto de uma posição depende intrinsecamente da capacidade de calcular variantes concretas com precisão."
+        },
+        {
+          "conceito": "ordem de lances",
+          "resumo_curto": "O sucesso de concepções posicionais depende inteiramente da precisão na sequência exata de jogadas calculadas."
+        }
+      ]
+    },
+    {
+      "capitulo": "PART 1: TACTICS IN CHESS Il",
+      "pagina_min": 13,
+      "pagina_max": 18,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "golpe tático",
+          "resumo_curto": "Lances forçados e contundentes que quebram o padrão da posição e decidem a partida de forma imediata."
+        },
+        {
+          "conceito": "visão em túnel",
+          "resumo_curto": "Barreira psicológica que cega o jogador para lances excepcionais e não convencionais durante o cálculo."
+        },
+        {
+          "conceito": "xeque cruzado",
+          "resumo_curto": "Resposta tática contundente em que a defesa contra um xeque é feita aplicando outro xeque no adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "HOW TO CALCULATE CHESS TACTICS",
+      "pagina_min": 19,
+      "pagina_max": 175,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A vulnerabilidade do rei adversário mal defendido torna-se o alvo principal para a condução de um ataque forçado e decisivo."
+        },
+        {
+          "conceito": "ataque duplo",
+          "resumo_curto": "Recurso tático temático que cria ameaças simultâneas para concretizar vantagens decisivas sem a necessidade obrigatória de sacrifícios."
+        },
+        {
+          "conceito": "coordenacao de pecas",
+          "resumo_curto": "A harmonia e a cooperação precisa entre as forças permitem impor linhas forçadas e superar desvantagens na posição."
+        }
+      ]
+    },
+    {
+      "capitulo": "PART I: TACTICS IN CHESS 4]",
+      "pagina_min": 43,
+      "pagina_max": 56,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A vulnerabilidade do rei sobrepõe-se a outros fatores na posição, exigindo máxima urgência e precisão no ataque."
+        },
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "Deixar de criar ameaças concretas no momento oportuno permite ao adversário assumir o controle dinâmico da partida."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "A ausência de precisão tática impede a conversão de vantagens estratégicas e costuma custar a vitória."
+        }
+      ]
+    },
+    {
+      "capitulo": "EXERCISES FOR PART |",
+      "pagina_min": 58,
+      "pagina_max": 58,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "A resolução de diagramas treina a precisão na visualização de variantes para evitar falhas táticas durante a partida."
+        },
+        {
+          "conceito": "perda_de_material",
+          "resumo_curto": "Os exercícios exercitam a identificação de golpes táticos para conquistar vantagens decisivas ou defender peças ameaçadas."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "As posições estimulam o reconhecimento de debilidades na ala do rei adversário para executar arremates combinatórios."
+        }
+      ]
+    },
+    {
+      "capitulo": "Part 2: The Technique of Calculating",
+      "pagina_min": 60,
+      "pagina_max": 104,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "A presença de um motivo tático conhecido não garante o sucesso da combinação sem um cálculo concreto e rigoroso das variantes."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Desferir sacrifícios temáticos sem o suporte necessário permite ao adversário consolidar a defesa e reter a vantagem material."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A exposição do rei em torno do roque permite temas de ataque fulminantes, como o clássico sacrifício de bispo em h7."
+        }
+      ]
+    },
+    {
+      "capitulo": "PART 2: THE TECHNIQUE OF CALCULATING VARIATIONS",
+      "pagina_min": 105,
+      "pagina_max": 133,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "A incapacidade de antecipar lances táticos intermediários em linhas forçadas resulta em erros decisivos."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Forças dispersas e desunidas deixam a posição frágil e incapaz de conter a iniciativa adversária."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Julgar posições complexas apenas por intuição sem o cálculo concreto de variantes conduz a conclusões equivocadas."
+        }
+      ]
+    },
+    {
+      "capitulo": "‘HOW TO CALCULATE CHESS TACTICS",
+      "pagina_min": 171,
+      "pagina_max": 172,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A vulnerabilidade da posição do monarca adversário permite arremates táticos diretos e sacrifícios decisivos."
+        },
+        {
+          "conceito": "remocao de defensor",
+          "resumo_curto": "Elimina-se a peça-chave responsável por manter a coesão defensiva do adversário para viabilizar a invasão."
+        },
+        {
+          "conceito": "erro_tecnico_de_final",
+          "resumo_curto": "A falta de precisão extrema no cálculo de tempos e nas manobras de rei em finais pode custar a vitória."
+        }
+      ]
+    },
+    {
+      "capitulo": "DUKE OF BRUNSWICK AND COUNT ISOUARD",
+      "pagina_min": 176,
+      "pagina_max": 177,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "O livro foca no aprimoramento do processo de cálculo para evitar erros e imprecisões em posições táticas complexas."
+        },
+        {
+          "conceito": "erro_tecnico_de_final",
+          "resumo_curto": "A análise de composições e estudos clássicos visa prevenir falhas conceituais e técnicas na condução de finais."
+        },
+        {
+          "conceito": "visao_em_tunel",
+          "resumo_curto": "A resolução de exercícios táticos combate a tendência de focar apenas em lances óbvios sem considerar as respostas do adversário."
+        }
+      ]
+    }
+  ]
+}

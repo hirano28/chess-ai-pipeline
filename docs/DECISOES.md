@@ -3936,6 +3936,97 @@ tema) e `diagnostico-secao` — 322 frontend.
 
 ---
 
+### D-72 — Quarto livro no RAG ("How to Calculate Chess Tactics") e um bug real de chunking corrigido
+
+**Pedido do dono:** fazer mais OCR de livros para enriquecer o que der.
+
+**Levantamento antes de gastar Gemini.** `backend/rag/livros_pdf/` tinha 2 PDFs
+ainda não processados. Antes de rodar o pipeline caro (OCR + embedding +
+sugestão de conceitos), rodei `--preview` nos dois — modo que só faz o chunking
+local, sem custo:
+
+- **"How to Calculate Chess Tactics" (Valeri Beim, 178 páginas):** já tinha OCR
+  em cache de uma sessão anterior (14–15/09). Prosa real, boa candidata.
+- **"5334 Táticas de Xadrez" (1184 páginas):** ao inspecionar o texto nativo
+  extraído (`pdfplumber`), ele não é prosa nem OCR malformado — é a saída
+  literal de uma **fonte de diagrama** (glifos tipo `0Z0ZrZ0Z` que renderizam
+  peças/casas, usados por softwares de diagramação para desenhar o tabuleiro
+  como texto). O livro (**5334 Problems, Combinations & Games**, de László
+  Polgár) é praticamente só diagramas de posição, sem texto explicativo.
+  **Decisão: não processar.** Chunk nenhum desse livro teria conteúdo
+  conceitual — só poluiria `livros_chunks` e apareceria como citação vazia
+  ("Fonte: pág. 55") nas prescrições do Agente 3. O que esse livro daria de
+  útil (posições táticas soltas) já vem, de forma estruturada e com FEN de
+  verdade, do dump de puzzles do Lichess (D-49, tabela `exercicios_taticos`) —
+  não precisa de OCR nenhum.
+
+**Bug real achado no chunking, não hipotético.** O preview de "How to
+Calculate Chess Tactics" (idioma certo, `--ocr-lang eng`) chunkeou em **41
+"capítulos"**, a maioria lixo tipo `PART 1: TACTICS IN CHESS 19` — o cabeçalho
+de página do livro, que muda de texto a cada página (o número no fim), então
+`remove_repeated_headers` (que só apara repetição *exata*) nunca via os
+cabeçalhos como iguais. A causa era um bug em `detect_chapter`: o guard que
+deveria rejeitar título terminado em dígito solto comparava a linha inteira
+contra uma regex que SEMPRE casava (`\d+\s*$` bate em qualquer string
+terminada em dígito) — código morto que nunca rejeitava nada. Corrigido para
+checar só o **sufixo** depois do número do capítulo (grupo nomeado no regex):
+um título real termina no próprio número/romano ("PART 3", sem sufixo) ou em
+palavra ("PART 3 - Calculation Trees"); só um cabeçalho de página termina o
+sufixo em outro dígito solto. Com a correção, o mesmo livro caiu para **9
+capítulos reais** (mais 1 sem capítulo). 2 testes novos em
+`test_processar_livro.py`, os 11 existentes continuam passando — nenhum dos
+casos já cobertos (português, inglês, numerado) termina em dígito, então o
+fix não muda o comportamento deles. Conferi rodando o preview dos 3 livros já
+importados: `How to Reassess Your Chess` deu exatamente os mesmos 251 chunks
+de antes — o bug não afetava livros sem esse padrão de cabeçalho.
+
+**Pipeline real executado**, na mesma sequência manual dos 3 livros
+anteriores: `processar_livro.py` (OCR do cache + chunking + embedding) → 179
+chunks em `livros_chunks` → `sugerir_indice_conceitual.py` (Gemini, 1 chamada
+por capítulo, 9 capítulos) → 27 conceitos revisados à mão no JSON antes de
+importar → `importar_indice_conceitual.py` → `indice_conceitual`. 3 títulos de
+capítulo com resíduo de OCR que a limpeza automática de borda não cobre
+(`PART 1: TACTICS IN CHESS Il`, `PART I: TACTICS IN CHESS 4]`,
+`EXERCISES FOR PART |`) foram corrigidos à mão nas duas tabelas — mesmo
+precedente já documentado no código para os livros anteriores.
+
+**Achado colateral, não corrigido agora:** o casamento de `buscar_conceitos`
+(usado por `resolver_citacao` nas prescrições do Agente 3) é `ILIKE` literal
+contra `CATEGORY_SEARCH_TERMS`, que usa português acentuado ("segurança do
+rei"). Boa parte dos conceitos que o Gemini sugere — dos 3 livros antigos e
+deste novo — vêm em formato de tag sem acento (`seguranca_do_rei`,
+`avaliacao_posicional_incorreta`), que não bate com o termo de busca
+acentuado. Ou seja: esses conceitos aparecem em `indice_conceitual` (existem,
+contam nas estatísticas) mas uma fatia deles nunca é *encontrada* pela busca
+de citação — só o RAG vetorial (`match_livros_chunks`, usado direto pelo
+Agente 3 pra montar os módulos de sprint) não sofre disso, porque compara
+embedding, não string. Pré-existente, não introduzido aqui; mexer nisso é
+trabalho à parte (normalizar `CATEGORY_SEARCH_TERMS` ou usar `unaccent()` no
+Postgres).
+
+**Cobertura por categoria não mudou onde mais precisava.** Contagem de
+`indice_conceitual` batida contra `CATEGORY_SEARCH_TERMS` antes/depois:
+TATICA 8, ESTRATEGIA 9, FINAIS 12→14, ESTRUTURA_DE_PEOES 4 (inalterada),
+GESTAO_DE_TEMPO 10→11, CALCULO 10→11. `ESTRUTURA_DE_PEOES` continua sendo o
+gargalo — tem cobertura cheia no catálogo tático do Lichess (300 exercícios,
+D-49) mas quase nada de citação de livro. Um livro específico de estrutura de
+peões (ex.: "Pawn Structure Chess", Soltis) seria o próximo alvo mais
+valioso, mas precisa vir de fora — não posso obter PDF de livro protegido por
+mim mesmo; depende do dono colocar o arquivo em `backend/rag/livros_pdf/`.
+
+**Verificação real:** rodei os 3 scripts contra o Supabase de produção de
+verdade (não é dry-run) — 179 linhas em `livros_chunks`, 27 em
+`indice_conceitual`, contagem final conferida por query. `pytest`/`unittest`
+completo do módulo depois do fix: 13/13. Processos órfãos do Windows (2
+tentativas iniciais com idioma OCR errado, que rodaram em paralelo por engano)
+identificados via `Get-CimInstance Win32_Process` e encerrados antes de
+qualquer cache ser gravado com o idioma errado — conferido que nenhum arquivo
+de cache espúrio ficou em `.ocr_cache/`.
+
+**Testes:** 13 em `test_processar_livro.py` (eram 11).
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

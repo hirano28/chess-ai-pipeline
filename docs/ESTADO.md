@@ -93,8 +93,8 @@ pendência P-11 abaixo).
 | `perfis_usuario` | 2 (o dono do acervo + uma conta sem partida ingerida). É a tabela que prova que o multi-tenant do D-28 não é hipótese |
 | `puzzle_atividade` | 660, em 41 dias distintos |
 | `tempos_lance` | 16.161, cobrindo 228 partidas (4.847 do Lichess + 11.314 do Chess.com via backfill D-43) |
-| `livros_chunks` | 621 (370 anteriores + 251 de *How to Reassess Your Chess*, Silman 3ª ed.) |
-| `indice_conceitual` | 189 (67 anteriores + 122 de *How to Reassess Your Chess*, Silman 3ª ed.) |
+| `livros_chunks` | 800 (621 anteriores + 179 de *How to Calculate Chess Tactics*, Beim) |
+| `indice_conceitual` | 216 (189 anteriores + 27 de *How to Calculate Chess Tactics*, Beim) |
 | `anotacoes_pensamento` | 23, cobrindo 3 partidas |
 | `revisoes_pensamento` | 23, todas em 1 único dia |
 | `revisao_exercicio_avulso` | 17 |
@@ -853,8 +853,9 @@ nesse formato — o que quebraria com `--update-env-vars` inline).
 ## 5. O que está validado e funcionando
 
 Ingestão Lichess + Chess.com; Stockfish com detecção de `PICO` e `EROSAO`;
-Agentes 1, 2 e 3; RAG com 3 livros processados ("Meu Sistema" de Nimzowitsch,
-"Xadrez Vitorioso: Táticas" de Seirawan/Silman e "How to Reassess Your Chess" de Jeremy Silman);
+Agentes 1, 2 e 3; RAG com 4 livros processados ("Meu Sistema" de Nimzowitsch,
+"Xadrez Vitorioso: Táticas" de Seirawan/Silman, "How to Reassess Your Chess" de
+Jeremy Silman e "How to Calculate Chess Tactics" de Valeri Beim, D-72);
 Laboratório de Raciocínio com notação PT/EN, reconhecimento de posição por foto, preview do tabuleiro e
 histórico navegável dos exercícios salvos; Explicador de Posição com
 persistência automática e histórico navegável; Analisador de Partida com

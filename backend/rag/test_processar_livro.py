@@ -60,6 +60,19 @@ class TestDetectChapter(unittest.TestCase):
         self.assertIsNone(detect_chapter("lance normal e4 e5 sem capítulo"))
         self.assertIsNone(detect_chapter("Capítulo com vírgula, no meio da frase"))
 
+    def test_cabecalho_repetido_com_numero_de_pagina_nao_e_capitulo(self) -> None:
+        """Achado processando 'How to Calculate Chess Tactics' (D-72): o
+        cabeçalho de página "PART 1: TACTICS IN CHESS 19" bate no padrão de
+        capítulo e muda de linha a cada página (o número no fim), então o
+        dedup de cabeçalho repetido (que exige texto idêntico) não pegava —
+        virava um "capítulo" novo por página."""
+        self.assertIsNone(detect_chapter("PART 1: TACTICS IN CHESS 19"))
+        self.assertIsNone(detect_chapter("PART 2: THE TECHNIQUE OF CALCULATING VARIATIONS 59"))
+        # Mas um título legítimo terminado no próprio número/romano do
+        # padrão, sem sufixo nenhum, continua válido.
+        self.assertEqual(detect_chapter("SECTION IV"), "SECTION IV")
+        self.assertEqual(detect_chapter("PART 3"), "PART 3")
+
 
 class TestSplitWordsWithOverlap(unittest.TestCase):
     """Testes para a divisão de texto em chunks com sobreposição."""

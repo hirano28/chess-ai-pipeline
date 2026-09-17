@@ -64,7 +64,7 @@ INDICE_MARKERS = (
 
 CHAPTER_PATTERNS = (
     re.compile(
-        r"^\s*(CAP[IÍ]TULO|PARTE|CHAPTER|PART|SECTION)\s+[\dIVXLC]+\s*(?:[-—:]\s*.+)?$",
+        r"^\s*(CAP[IÍ]TULO|PARTE|CHAPTER|PART|SECTION)\s+[\dIVXLC]+\s*(?P<sufixo>[-—:]\s*.+)?$",
         re.IGNORECASE,
     ),
 )
@@ -259,11 +259,20 @@ def detect_chapter(line: str, allow_numbered: bool = True) -> str | None:
     if not stripped or len(stripped) > 60:
         return None
     for pattern in CHAPTER_PATTERNS:
-        if pattern.match(stripped):
-            if "," in stripped or "." in stripped or (
-                stripped.endswith(tuple(str(number) for number in range(10)))
-                and not re.search(r"\b(?:[IVXLC]+|\d+)\s*$", stripped)
-            ):
+        match = pattern.match(stripped)
+        if match:
+            # Achado processando um livro real (D-72): um cabeçalho repetido
+            # tipo "PART 1: TACTICS IN CHESS 19" (título + número da página
+            # colado no fim) bate neste padrão e MUDA de linha a cada página
+            # — o dedup de `remove_repeated_headers` só pega repetição
+            # exata, então cada página virava um "capítulo" novo. Um título
+            # legítimo pode terminar no próprio número/romano do padrão
+            # ("PART 3", sem sufixo nenhum), mas quando HÁ um sufixo depois
+            # dele (o "- Título" ou ": Título"), esse sufixo nunca termina
+            # organicamente num número solto — só um cabeçalho de página faz
+            # isso. Por isso só o sufixo é checado, não a linha inteira.
+            sufixo = match.group("sufixo")
+            if "," in stripped or "." in stripped or (sufixo and sufixo.rstrip()[-1:].isdigit()):
                 return None
             return stripped
     if allow_numbered and NUMBERED_CHAPTER_PATTERN.fullmatch(stripped):
