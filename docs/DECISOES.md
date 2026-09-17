@@ -3137,6 +3137,87 @@ verdade"; verificar de verdade inclui perguntar se o que passou chegou.
 
 ---
 
+### D-62 — A coleta do Lichess para de reconstruir o PGN e passa a pedir o oficial
+
+**O sintoma que abriu a investigação** foi estatístico, não um erro: `cadencia`
+`DESCONHECIDA` em **67 de 67** partidas do Lichess, contra **0 de 161** do
+Chess.com. 100% de um lado e 0% do outro não é ruído de dado faltante — é
+sistema.
+
+**A causa.** `fetch_games()` pedia só `opening=true`. Sem `pgnInJson`, o NDJSON
+vem sem a chave `pgn`, e `build_pgn()` caía no ramo de reconstrução: montava um
+PGN de seis cabeçalhos a partir da lista de lances. `TimeControl` não era um
+deles. O dado nunca faltou na fonte — a resposta já trazia
+`clock: {initial, increment}` e `speed`; nós é que pedíamos menos do que
+precisávamos e jogávamos o resto fora.
+
+Isso derrubou uma afirmação que o `ESTADO.md` repetia como se fosse
+característica do acervo: "não há nenhuma partida clássica". **Havia três.**
+Elas estavam escondidas atrás da nossa própria ingestão.
+
+**A correção** é pedir `pgnInJson`, `tags` e `clocks`. `build_pgn()` não mudou
+uma linha: ele já preferia `game["pgn"]` quando existisse, e a reconstrução
+volta a ser o fallback que sempre deveria ter sido. As três colunas de cadência
+passam a ser preenchidas na coleta, como o Chess.com já fazia, reusando
+`campos_de_cadencia()` do D-57. `evals` ficou de fora de propósito: engordaria
+todo PGN com uma avaliação que ninguém lê hoje.
+
+**O backfill precisou ser outro script.** `backfill_cadencia.py` lê o
+`TimeControl` do PGN guardado, e aqui o PGN guardado *era* o problema — rodá-lo
+devolveria DESCONHECIDA de novo, corretamente. `backfill_pgn_lichess.py`
+rebusca o PGN na fonte (endpoint de exportação por IDs, até 300 por chamada).
+
+**A trava de segurança e o que ela revelou.** Regravar o PGN de partidas já
+analisadas é perigoso: `lances_criticos.numero_lance` aponta para aquela
+numeração. Por isso o script compara a sequência de lances antes de gravar, e
+foi essa comparação que expôs um segundo defeito, mais sério que o primeiro —
+`build_pgn()` tinha um `break` silencioso ao topar com SAN que não parseava:
+
+- `F031uGaP` foi gravada com **zero lances** e virou `falhou` no Stockfish;
+- `wSfk0zwh` foi gravada com **um lance** e passou por `concluido`, isto é,
+  entrou na estatística do produto como partida analisada.
+
+As duas são `variant: fromPosition` — partem de um FEN próprio, e a
+reconstrução sempre começava da posição inicial padrão. O `d4` gravado é um
+lance **diferente** do `d4` jogado. Daí os três vereditos do classificador:
+`igual` (85 casos, troca só acrescenta cabeçalho), `truncado` (prefixo: a
+numeração existente continua válida) e `posicao_errada` (divergência com causa
+conhecida). Só `divergente` — divergência sem explicação — segue recusada.
+
+Nos dois casos recuperados o script apaga `lances_criticos` e devolve a partida
+para `pendente` (R7). Reanalisadas, as duas foram recusadas pelo motor com
+"variante não padrão: From Position" — o comportamento correto. **O ganho não é
+ter mais partidas analisadas, é uma partida errada ter deixado de se passar por
+certa.**
+
+**Resultado medido**, no corpus inteiro: `DESCONHECIDA` 68 → 1 (a única
+restante é um PGN colado à mão, sem fonte para rebuscar); `RAPIDA` 30 → 78;
+`CLASSICA` 0 → 3; `BLITZ` 142 → 187.
+
+Duas ressalvas sobre como ler isso, porque o produto é multiusuário e o
+Hexágono filtra por dono:
+
+- **as 3 clássicas são do `Gazola`**, o segundo perfil. O dono principal
+  continua com zero partida clássica, então a ressalva de sempre sobre o
+  diagnóstico dele segue de pé;
+- a tela dele passou de "59% blitz" para **72,3%**, não 69,5% — este último é
+  o número do banco somado, que não descreve jogador nenhum.
+
+Em ambas as leituras o viés **aumentou**. A correção não melhorou o retrato do
+corpus, tornou-o honesto, e é esse o ponto.
+
+**Um item do plano que a investigação recusou.** Eu havia listado "o
+enriquecimento do Lichess cobre 18 de 67 partidas" como lacuna a corrigir nesta
+fase. Investigado: `players.<cor>.analysis` só existe para partidas que foram
+analisadas no servidor do Lichess, e pedir `evals`/`accuracy` não muda isso —
+numa amostra real de 30 partidas, 15 têm e 15 não têm. É limite da fonte, não
+do nosso pedido. Fica registrado como tal em vez de virar tarefa que não tem
+como ser concluída.
+
+**Testes:** 24 novos (750 no total).
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

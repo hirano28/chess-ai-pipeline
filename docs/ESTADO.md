@@ -66,7 +66,7 @@ pendência P-11 abaixo).
 
 | Tabela | Linhas |
 |---|---|
-| `partidas` | **269** (02/07/2026 a 16/09/2026); 268 `concluido` e **1 `falhou`** (`F031uGaP`, Lichess, mar/2026), 230 com `abertura_normalizada`, todas com `cadencia` preenchida (D-57). As 29 mais recentes entraram na recuperação de 17/09 depois do D-61 — a coleta estava parada desde 15/09 |
+| `partidas` | **269** (02/07/2026 a 16/09/2026); 267 `concluido` e **2 `falhou`** — as duas `variant: fromPosition`, recusadas pelo motor, desmascaradas pelo D-62 (uma delas constava como `concluido` tendo sido analisada com um único lance). 230 com `abertura_normalizada`; **268 das 269 com cadência real** desde o D-62, a única exceção sendo um PGN colado à mão |
 | `lances_criticos` | **802** (635 `PICO` + 83 `EROSAO` antes da recuperação; os 84 novos vieram dela) |
 | `diagnosticos` | **802** — paridade total com `lances_criticos`, nenhum lance sem diagnóstico |
 | `perfis_usuario` | 2 (o dono do acervo + uma conta sem partida ingerida). É a tabela que prova que o multi-tenant do D-28 não é hipótese |
@@ -89,33 +89,56 @@ pendência P-11 abaixo).
 
 ## 3. Composição do corpus — dado que muda a leitura de tudo
 
-`verificado_em: 16/09/2026`, agora pela coluna `partidas.cadencia` (D-57) e
-não mais por contagem manual de `TimeControl`.
+`verificado_em: 17/09/2026`, pela coluna `partidas.cadencia` (D-57), **depois
+da correção de ingestão do D-62**.
 
-| Cadência | Partidas analisadas |
-|---|---|
-| BLITZ | 142 |
-| DESCONHECIDA | 68 |
-| RAPIDA | 30 |
-| **Total** | **240** |
+| Cadência | Corpus inteiro | Dono principal (`tantofaz123`) |
+|---|---|---|
+| BLITZ | 187 | 180 |
+| RAPIDA | 78 | 68 |
+| CLASSICA | 3 | **0** |
+| DESCONHECIDA | 1 | 1 |
+| **Total** | **269** | **249** |
 
-**59% do corpus analisado é blitz**, e outros 28% são partidas do Lichess sem
-header de `TimeControl`, gravadas como `DESCONHECIDA` em vez de chute.
+**As duas colunas existem porque o produto é multiusuário.** O acervo tem dois
+donos: `tantofaz123`/`edinho230` (249 partidas) e `Gazola` (20). O Hexágono e
+`GET /partidas/composicao` filtram por dono, então quem olha a tela vê a coluna
+da direita — 72,3% blitz, não 69,5%. Somar os dois só faz sentido para falar do
+banco, nunca para falar do jogador.
 
-> **Correção de 16/09/2026 sobre a causa.** Este parágrafo dizia que era
-> "cadência que o PGN simplesmente não informa". Errado. A varredura mediu
-> `DESCONHECIDA` por plataforma: são **67 de 67 partidas do Lichess** — 100%,
-> não uma amostra aleatória —, contra **0 de 161** do Chess.com. A causa é
-> nossa: `build_pgn()` em `coletar_partidas.py` reconstrói o PGN a partir do
-> ndjson com 6 tags, e `TimeControl` não é uma delas. A resposta do Lichess já
-> traz `clock` e `speed`; nós descartamos. Por isso `tempo_base_segundos` está
-> nulo em 67/67 do Lichess e preenchido em 161/161 do Chess.com. É correção de
-> ingestão, não limitação da fonte — ver a Fase 1 do planejamento. Não há nenhuma partida
-clássica no acervo. Qualquer conclusão sobre "o gargalo do jogador" continua
-misturada com o efeito do relógio; a diferença desde o D-57 é que agora **dá
-para filtrar**, e o Hexágono exibe a ressalva acima do diagnóstico em vez de
-deixá-la só aqui. A tag mais frequente é `calculo_tatico_deficiente` (29,8% de
-todas as tags), o que é esperado a ~2 segundos por lance.
+**As 3 partidas clássicas que o D-62 revelou são do `Gazola`.** O dono
+principal continua sem nenhuma partida clássica no acervo, o que mantém de pé a
+ressalva de sempre sobre o diagnóstico dele.
+
+A ressalva que o Hexágono exibe acima do diagnóstico sai daqui, calculada ao
+vivo e por dono.
+
+> **O que estes números eram até 17/09/2026, e por quê.** A tabela dizia BLITZ
+> 142 / DESCONHECIDA 68 / RAPIDA 30, com o texto afirmando que **não havia
+> nenhuma partida clássica no acervo**. As três afirmações estavam
+> contaminadas pela nossa própria coleta: `build_pgn()` reconstruía o PGN do
+> Lichess sem o header `TimeControl`, então 100% das partidas de lá caíam em
+> DESCONHECIDA. Corrigida a ingestão e rebuscados os 87 PGNs oficiais
+> (`backfill_pgn_lichess.py`), apareceram **3 partidas clássicas** — do
+> `Gazola`, não do dono principal — e a contagem de rápidas mais que dobrou.
+>
+> Repare na direção: o viés de blitz **aumentou**, de 59% para 69,5% no corpus
+> e 72,3% na tela do dono principal. A correção não melhorou o retrato,
+> tornou-o honesto — e esse é o ponto. Ver D-62 em `DECISOES.md`.
+
+A única `DESCONHECIDA` restante é um PGN colado à mão (`plataforma = MANUAL`),
+sem fonte de onde rebuscar cabeçalho. Qualquer conclusão sobre "o gargalo do
+jogador" continua misturada com o efeito do relógio; a diferença desde o D-57 é
+que agora **dá para filtrar**. A tag mais frequente é
+`calculo_tatico_deficiente` (29,8% de todas as tags), o que é esperado a ~2
+segundos por lance.
+
+**Duas partidas `From Position` foram desmascaradas no caminho** (D-62): a
+reconstrução antiga as gravava a partir da posição inicial padrão, e uma delas
+constava como `concluido` tendo sido analisada com **um único lance**. As duas
+agora estão em `falhou`, recusadas pelo motor com "variante não padrão" — que é
+a resposta certa. São as 2 do total de 269 que não entram em nenhuma
+estatística de diagnóstico.
 
 **O que ainda falta:** o Agente 2 continua calculando o Hexágono sobre TODAS
 as partidas juntas. Separar "o gargalo em clássicas" de "o gargalo em blitz"

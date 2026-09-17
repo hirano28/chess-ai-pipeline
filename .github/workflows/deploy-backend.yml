@@ -76,6 +76,7 @@ jobs:
             backend.common.test_spaced_repetition \
             backend.common.test_syzygy_tablebase \
             backend.common.test_tenant \
+            backend.ingestao.test_backfill_pgn_lichess \
             backend.ingestao.test_backfill_tempos_chesscom \
             backend.ingestao.test_coletar_partidas \
             backend.ingestao.test_coletar_partidas_chesscom \

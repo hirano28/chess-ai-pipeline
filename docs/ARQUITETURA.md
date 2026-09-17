@@ -55,9 +55,16 @@ Enriquecimentos que entram lateralmente nesse fluxo:
   relógio, tudo calculado pelo próprio Lichess).
 - `backend/agentes/normalizar_aberturas.py` → `partidas.abertura_normalizada`
   (agrupamento por família reconhecível; ver `BANCO.md` §4 e `DECISOES.md` D-12).
+- `backend/ingestao/backfill_pgn_lichess.py` → regrava `partidas.pgn` com o PGN
+  **oficial** do Lichess e as colunas de cadência (D-62). Existe porque até
+  então `coletar_partidas.py` não pedia `pgnInJson` e reconstruía um PGN de 6
+  cabeçalhos, sem `TimeControl` — o que jogava 100% do acervo do Lichess em
+  `cadencia = DESCONHECIDA`. Compara a sequência de lances antes de gravar, já
+  que `lances_criticos.numero_lance` referencia a numeração antiga.
 - `backend/ingestao/backfill_cadencia.py` → `partidas.cadencia` (D-57, execução
   única; a classificação em si mora em `backend/common/cadencia.py`, que a
-  coleta também chama para preencher a coluna em partida nova). Diferente de
+  coleta também chama para preencher a coluna em partida nova). Lê do PGN já
+  guardado — logo, **não** resolve o caso acima, em que o PGN é o problema. Diferente de
   `parse_time_control`, esse módulo **não chuta**: PGN sem header de
   `TimeControl` vira `DESCONHECIDA`, porque adivinhar contaminaria a própria
   estatística que a coluna existe para limpar.

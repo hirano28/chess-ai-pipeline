@@ -53,6 +53,7 @@ python -m unittest \
   backend.common.test_spaced_repetition \
   backend.common.test_syzygy_tablebase \
   backend.common.test_tenant \
+  backend.ingestao.test_backfill_pgn_lichess \
   backend.ingestao.test_backfill_tempos_chesscom \
   backend.ingestao.test_coletar_partidas \
   backend.ingestao.test_coletar_partidas_chesscom \
@@ -124,8 +125,20 @@ python backend/ingestao/backfill_eco_abertura.py        # ECO faltante (execuç�
 python backend/agentes/normalizar_aberturas.py          # abertura_normalizada (após novas levas de partidas)
 python backend/rag/importar_exercicios_taticos.py       # catálogo de exercícios táticos (D-49) — baixa o dump do Lichess, ~1-2min
 python backend/rag/importar_exercicios_posicionais.py   # catálogo posicional de partidas OTB (D-55) — broadcasts do Lichess, ~10min/mês
-python backend/ingestao/backfill_cadencia.py            # preenche partidas.cadencia (D-57) — execução única; --todas recalcula
+python backend/ingestao/backfill_cadencia.py            # preenche partidas.cadencia (D-57) do PGN já guardado; --todas recalcula
+python backend/ingestao/backfill_pgn_lichess.py         # rebusca o PGN oficial no Lichess (D-62); --simular não grava, --todas refaz tudo
 ```
+
+**Os dois backfills não são intercambiáveis.** `backfill_cadencia.py` lê o
+`TimeControl` do PGN **já guardado** — resolve quando o PGN está completo e só
+falta a coluna. `backfill_pgn_lichess.py` vai buscar o PGN na fonte — é o que
+resolve quando o próprio PGN está pobre, que era o caso de 100% do acervo do
+Lichess antes do D-62. Rode sempre o segundo **antes** do primeiro em partidas
+do Lichess; depois dele, o primeiro não tem mais o que fazer ali.
+
+Rode `--simular` antes de valer: ele imprime quantas partidas mudariam, a
+distribuição de cadência resultante e quais seriam recusadas por divergência de
+lances, sem tocar no banco.
 
 O importador posicional lê o mês **inteiro** de broadcasts e amostra por
 reservatório (D-58), então demora ~10 minutos por mês pedido. Vale a espera:

@@ -25,6 +25,10 @@ from backend.common.progress import (  # noqa: E402
     format_progress,
     log_and_print,
 )
+from backend.common.cadencia import (  # noqa: E402
+    campos_de_cadencia,
+    time_control_do_pgn,
+)
 from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 from backend.ingestao.common_ingestao import (  # noqa: E402
     already_exists,
@@ -39,6 +43,29 @@ configurar_encoding_utf8()
 
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "ingestao.log"
 LICHESS_GAMES_URL = "https://lichess.org/api/games/user/{username}"
+
+# Parâmetros da API de partidas do Lichess (D-62).
+#
+# Até aqui só se pedia `opening`, e o NDJSON vinha sem a chave `pgn` — então
+# `build_pgn()` reconstruía um PGN de 6 tags a partir de `moves`. O efeito só
+# apareceu ao medir: 67 de 67 partidas do Lichess ficaram com
+# `cadencia = DESCONHECIDA` e `tempo_base_segundos` nulo, contra 161 de 161
+# preenchidas no Chess.com. Não era limitação da fonte — era pedido incompleto.
+#
+# Com `pgnInJson` o Lichess devolve o PGN oficial, e `build_pgn()` passa a usar
+# o ramo que ele já tinha para esse caso. `tags` traz TimeControl, Elo, ECO,
+# Opening e Termination; `clocks` traz `[%clk]` por lance, que é o relógio real
+# do jogador e o insumo de GESTAO_DE_TEMPO.
+#
+# `evals` fica de fora de propósito: engordaria todo PGN armazenado com uma
+# avaliação que ninguém lê hoje — o Stockfish do pipeline calcula a sua. Vale
+# reabrir quando houver uso concreto.
+PARAMETROS_PARTIDA: dict[str, str] = {
+    "opening": "true",
+    "pgnInJson": "true",
+    "tags": "true",
+    "clocks": "true",
+}
 
 
 @dataclass(frozen=True)
@@ -92,7 +119,7 @@ def fetch_games(
         response = requests.get(
             url,
             headers=headers,
-            params={"max": settings.limit, "opening": "true"},
+            params=PARAMETROS_PARTIDA | {"max": settings.limit},
             timeout=30,
         )
         response.raise_for_status()
@@ -204,6 +231,34 @@ def build_pgn(game: dict[str, Any]) -> str:
     return str(pgn_game)
 
 
+def time_control_da_partida(game: dict[str, Any], pgn: str | None) -> str | None:
+    """Descobre o `TimeControl` da partida, no formato `"base+incremento"`.
+
+    A ordem importa. O header do PGN vem primeiro porque é ele que fica
+    gravado em `partidas.pgn`: assim as colunas de cadência concordam com o
+    que `backfill_cadencia.py` leria do PGN mais tarde, em vez de haver duas
+    verdades possíveis para a mesma partida.
+
+    O campo estruturado `clock` do NDJSON é o reserva, para o caso de o PGN
+    chegar sem o header. Partida por correspondência não tem `clock` nenhum, e
+    aí devolver None é a resposta certa — quem classifica sabe dizer
+    DESCONHECIDA sem chutar.
+    """
+
+    do_pgn = time_control_do_pgn(pgn)
+    if do_pgn:
+        return do_pgn
+
+    relogio = game.get("clock")
+    if not isinstance(relogio, dict):
+        return None
+    base = relogio.get("initial")
+    incremento = relogio.get("increment")
+    if not isinstance(base, int) or not isinstance(incremento, int):
+        return None
+    return f"{base}+{incremento}"
+
+
 def pgn_result(game: dict[str, Any]) -> str:
     """Retorna o resultado no formato padrão de PGN."""
 
@@ -228,11 +283,12 @@ def to_record(game: dict[str, Any], username: str) -> dict[str, Any]:
     own_player = white if own_color == "white" else black
     opponent = black if own_color == "white" else white
     opening = game.get("opening", {}) or {}
+    pgn = build_pgn(game)
 
     return {
         "plataforma": "LICHESS",
         "external_id": game["id"],
-        "pgn": build_pgn(game),
+        "pgn": pgn,
         "data_partida": game_timestamp(game),
         "resultado": normalized_result(game_result(game, own_color)),
         "cor_jogada": normalized_color(own_color),
@@ -240,6 +296,9 @@ def to_record(game: dict[str, Any], username: str) -> dict[str, Any]:
         "rating_oponente": opponent.get("rating"),
         "eco_abertura": opening.get("eco") if isinstance(opening, dict) else None,
         "status_processamento": "pendente",
+        # D-62: o Chess.com já gravava estas três na coleta; o Lichess não,
+        # e por isso 100% do acervo dele caía em DESCONHECIDA.
+        **campos_de_cadencia(time_control_da_partida(game, pgn)),
     }
 
 
