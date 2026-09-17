@@ -39,6 +39,24 @@ PAGE_SIZE = 1000
 # padrão de configuração por env var de LIMITE_DIARIO_* em D-32.
 TREINO_NOVOS_POR_DIA = int(os.getenv("TREINO_NOVOS_POR_DIA", "10"))
 
+# Até quantos dias à frente a fila pode agendar material NOVO (D-64).
+#
+# A válvula que faltava. Até aqui todo card novo entrava a partir de `hoje`,
+# então cada execução empilhava mais 10 vencidos sobre os que já estavam
+# vencidos — a fila crescia no ritmo da INGESTÃO, não no do consumo. Medido em
+# 17/09/2026: 657 cards, 655 nunca respondidos, 61 dias de horizonte, 2
+# respondidos na vida.
+#
+# Duas regras substituem isso: material novo vai para o FIM da fila (nunca
+# disputa o dia com o que já está atrasado), e nada é agendado além deste
+# horizonte. Material além do teto não se perde — o script reconsulta os
+# diagnósticos elegíveis a cada execução e o pega quando a fila drenar.
+#
+# Por que um teto, e não "agenda tudo, só que longe": prometer trabalho para
+# daqui a seis meses é ficção. Até lá o diagnóstico envelheceu, o jogador mudou
+# e a fila vira um número que só serve para intimidar.
+TREINO_HORIZONTE_DIAS = int(os.getenv("TREINO_HORIZONTE_DIAS", "60"))
+
 # tag_falha -> categoria do hexágono, invertendo HEXAGON_CATEGORIES.
 TAG_PARA_CATEGORIA: dict[str, str] = {
     tag: categoria
@@ -171,20 +189,58 @@ def resolver_citacao(client: Client, categoria: str | None) -> dict[str, Any] | 
     return citacao
 
 
+def primeiro_dia_livre(client: Client, user_id: str, hoje: date) -> date:
+    """Primeiro dia em que cabe material novo, para ele entrar no FIM da fila.
+
+    É o dia seguinte ao último já agendado para um card que o usuário ainda
+    não respondeu (`total_revisoes = 0`), ou hoje, se não houver nenhum.
+
+    Só contam os nunca respondidos: um card que já foi revisado e voltou para
+    daqui a 30 dias pelo SM-2 é trabalho previsto, não backlog — deixá-lo
+    empurrar o material novo adiaria a fila para sempre.
+    """
+
+    resposta = (
+        client.table("fila_treino_espacado")
+        .select("proxima_revisao_data")
+        .eq("user_id", user_id)
+        .eq("total_revisoes", 0)
+        .order("proxima_revisao_data", desc=True)
+        .limit(1)
+        .execute()
+    )
+    linhas = resposta.data or []
+    if not linhas or not linhas[0].get("proxima_revisao_data"):
+        return hoje
+    try:
+        ultima = date.fromisoformat(str(linhas[0]["proxima_revisao_data"]))
+    except ValueError:
+        # Data ilegível não pode derrubar a população da fila: cair em `hoje` é
+        # o comportamento anterior ao D-64, conservador e conhecido.
+        return hoje
+    return max(hoje, ultima + timedelta(days=1))
+
+
 def montar_linhas_novas(
     diagnosticos: list[dict[str, Any]],
     ja_na_fila: set[str],
     client: Client,
     user_id: str,
     hoje: date,
+    primeiro_dia: date | None = None,
+    horizonte_dias: int = TREINO_HORIZONTE_DIAS,
 ) -> list[dict[str, Any]]:
     """Monta as linhas a inserir, escalonando no máximo TREINO_NOVOS_POR_DIA/dia.
 
-    Os primeiros TREINO_NOVOS_POR_DIA candidatos (na ordem em que vieram do
-    banco) entram pra hoje; o resto recebe proxima_revisao_data em dias
-    seguintes, TREINO_NOVOS_POR_DIA por dia - evita que um backlog grande
-    (ex: primeira execução, com meses de diagnósticos acumulados) vire uma
-    fila de centenas de cards "vencidos" no mesmo dia.
+    O escalonamento começa em `primeiro_dia` (o fim da fila, ver
+    `primeiro_dia_livre`) e não passa de `hoje + horizonte_dias` — as duas
+    metades da válvula do D-64. Antes dela o início era sempre `hoje`, e cada
+    execução jogava mais 10 cards vencidos por cima dos que já estavam
+    atrasados.
+
+    O que passa do horizonte é deixado de fora **de propósito**: os
+    diagnósticos continuam no banco e voltam a ser candidatos na próxima
+    execução, quando a fila tiver drenado.
     """
 
     candidatos: list[tuple[str, dict[str, Any]]] = []
@@ -197,9 +253,15 @@ def montar_linhas_novas(
             continue
         candidatos.append((lance_id, diagnostico))
 
+    inicio = primeiro_dia or hoje
+    ultimo_dia_permitido = hoje + timedelta(days=horizonte_dias)
+    por_dia = max(1, TREINO_NOVOS_POR_DIA)
+
     linhas: list[dict[str, Any]] = []
     for indice, (lance_id, diagnostico) in enumerate(candidatos):
-        dias_de_espera = indice // TREINO_NOVOS_POR_DIA
+        dia = inicio + timedelta(days=indice // por_dia)
+        if dia > ultimo_dia_permitido:
+            break
         tags = diagnostico.get("tags_falha") or []
         categoria = TAG_PARA_CATEGORIA.get(tags[0]) if tags else None
         citacao = resolver_citacao(client, categoria)
@@ -207,7 +269,7 @@ def montar_linhas_novas(
             {
                 "user_id": user_id,
                 "lance_id": lance_id,
-                "proxima_revisao_data": (hoje + timedelta(days=dias_de_espera)).isoformat(),
+                "proxima_revisao_data": dia.isoformat(),
                 "livro_citado": citacao.get("livro") if citacao else None,
                 "capitulo_citado": citacao.get("capitulo") if citacao else None,
                 "pagina_citada": citacao.get("pagina_aprox") if citacao else None,
@@ -226,9 +288,22 @@ def popular_para_usuario(
         return 0
 
     ja_na_fila = lances_ja_na_fila(client, user_id)
-    linhas = montar_linhas_novas(diagnosticos, ja_na_fila, client, user_id, hoje)
+    inicio = primeiro_dia_livre(client, user_id, hoje)
+    linhas = montar_linhas_novas(
+        diagnosticos, ja_na_fila, client, user_id, hoje, primeiro_dia=inicio
+    )
     if not linhas:
-        log_and_print(logger, f"Usuário {user_id}: fila já em dia, nada novo.")
+        # Duas causas possíveis, e vale distinguir no log: ou não há material
+        # novo, ou há e a fila está cheia até o horizonte (D-64).
+        if inicio > hoje + timedelta(days=TREINO_HORIZONTE_DIAS):
+            log_and_print(
+                logger,
+                f"Usuário {user_id}: fila cheia até {inicio.isoformat()}; "
+                f"material novo aguarda a fila drenar (horizonte de "
+                f"{TREINO_HORIZONTE_DIAS} dias).",
+            )
+        else:
+            log_and_print(logger, f"Usuário {user_id}: fila já em dia, nada novo.")
         return 0
 
     client.table("fila_treino_espacado").upsert(

@@ -3303,6 +3303,71 @@ console do Google resolve.
 
 ---
 
+### D-64 — A fila para de crescer no ritmo da ingestão, e a pergunta sem resposta possível some
+
+Dois itens do planejamento de 17/09 (M2 e M3). Nenhum dos dois consome Gemini.
+
+**M2 — a válvula que faltava na fila de treino.** Até aqui todo card novo era
+agendado a partir de `hoje`: cada execução do pipeline jogava mais 10 cards
+vencidos por cima dos que já estavam atrasados. A fila crescia no ritmo da
+**ingestão**, não no do consumo. Medido antes de mexer: 657 cards, **655 nunca
+respondidos**, 2 respondidos na vida do recurso, 61 dias de horizonte.
+
+Duas regras substituem isso:
+
+1. **Material novo vai para o fim da fila** (`primeiro_dia_livre`): começa no
+   dia seguinte ao último já agendado para um card ainda não respondido. Só
+   contam os nunca respondidos — um card que já foi revisado e volta em 30 dias
+   pelo SM-2 é trabalho previsto, não backlog, e deixá-lo empurrar o material
+   novo adiaria a fila para sempre.
+2. **Horizonte de `TREINO_HORIZONTE_DIAS`** (60): nada é agendado além disso. O
+   que não cabe **não se perde** — o script reconsulta os diagnósticos
+   elegíveis a cada execução e os pega quando a fila drenar.
+
+Por que um teto e não "agenda tudo, só que longe": prometer trabalho para daqui
+a seis meses é ficção. Até lá o diagnóstico envelheceu, o jogador mudou, e a
+fila vira um número que só serve para intimidar.
+
+Verificado em dado real na mesma hora: o dono principal recebeu **0 cards**
+("fila cheia até 2026-11-18") em vez de mais 4 vencidos hoje; o segundo perfil,
+com fila curta, recebeu 3 normalmente. A válvula é por usuário, como tem de
+ser.
+
+**M3 — perguntas pendentes ganham prazo de validade.** 6 pendentes, **todas de
+partidas de 10 dias atrás**, **nenhuma respondida desde que o recurso existe** —
+e permanentes no topo do dashboard, acima do próprio diagnóstico.
+
+O diagnóstico honesto: a pergunta é sempre "no lance 16, o que você estava
+pensando?". Ela só tem resposta enquanto o jogador lembra do momento. Depois
+disso não é tarefa pendente, é entulho que finge ser tarefa.
+
+A régua é a data da **partida**, não a da pergunta — perguntar hoje sobre um
+jogo de três meses atrás nasce morto do mesmo jeito. Por isso um único
+`PERGUNTA_VALIDADE_DIAS` (14) governa as duas pontas: não gerar, e expirar. O
+status vira `EXPIRADA` em vez de a linha ser apagada, porque "existiu e não foi
+respondida" é justamente o dado interessante sobre o recurso. A tela lista só
+`PENDENTE`, então elas somem de lá sozinhas.
+
+Data ilegível ou ausente **mantém** a pergunta viva: sumir com ela por causa de
+um campo que não conseguimos ler seria pior que deixar uma pergunta velha na
+tela. As 6 atuais estão em 10 dias — sobrevivem mais 4.
+
+**Na tela**, só a primeira pergunta renderiza; o resto fica atrás de "Ver as
+outras N". Seis cartões com miniatura de tabuleiro ocupavam quase metade da
+altura da página acima do radar. Uma pergunta por vez lê como convite; seis,
+como cobrança. O selo continua contando **todas** — esconder o resto não pode
+esconder o tamanho do que está pendente.
+
+**Achado lateral registrado:** `gerar_perguntas_pendentes.py` **não** usa LLM —
+o texto é template fixo, "para nunca vazar dica do erro". A suspeita de que o
+recurso queimava Gemini à toa estava errada; o custo dele era atenção, não
+cota.
+
+**Testes:** 11 no backend, 5 no componente. Dois testes do D-53 foram ajustados
+para expandir a lista antes de afirmar sobre a segunda pergunta.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

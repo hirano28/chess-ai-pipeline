@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,23 @@ configurar_encoding_utf8()
 
 LOG_PATH = PROJECT_ROOT / "backend" / "logs" / "gerar_perguntas_pendentes.log"
 PAGE_SIZE = 1000
+
+# Por quantos dias após a partida uma pergunta faz sentido (D-64).
+#
+# A pergunta é sempre a mesma: "no lance 16, o que você estava pensando?".
+# Ela só tem resposta enquanto o jogador ainda lembra do momento. Medido em
+# 17/09/2026: 6 perguntas pendentes, **todas de partidas de 10 dias atrás**,
+# **nenhuma respondida desde que a funcionalidade existe** — e permanentes no
+# topo do dashboard, acima do próprio diagnóstico.
+#
+# Uma pergunta que não tem mais resposta possível não é uma tarefa pendente, é
+# entulho que finge ser tarefa. A régua é a data da PARTIDA, não a da pergunta:
+# perguntar hoje sobre um jogo de três meses atrás nasce morto do mesmo jeito.
+# Por isso o mesmo número governa as duas pontas — não gerar, e expirar.
+PERGUNTA_VALIDADE_DIAS = int(os.getenv("PERGUNTA_VALIDADE_DIAS", "14"))
+
+STATUS_PENDENTE = "PENDENTE"
+STATUS_EXPIRADA = "EXPIRADA"
 
 
 @dataclass(frozen=True)
@@ -70,7 +89,12 @@ def fetch_lances_criticos(client: Client, logger: logging.Logger) -> list[dict[s
     while True:
         response = (
             client.table("lances_criticos")
-            .select("id, partida_id, numero_lance, numero_lance_fim, lance_notacao, tipo_evento")
+            .select(
+                "id, partida_id, numero_lance, numero_lance_fim, lance_notacao, "
+                # `data_partida` entrou no D-64: é ela que diz se ainda dá para
+                # lembrar do lance, e portanto se a pergunta vale a pena.
+                "tipo_evento, partidas!inner(data_partida)"
+            )
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
         )
@@ -164,23 +188,103 @@ def fetch_lance_ids_com_pergunta(client: Client, logger: logging.Logger) -> set[
         offset += PAGE_SIZE
 
 
+def data_da_partida(linha: dict[str, Any]) -> date | None:
+    """Extrai a data da partida de uma linha com o embed `partidas`.
+
+    Devolve None quando o embed não veio ou a data é ilegível — e quem chama
+    trata isso como "não sei a idade", deixando a pergunta passar. Sumir com
+    uma pergunta por causa de um campo que não conseguimos ler seria pior que
+    deixar uma pergunta velha na tela.
+    """
+
+    partida = linha.get("partidas") or {}
+    if isinstance(partida, list):
+        partida = partida[0] if partida else {}
+    bruta = partida.get("data_partida")
+    if not bruta:
+        return None
+    try:
+        return datetime.fromisoformat(str(bruta).replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def dentro_da_validade(
+    linha: dict[str, Any], hoje: date, validade_dias: int = PERGUNTA_VALIDADE_DIAS
+) -> bool:
+    """True se a partida é recente o bastante para a pergunta ter resposta."""
+
+    data = data_da_partida(linha)
+    if data is None:
+        return True
+    return (hoje - data).days <= validade_dias
+
+
 def selecionar_elegiveis(
     lances: list[dict[str, Any]],
     anotadas: set[tuple[Any, int]],
     lance_ids_com_pergunta: set[Any],
     partidas_com_anotacao: set[Any],
+    hoje: date | None = None,
+    validade_dias: int = PERGUNTA_VALIDADE_DIAS,
 ) -> list[dict[str, Any]]:
     """Filtra lances sem anotação própria, sem pergunta já gerada, cuja partida
-    já tenha pelo menos uma anotação de pensamento em outro lance.
+    já tenha pelo menos uma anotação de pensamento em outro lance — e que ainda
+    esteja dentro da janela de memória (D-64).
     """
 
+    referencia = hoje or datetime.now(timezone.utc).date()
     return [
         lance
         for lance in lances
         if (lance["partida_id"], lance["numero_lance"]) not in anotadas
         and lance["id"] not in lance_ids_com_pergunta
         and lance["partida_id"] in partidas_com_anotacao
+        and dentro_da_validade(lance, referencia, validade_dias)
     ]
+
+
+def expirar_perguntas_vencidas(
+    client: Client,
+    logger: logging.Logger,
+    hoje: date | None = None,
+    validade_dias: int = PERGUNTA_VALIDADE_DIAS,
+) -> int:
+    """Marca como EXPIRADA toda pergunta PENDENTE de partida velha demais.
+
+    Não apaga: `EXPIRADA` preserva o registro de que a pergunta existiu e não
+    foi respondida, que é justamente o dado interessante sobre a
+    funcionalidade. A tela lista só as PENDENTES, então elas somem de lá.
+    """
+
+    referencia = hoje or datetime.now(timezone.utc).date()
+    resposta = (
+        client.table("perguntas_pendentes")
+        .select("id, lances_criticos!inner(partidas!inner(data_partida))")
+        .eq("status", STATUS_PENDENTE)
+        .execute()
+    )
+
+    vencidas: list[Any] = []
+    for linha in resposta.data or []:
+        lance = linha.get("lances_criticos") or {}
+        if isinstance(lance, list):
+            lance = lance[0] if lance else {}
+        if not dentro_da_validade(lance, referencia, validade_dias):
+            vencidas.append(linha["id"])
+
+    if not vencidas:
+        return 0
+
+    client.table("perguntas_pendentes").update({"status": STATUS_EXPIRADA}).in_(
+        "id", vencidas
+    ).execute()
+    log_and_print(
+        logger,
+        f"{len(vencidas)} pergunta(s) expirada(s): a partida tem mais de "
+        f"{validade_dias} dias e o jogador não teria como lembrar do lance.",
+    )
+    return len(vencidas)
 
 
 def gerar_pergunta(lance: dict[str, Any]) -> str:
@@ -218,12 +322,15 @@ def run() -> None:
     settings = load_settings()
     client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
+    hoje = datetime.now(timezone.utc).date()
+    expiradas = expirar_perguntas_vencidas(client, logger, hoje)
+
     lances = fetch_lances_criticos(client, logger)
     anotadas = fetch_anotadas(client, logger)
     lance_ids_com_pergunta = fetch_lance_ids_com_pergunta(client, logger)
     partidas_com_anotacao = fetch_partidas_com_anotacao(client, logger)
     elegiveis = selecionar_elegiveis(
-        lances, anotadas, lance_ids_com_pergunta, partidas_com_anotacao
+        lances, anotadas, lance_ids_com_pergunta, partidas_com_anotacao, hoje
     )
 
     log_and_print(logger, f"Lances elegíveis para nova pergunta: {len(elegiveis)}.")
@@ -244,9 +351,10 @@ def run() -> None:
 
     log_and_print(
         logger,
-        f"Resumo: {geradas} perguntas novas geradas, {puladas} lances pulados "
-        "(já anotados, já com pergunta, ou de partidas ainda sem nenhuma "
-        "anotação de pensamento).",
+        f"Resumo: {geradas} perguntas novas geradas, {expiradas} expiradas, "
+        f"{puladas} lances pulados (já anotados, já com pergunta, de partidas "
+        "ainda sem nenhuma anotação de pensamento, ou de partida antiga demais "
+        f"para lembrar — mais de {PERGUNTA_VALIDADE_DIAS} dias).",
     )
 
 

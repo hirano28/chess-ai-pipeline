@@ -199,7 +199,8 @@ commitados.
 `LICHESS_OAUTH_SCOPES`, `FRONTEND_URL`, `TREINO_NOVOS_POR_DIA`,
 `TREINO_FOCO_QTD_EXERCICIOS`, `EXERCICIO_RATING_MIN`, `EXERCICIO_RATING_MAX`,
 `EXERCICIO_POPULARIDADE_MIN`, `EXERCICIOS_POR_CATEGORIA`,
-`SESSAO_QTD_EXERCICIOS`, `TREINO_TETO_FILA`, `POSICIONAL_MESES`,
+`SESSAO_QTD_EXERCICIOS`, `TREINO_TETO_FILA`, `TREINO_HORIZONTE_DIAS`,
+`PERGUNTA_VALIDADE_DIAS`, `POSICIONAL_MESES`,
 `POSICIONAL_EVAL_MAX_CP`, `POSICIONAL_QUEDA_MIN_CP`,
 `POSICIONAL_SEGUNDOS_PRESSAO`, `POSICIONAL_PECAS_FINAL`,
 `POSICIONAL_POR_CATEGORIA`, `POSICIONAL_EXIGIR_TITULO`.
@@ -283,6 +284,21 @@ real, antes do filtro existir.
 bloco de prática ao iniciar uma sessão de treino focado — maior que o
 `TREINO_FOCO_QTD_EXERCICIOS` do "Focar" avulso de propósito: a sessão é o
 formato longo, com começo e fim.
+
+**Válvula da fila (D-64).** `TREINO_HORIZONTE_DIAS` (default 60) é até quantos
+dias à frente `popular_fila_treino_espacado.py` pode agendar material NOVO.
+Junto com a regra de que card novo entra no **fim** da fila (nunca disputa o
+dia com o que já está atrasado), é o que impede a fila de crescer no ritmo da
+ingestão em vez do consumo. Material além do horizonte não se perde: volta a
+ser candidato na execução seguinte, quando a fila drenar. No log isso aparece
+como `fila cheia até <data>; material novo aguarda a fila drenar`.
+
+**Validade das perguntas pendentes (D-64).** `PERGUNTA_VALIDADE_DIAS`
+(default 14) governa as duas pontas de `gerar_perguntas_pendentes.py`: não
+gerar pergunta para partida mais velha que isso, e marcar como `EXPIRADA` as
+pendentes que passaram do prazo. A régua é a data da **partida**, não a da
+pergunta — o que decide é o jogador ainda lembrar do lance. Nada é apagado;
+`EXPIRADA` preserva o registro de que a pergunta existiu e não foi respondida.
 
 `TREINO_TETO_FILA` (default 20, D-56) é quantos cards `GET /treino/fila`
 mostra de uma vez. O teto corta a EXIBIÇÃO, nunca o agendamento: os cortados

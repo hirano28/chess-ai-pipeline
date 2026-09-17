@@ -21,6 +21,12 @@ export class PerguntasPendentesComponent implements OnInit {
    * sozinha: seis textareas empilhadas no topo do dashboard empurravam o radar
    * para baixo e liam como uma lista de tarefas. */
   readonly respondendoIds = signal<ReadonlySet<string>>(new Set());
+  /** D-64: por padrão só a primeira pergunta aparece. Seis cartões com
+   * miniatura de tabuleiro ocupavam quase metade da altura da página ACIMA do
+   * radar — o diagnóstico, que é o produto, começava abaixo de uma lista de
+   * tarefas que nunca foi respondida (0 de 6 em toda a vida do recurso).
+   * Uma pergunta por vez lê como um convite; seis leem como cobrança. */
+  readonly mostrarTodas = signal(false);
 
   private readonly supabaseService = inject(SupabaseService);
   private readonly formatadorData = new Intl.DateTimeFormat('pt-BR', {
@@ -45,6 +51,20 @@ export class PerguntasPendentesComponent implements OnInit {
 
   respondendo(perguntaId: string): boolean {
     return this.respondendoIds().has(perguntaId);
+  }
+
+  /** As perguntas de fato renderizadas: a primeira, ou todas se o usuário
+   * pediu para ver o resto. */
+  perguntasVisiveis(): PerguntaPendente[] {
+    return this.mostrarTodas() ? this.perguntas() : this.perguntas().slice(0, 1);
+  }
+
+  quantidadeOculta(): number {
+    return Math.max(0, this.perguntas().length - this.perguntasVisiveis().length);
+  }
+
+  alternarMostrarTodas(): void {
+    this.mostrarTodas.update((atual) => !atual);
   }
 
   abrirResposta(perguntaId: string): void {

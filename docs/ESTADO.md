@@ -59,8 +59,8 @@ independentemente do que as seções seguintes digam.
 
 | Item | Valor verificado |
 |---|---|
-| Testes de backend | **763**, todos passando, em 38 módulos |
-| Testes de frontend (Vitest) | **251**, todos passando, em 28 arquivos |
+| Testes de backend | **780**, todos passando, em 38 módulos |
+| Testes de frontend (Vitest) | **256**, todos passando, em 28 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
 `.github/workflows/deploy-backend.yml` lista os **37** módulos de teste do
@@ -93,6 +93,7 @@ pendência P-11 abaixo).
 | `partidas` | **269** (02/07/2026 a 16/09/2026); **269 `concluido`, 0 `falhou`**. As duas `variant: fromPosition` que o D-62 desmascarou foram analisadas de verdade pelo D-63 (a trava de variante as recusava; "From Position" é xadrez padrão a partir de uma posição própria) — uma rendeu 4 lances críticos, a outra nenhum, o que é legítimo numa partida de 8 lances. 230 com `abertura_normalizada`; **268 das 269 com cadência real** desde o D-62, a única exceção sendo um PGN colado à mão |
 | `lances_criticos` | **802** (635 `PICO` + 83 `EROSAO` antes da recuperação; os 84 novos vieram dela) |
 | `diagnosticos` | **802** — paridade total com `lances_criticos`, nenhum lance sem diagnóstico |
+| `perguntas_pendentes` | 6, **todas ainda `PENDENTE` e nenhuma respondida desde que o recurso existe**, todas de partidas de 10 dias atrás. Com o prazo de validade do D-64 (14 dias contados da PARTIDA) elas expiram sozinhas em 4 dias, virando `EXPIRADA` em vez de sumirem |
 | `perfis_usuario` | 2 (o dono do acervo + uma conta sem partida ingerida). É a tabela que prova que o multi-tenant do D-28 não é hipótese |
 | `puzzle_atividade` | 660, em 41 dias distintos |
 | `tempos_lance` | 16.161, cobrindo 228 partidas (4.847 do Lichess + 11.314 do Chess.com via backfill D-43) |
@@ -106,7 +107,7 @@ pendência P-11 abaixo).
 | `analises_hexagono` | **7** — as 2 mais recentes (17/09/2026, D-63) são as primeiras com `metricas.por_cadencia`, e foram gravadas **sem narrativa** por causa do incidente do Gemini (seção 0). Dono principal: gargalo do conjunto TATICA, em blitz TATICA, em rápidas **CALCULO** — o gargalo muda com a cadência |
 | `sessoes_treino` | 5 prescritas, **0 concluídas**, 0 com eficácia medida. A validação do D-54 concluiu uma sessão de verdade (5/0/0 → 5/1/0, a primeira da história do produto) e **foi revertida de propósito**: aquele treino não aconteceu — os 12 exercícios foram respondidos por script, com lances quaisquer. Deixar a marca produziria a primeira medição de eficácia do produto em cima de um treino inexistente. O caminho está validado; o número volta a subir quando houver sessão real |
 | `resumo_partida` | **258** |
-| `fila_treino_espacado` | **697**, todas `lance_critico` (D-48) — cresceu 65 na recuperação de 17/09. Nenhuma de catálogo: os cards das validações do D-54/D-55 saíram junto com a reversão da sessão. **49 vencidos** em 17/09/2026 — número que muda todo dia, então rode a query da seção 6 em vez de confiar neste, e meça no fuso de Brasília, não em `current_date` (a API decide o "hoje" da fila em `America/Sao_Paulo` e à noite o UTC já virou). A fila cresce ~10/dia venha alguém respondê-la ou não, e é esse crescimento que o teto do D-56 contém na exibição — sem nunca escondê-lo, porque `vencidos_total` continua dizendo o tamanho real |
+| `fila_treino_espacado` | **700** — 657 do dono principal (39 vencidos, agendada até 17/11) e 43 do segundo perfil. Todas `lance_critico`. **A válvula do D-64 entrou em vigor**: material novo passa a entrar no FIM da fila e nada é agendado além de 60 dias, então a fila parou de crescer no ritmo da ingestão. Na primeira execução com a válvula o dono principal recebeu 0 cards ("fila cheia até 18/11") em vez de mais 4 vencidos; o segundo perfil, com fila curta, recebeu 3 normalmente. **655 dos 657 nunca foram respondidos** — o gargalo real do recurso não é o tamanho da fila, é o hábito de responder |
 | `exercicios_taticos` | 1.200 (D-49); 300 por categoria em `TATICA`/`CALCULO`/`FINAIS`/`ESTRUTURA_DE_PEOES` — `ESTRATEGIA`/`GESTAO_DE_TEMPO` seguem sem cobertura AQUI, e é esperado: não existe tema de puzzle equivalente |
 | `exercicios_posicionais` | **2.381** (tabela nova, D-55), de **1.764 partidas OTB em 510 torneios** distintos (broadcasts do Lichess, maio a agosto/2026), 451 delas com um GM; ~594 em cada uma de `ESTRATEGIA`/`GESTAO_DE_TEMPO`/`FINAIS`/`ESTRUTURA_DE_PEOES`. A primeira leva do D-55 tinha 1.200 exercícios de só **69 torneios**, quase todos do mesmo dia — a amostragem por reservatório do D-58 é o que multiplicou a variedade por 7 |
 | **Catálogo somado, por categoria** | `TATICA` 300, `CALCULO` 300, `ESTRATEGIA` 593, `GESTAO_DE_TEMPO` 600, `FINAIS` 894, `ESTRUTURA_DE_PEOES` 894 — **as 6 categorias do Hexágono têm material pela primeira vez** (fecha o P-15) |

@@ -31,7 +31,7 @@
       </div>
     } @else {
       <div class="grid gap-4">
-        @for (pergunta of perguntas(); track pergunta.id) {
+        @for (pergunta of perguntasVisiveis(); track pergunta.id) {
           <article class="painel surgir">
             <div class="mb-4 flex gap-4">
               @if (pergunta.fenAntesLance) {
@@ -100,6 +100,28 @@
           </article>
         }
       </div>
+
+      <!--
+        D-64: o resto fica atrás de um clique. Antes as seis perguntas
+        apareciam de uma vez, acima do radar, e empurravam o diagnóstico para
+        fora da primeira tela.
+      -->
+      @if (quantidadeOculta() > 0 || mostrarTodas()) {
+        <button
+          type="button"
+          class="btn btn-secundario btn-pequeno mt-4"
+          (click)="alternarMostrarTodas()"
+        >
+          @if (mostrarTodas()) {
+            <span>Mostrar só a primeira</span>
+          } @else {
+            <span>
+              Ver as outras {{ quantidadeOculta() }}
+              {{ quantidadeOculta() === 1 ? 'pergunta' : 'perguntas' }}
+            </span>
+          }
+        </button>
+      }
     }
   }
 </section>

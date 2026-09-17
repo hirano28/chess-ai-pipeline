@@ -1,5 +1,5 @@
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 from backend.agentes.popular_fila_treino_espacado import (
@@ -10,6 +10,7 @@ from backend.agentes.popular_fila_treino_espacado import (
     listar_usuarios_com_diagnostico,
     montar_linhas_novas,
     popular_para_usuario,
+    primeiro_dia_livre,
     resolver_citacao,
 )
 
@@ -168,6 +169,101 @@ class MontarLinhasNovasTest(unittest.TestCase):
 
         self.assertIsNone(linhas[0]["livro_citado"])
         buscar_conceitos_mock.assert_not_called()
+
+
+class ValvulaDaFilaTest(unittest.TestCase):
+    """D-64: material novo vai para o FIM da fila e respeita um horizonte.
+
+    Antes disso todo card novo entrava a partir de `hoje`, então cada execução
+    empilhava mais 10 vencidos sobre os que já estavam atrasados — a fila
+    crescia no ritmo da ingestão, não no do consumo.
+    """
+
+    def setUp(self) -> None:
+        _CACHE_CITACAO.clear()
+        self.hoje = date(2026, 9, 17)
+
+    def _client_com_ultima_data(self, valor: str | None) -> MagicMock:
+        client = MagicMock()
+        dados = [{"proxima_revisao_data": valor}] if valor else []
+        cadeia = client.table.return_value.select.return_value.eq.return_value
+        cadeia = cadeia.eq.return_value.order.return_value.limit.return_value
+        cadeia.execute.return_value = MagicMock(data=dados)
+        return client
+
+    def test_fila_vazia_comeca_hoje(self) -> None:
+        primeiro = primeiro_dia_livre(
+            self._client_com_ultima_data(None), "user-a", self.hoje
+        )
+        self.assertEqual(primeiro, self.hoje)
+
+    def test_com_fila_agendada_comeca_no_dia_seguinte_ao_ultimo(self) -> None:
+        primeiro = primeiro_dia_livre(
+            self._client_com_ultima_data("2026-11-17"), "user-a", self.hoje
+        )
+        self.assertEqual(primeiro, date(2026, 11, 18))
+
+    def test_fila_toda_vencida_nao_agenda_no_passado(self) -> None:
+        """Se o último agendado já venceu, o novo entra hoje — nunca atrás."""
+        primeiro = primeiro_dia_livre(
+            self._client_com_ultima_data("2026-09-01"), "user-a", self.hoje
+        )
+        self.assertEqual(primeiro, self.hoje)
+
+    @patch("backend.agentes.popular_fila_treino_espacado.buscar_conceitos")
+    def test_material_novo_nao_cai_em_cima_dos_vencidos(self, buscar_mock: MagicMock) -> None:
+        """O defeito que a válvula corrige, dito como teste."""
+        buscar_mock.return_value = []
+        diagnosticos = [
+            {"tags_falha": [], "lances_criticos": {"id": f"lance-{i}"}} for i in range(3)
+        ]
+
+        linhas = montar_linhas_novas(
+            diagnosticos,
+            set(),
+            MagicMock(),
+            "user-a",
+            self.hoje,
+            primeiro_dia=date(2026, 9, 30),
+        )
+
+        self.assertEqual(len(linhas), 3)
+        for linha in linhas:
+            self.assertEqual(linha["proxima_revisao_data"], "2026-09-30")
+
+    @patch("backend.agentes.popular_fila_treino_espacado.buscar_conceitos")
+    def test_horizonte_corta_o_que_nao_cabe(self, buscar_mock: MagicMock) -> None:
+        buscar_mock.return_value = []
+        # Com 3 dias de horizonte e 10 por dia, cabem 4 dias (0,1,2,3) = 40.
+        diagnosticos = [
+            {"tags_falha": [], "lances_criticos": {"id": f"lance-{i}"}} for i in range(100)
+        ]
+
+        linhas = montar_linhas_novas(
+            diagnosticos, set(), MagicMock(), "user-a", self.hoje, horizonte_dias=3
+        )
+
+        self.assertEqual(len(linhas), 4 * TREINO_NOVOS_POR_DIA)
+        self.assertEqual(linhas[-1]["proxima_revisao_data"], "2026-09-20")
+
+    @patch("backend.agentes.popular_fila_treino_espacado.buscar_conceitos")
+    def test_fila_cheia_ate_o_horizonte_nao_agenda_nada(self, buscar_mock: MagicMock) -> None:
+        """Nada se perde: os diagnósticos continuam elegíveis na próxima
+        execução, quando a fila tiver drenado."""
+        buscar_mock.return_value = []
+        diagnosticos = [{"tags_falha": [], "lances_criticos": {"id": "lance-1"}}]
+
+        linhas = montar_linhas_novas(
+            diagnosticos,
+            set(),
+            MagicMock(),
+            "user-a",
+            self.hoje,
+            primeiro_dia=self.hoje + timedelta(days=61),
+            horizonte_dias=60,
+        )
+
+        self.assertEqual(linhas, [])
 
 
 class PopularParaUsuarioTest(unittest.TestCase):
