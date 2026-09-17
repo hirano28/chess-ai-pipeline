@@ -5,8 +5,8 @@
       <h1 class="titulo-pagina">Consulta ao vivo</h1>
       <p class="subtitulo">
         Sincronize com uma partida em andamento no Lichess ou no Chess.com — ou espelhe aqui, lance a
-        lance. Quando travar, peça ajuda para pensar: primeiro vêm as perguntas e os planos, depois as ideias candidatas, e
-        só por último — se você pedir — o lance do motor.
+        lance. Quando travar, peça ajuda para avaliar a posição: que tipo de posição é, o que olhar, em que ordem e
+        por quê. Nenhum lance é sugerido — a decisão continua sendo sua.
       </p>
     </header>
 
@@ -302,73 +302,41 @@
               </p>
             }
 
-            <div class="space-y-3">
-              <p class="text-sm leading-6 text-bruma-200">{{ consulta.dados.camada_pensar.leitura_da_posicao }}</p>
-
-              @if (consulta.dados.camada_pensar.sobre_o_seu_raciocinio) {
-                <div class="painel">
-                  <p class="metrica-rotulo mt-0">Sobre o seu raciocínio</p>
-                  <p class="mt-1.5 text-sm leading-6 text-bruma-200">{{ consulta.dados.camada_pensar.sobre_o_seu_raciocinio }}</p>
-                </div>
-              }
-
-              @if (consulta.dados.camada_pensar.perguntas_guia.length > 0) {
-                <div>
-                  <p class="metrica-rotulo mt-0">Pergunte-se</p>
-                  <ul class="mt-1.5 list-disc space-y-1 pl-5 text-sm leading-6 text-bruma-200">
-                    @for (pergunta of consulta.dados.camada_pensar.perguntas_guia; track $index) {
-                      <li>{{ pergunta }}</li>
-                    }
-                  </ul>
-                </div>
-              }
-
-              @if (consulta.dados.camada_pensar.planos.length > 0) {
-                <div>
-                  <p class="metrica-rotulo mt-0">Planos possíveis</p>
-                  <ul class="mt-1.5 space-y-2 text-sm leading-6 text-bruma-200">
-                    @for (plano of consulta.dados.camada_pensar.planos; track $index) {
-                      <li><strong class="text-marfim">{{ plano.titulo }}.</strong> {{ plano.explicacao }}</li>
-                    }
-                  </ul>
-                </div>
-              }
-            </div>
-
-            @if (nivel(consulta.chave) < 2) {
-              <button type="button" class="btn btn-secundario btn-largo" (click)="revelar(consulta.chave, 2)">
-                Ainda travado: ver ideias candidatas
-              </button>
-            } @else {
-              <div class="painel">
-                <p class="metrica-rotulo mt-0">Ideias candidatas <span class="normal-case text-bruma-500">(em ordem alfabética)</span></p>
-                <ul class="mt-1.5 space-y-1.5 text-sm leading-6 text-bruma-200">
-                  @for (ideia of consulta.dados.camada_ideias.ideias; track ideia.lance) {
-                    <li><strong class="tabular-nums text-marfim">{{ ideia.lance }}</strong> — {{ ideia.ideia ?? 'sem descrição' }}</li>
-                  }
-                </ul>
+            <div class="space-y-4">
+              <div>
+                <p class="metrica-rotulo mt-0">Que posição é esta</p>
+                <p class="mt-1.5 text-sm leading-6 text-bruma-200">{{ consulta.dados.como_pensar.tipo_de_posicao }}</p>
               </div>
 
-              @if (nivel(consulta.chave) < 3) {
-                <button type="button" class="btn btn-secundario btn-largo" (click)="revelar(consulta.chave, 3)">
-                  Mostrar o lance do motor
-                </button>
-              } @else {
+              @if (consulta.dados.como_pensar.sobre_o_seu_raciocinio) {
                 <div class="painel">
-                  <p class="metrica-rotulo mt-0">Motor</p>
-                  <p class="mt-1 text-sm text-bruma-200">
-                    Melhor lance: <strong class="text-marfim">{{ consulta.dados.camada_motor.melhor_lance ?? '—' }}</strong>
-                    · {{ consulta.dados.camada_motor.avaliacao }}
-                    · {{ consulta.dados.camada_motor.win_percent_jogador }}% para você
-                  </p>
-                  <ul class="mt-2 space-y-1 text-xs tabular-nums text-bruma-400">
-                    @for (linha of consulta.dados.camada_motor.linhas; track $index) {
-                      <li>{{ linha.avaliacao }} · {{ linha.sequencia.join(' ') || linha.lance }}</li>
-                    }
-                  </ul>
+                  <p class="metrica-rotulo mt-0">Sobre o seu raciocínio</p>
+                  <p class="mt-1.5 text-sm leading-6 text-bruma-200">{{ consulta.dados.como_pensar.sobre_o_seu_raciocinio }}</p>
                 </div>
               }
-            }
+
+              @if (consulta.dados.como_pensar.roteiro.length > 0) {
+                <div>
+                  <p class="metrica-rotulo mt-0">Como avaliar, nesta ordem</p>
+                  <ol class="mt-2 space-y-3">
+                    @for (passo of consulta.dados.como_pensar.roteiro; track $index) {
+                      <li class="flex gap-3">
+                        <span class="selo selo-neutro h-6 shrink-0 tabular-nums" aria-hidden="true">{{ $index + 1 }}</span>
+                        <div class="min-w-0 text-sm leading-6">
+                          <p class="font-medium text-marfim">{{ passo.o_que_avaliar }}</p>
+                          <p class="text-bruma-300"><span class="text-bruma-500">Por quê:</span> {{ passo.por_que }}</p>
+                        </div>
+                      </li>
+                    }
+                  </ol>
+                </div>
+              }
+
+              <div class="painel">
+                <p class="metrica-rotulo mt-0">O princípio</p>
+                <p class="mt-1.5 text-sm leading-6 text-bruma-200">{{ consulta.dados.como_pensar.principio }}</p>
+              </div>
+            </div>
           </article>
         }
 

@@ -39,10 +39,7 @@ def fen_depois(lances: list[str]) -> str:
     return board.fen()
 
 
-RESPOSTA = {
-    "camada_ideias": {"ideias": [{"lance": "Bc4"}, {"lance": "d4"}]},
-    "camada_motor": {"melhor_lance": "d4"},
-}
+RESPOSTA = {"motor": {"candidatos": ["d4", "Bc4"], "melhor_lance": "d4"}}
 
 
 class ChaveEPosicaoTest(unittest.TestCase):

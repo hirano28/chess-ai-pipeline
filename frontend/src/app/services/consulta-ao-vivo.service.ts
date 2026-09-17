@@ -14,14 +14,14 @@ export interface PensamentoConsulta {
   trava: string | null;
 }
 
-export interface PlanoConsulta {
-  titulo: string;
-  explicacao: string;
+export interface PassoDoRoteiro {
+  o_que_avaliar: string;
+  por_que: string;
 }
 
 /**
- * Consulta ao vivo (D-67). As três camadas chegam juntas, mas a tela revela
- * uma de cada vez: a ocultação é pedagógica, não uma barreira de segurança.
+ * Consulta ao vivo (D-67). Desde o D-70 ensina só a avaliar a posição: o
+ * servidor não devolve lance nenhum, nem candidatos nem o do motor.
  */
 export interface ConsultaAoVivo {
   id: string | null;
@@ -31,21 +31,12 @@ export interface ConsultaAoVivo {
   cor_jogador: CorJogador;
   lances_san: string[];
   pensamento: PensamentoConsulta | null;
-  /** Camada 1: pensar. Nenhum lance concreto. */
-  camada_pensar: {
-    leitura_da_posicao: string;
+  /** Como avaliar esta posição, em ordem, e por quê. */
+  como_pensar: {
+    tipo_de_posicao: string;
     sobre_o_seu_raciocinio: string | null;
-    perguntas_guia: string[];
-    planos: PlanoConsulta[];
-  };
-  /** Camada 2: candidatos em ordem alfabética, sem dizer qual é o melhor. */
-  camada_ideias: { ideias: { lance: string; ideia: string | null }[] };
-  /** Camada 3: o veredito do motor. */
-  camada_motor: {
-    melhor_lance: string | null;
-    avaliacao: string;
-    win_percent_jogador: number;
-    linhas: { lance: string; avaliacao: string; sequencia: string[] }[];
+    roteiro: PassoDoRoteiro[];
+    principio: string;
   };
   gerado_por: 'gemini' | 'fallback';
   consultas_restantes: number;
@@ -60,6 +51,7 @@ export interface DesfechoConsulta {
   status: 'pendente' | 'casada' | 'sem_partida';
   lance_jogado: string | null;
   queda_win_percent: number | null;
+  /** Se o lance jogado estava entre os que o motor considerava (só visto depois da partida). */
   era_candidato: boolean | null;
   era_o_melhor: boolean | null;
   ligada_a_lance_critico: boolean;

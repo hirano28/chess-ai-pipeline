@@ -1,24 +1,25 @@
-"""Consulta ao vivo: ajuda para pensar numa posição da partida em andamento (D-67).
+"""Consulta ao vivo: ajuda para pensar numa posição da partida em andamento (D-67, D-70).
 
-O jogador espelha no aplicativo, lance a lance, uma partida que está jogando
-contra um bot no Lichess ou no Chess.com. Quando trava ("não tenho plano", "não
-sei como seguir"), pede uma consulta, podendo ou não dizer o que está pensando.
+O jogador espelha no aplicativo (ou sincroniza, D-69) uma partida que está
+jogando. Quando trava ("não tenho plano", "não sei como seguir"), pede uma
+consulta, podendo ou não dizer o que está pensando.
 
-A resposta vem em três camadas, e a ordem é o ponto da feature:
+A resposta ensina a AVALIAR a posição, e nada além disso (D-70):
 
-1. **Pensar** — o que a posição pede, o que o raciocínio do jogador deixou de
-   fora, perguntas para se fazer e planos descritos em palavras. **Nenhum lance
-   concreto.** Um lance aqui transformaria a consulta num oráculo, e o que se
-   quer treinar é justamente decidir sozinho.
-2. **Ideias** — os lances candidatos do motor, cada um com a ideia por trás, em
-   ordem alfabética: a ordem do Stockfish revelaria qual é o melhor.
-3. **Motor** — o melhor lance, a avaliação e as linhas. Só com clique explícito.
+- **Tipo de posição** — o que caracteriza esta posição e o que isso exige do
+  raciocínio (calcular? manobrar? defender?).
+- **Sobre o seu raciocínio** — o que o jogador acertou e o que deixou de fora.
+- **Roteiro** — os passos da avaliação, em ordem, cada um com o PORQUÊ de
+  olhar aquilo nesta posição.
+- **Princípio** — a regra geral que vale levar para outras partidas.
 
-As três vêm de uma única chamada ao Gemini (a terceira nem usa Gemini: é o
-Stockfish). A ocultação das camadas 2 e 3 é pedagógica, feita na tela, e não uma
-barreira de segurança — a feature é de um usuário só, e ele sabe o que tem ali.
-
-Nada aqui fala com a API do Lichess ou do Chess.com: o espelhamento é manual.
+**Nenhum lance, nem candidatos, nem o lance do motor.** Até o D-69 a consulta
+tinha mais duas camadas (ideias candidatas e o lance do motor) escondidas atrás
+de cliques; o dono da feature pediu para tirá-las: o que ele quer é aprender a
+pensar, não receber a resposta. O Stockfish continua rodando, mas só para o
+Gemini não errar a leitura (uma posição tática pede outro roteiro que uma
+calma) e para o desfecho do D-68 — o que ele diz fica gravado e nunca sai pela
+API.
 """
 
 from __future__ import annotations
@@ -36,7 +37,6 @@ from backend.agentes.explicador_posicao import (
     analisar_posicao_com_engine,
     detectar_lances_inventados,
     inspecionar_elementos_tabuleiro,
-    obter_lances_permitidos,
 )
 from backend.agentes.revisar_pensamento import call_gemini, strip_json_fences
 from backend.analise_engine.analisar_partidas import STOCKFISH_SEARCHTIME_MS
@@ -44,6 +44,17 @@ from backend.analise_engine.analisar_partidas import STOCKFISH_SEARCHTIME_MS
 PLATAFORMAS = ("LICHESS", "CHESSCOM", "OUTRA")
 # Lance em notação portuguesa: C(avalo), B(ispo), T(orre), D(ama), R(ei).
 PADRAO_LANCE_PT = re.compile(r"\b[CBTDR][a-h]?[1-8]?x?[a-h][1-8](?:=[CBTD])?[+#]?(?!\w)")
+# Lance descrito em palavras: "leve o cavalo para f5", "avance o peão até h5".
+# É o jeito de dar o lance sem escrever notação, e o roteiro promete não dar.
+PADRAO_LANCE_POR_EXTENSO = re.compile(
+    # Só formas de comando ("leve", "levar", "levando"): "jogador" ou
+    # "movimento" seguidos de "para f7" não são lance nenhum.
+    r"\b(?:lev(?:ar|e|ando)|jog(?:ar|ue|ando)|mov(?:er|a|endo)|coloc(?:ar|ando)|coloque"
+    r"|avan(?:çar|ce|çando)|recu(?:ar|e|ando)|(?:re)?posicion(?:ar|e|ando)|traz(?:er|endo)|traga"
+    r"|desloc(?:ar|ando)|desloque|transf(?:erir|ira|erindo)|pul(?:ar|e|ando))\b"
+    r"[^.;:?!]{0,40}?\b(?:para|até|em direção a)\s+(?:a\s+casa\s+)?[a-h][1-8]\b",
+    re.IGNORECASE,
+)
 CORES = ("BRANCAS", "PRETAS")
 PENSAMENTO_MAX_CARACTERES = 1500
 
@@ -69,7 +80,7 @@ def limite_por_partida() -> int:
 
     Um teto por partida, além do diário, é o que obriga a escolher os momentos
     de dúvida de verdade — que é o hábito que se quer criar — e segura o gasto
-    de Gemini. Consultar a cada lance seria jogar com o motor do lado.
+    de Gemini.
     """
 
     try:
@@ -78,24 +89,18 @@ def limite_por_partida() -> int:
         return 3
 
 
-class PlanoConsulta(BaseModel):
-    titulo: str = Field(description="Nome curto do plano, sem lances concretos.")
-    explicacao: str = Field(description="Por que esse plano faz sentido nesta posição.")
-
-
-class IdeiaCandidata(BaseModel):
-    lance: str = Field(description="Um dos lances candidatos fornecidos, em SAN.")
-    ideia: str = Field(description="A ideia por trás do lance, sem dizer se é o melhor.")
+class PassoDoRoteiro(BaseModel):
+    o_que_avaliar: str = Field(description="O que olhar neste passo, sem lances.")
+    por_que: str = Field(description="Por que olhar isso NESTA posição.")
 
 
 class RespostaConsulta(BaseModel):
-    """O que o Gemini devolve. A camada do motor é montada à parte, do Stockfish."""
+    """O que o Gemini devolve (e o fallback imita)."""
 
-    leitura_da_posicao: str
+    tipo_de_posicao: str
     sobre_o_seu_raciocinio: str | None = None
-    perguntas_guia: list[str] = Field(default_factory=list)
-    planos: list[PlanoConsulta] = Field(default_factory=list)
-    ideias_candidatas: list[IdeiaCandidata] = Field(default_factory=list)
+    roteiro: list[PassoDoRoteiro] = Field(default_factory=list)
+    principio: str
 
 
 def normalizar_escolha(valor: str | None, opcoes: tuple[str, ...], campo: str) -> str:
@@ -139,7 +144,7 @@ def reconstruir_partida(fen_inicial: str | None, lances: list[str]) -> chess.Boa
     return board
 
 
-def _linhas_para_camadas(linhas_taticas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _linhas_do_motor(linhas_taticas: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
             "lance": linha["lance"],
@@ -160,13 +165,13 @@ def build_prompt_consulta(
     pensamento: dict[str, str | None],
     adversario: str | None,
 ) -> str:
-    """Prompt da consulta. As regras que protegem as camadas vêm explícitas."""
+    """Prompt da consulta. As regras que impedem dar o lance vêm explícitas."""
 
-    candidatos = _linhas_para_camadas(analise["linhas_taticas"])
+    candidatos = _linhas_do_motor(analise["linhas_taticas"])
     candidatos_str = "\n".join(
         f"  - {c['lance']} (avaliação {c['avaliacao']}; sequência: {' '.join(c['sequencia']) or c['lance']})"
         for c in candidatos
-    ) or "  (o motor não devolveu candidatos)"
+    ) or "  (o motor não devolveu linhas)"
 
     mat = elementos["material"]
     indefesas_jogador = ", ".join(elementos["pecas_indefesas"][cor_jogador]) or "nenhuma"
@@ -188,140 +193,176 @@ def build_prompt_consulta(
             if (texto or "").strip()
         )
         instrucao_raciocinio = (
-            '"sobre_o_seu_raciocinio": comente o raciocínio do jogador com franqueza: o que '
-            "está certo, o que falta e que fator da posição ele não levou em conta. Pode citar "
-            "casas e peças, mas NÃO cite lances."
+            '"sobre_o_seu_raciocinio": comente o PROCESSO de raciocínio do aluno com franqueza: '
+            "o que ele avaliou bem, que fator da posição deixou de fora e em que ordem deveria ter "
+            "olhado as coisas. Se ele listou lances, NÃO diga qual é bom ou ruim: diga o que ele "
+            "precisaria ter verificado para decidir sozinho."
         )
     else:
-        pensamento_str = "(o jogador não descreveu o que está pensando)"
+        pensamento_str = "(o aluno não descreveu o que está pensando)"
         instrucao_raciocinio = '"sobre_o_seu_raciocinio": null.'
 
     return f"""Você é um treinador de xadrez experiente sentado ao lado do seu aluno.
-Ele está jogando uma partida {'contra ' + adversario if adversario else 'contra um bot'}, joga de {cor_jogador}, é a vez dele e ele travou: não sabe como prosseguir.
-Seu trabalho NÃO é dar o lance. É ensinar a pensar nesta posição para que ELE decida.
+Ele está jogando uma partida {'contra ' + adversario if adversario else 'online'}, joga de {cor_jogador}, é a vez dele e ele travou.
+Ele NÃO quer saber qual é o melhor lance nem quais lances considerar. Ele quer aprender COMO AVALIAR esta posição e POR QUE avaliar desse jeito, para decidir sozinho.
 
 POSIÇÃO:
 - FEN: {board.fen()}
 - Lance número: {board.fullmove_number}
 - Partida até aqui (SAN): {' '.join(lances_san) or '(histórico não disponível; use só a posição)'}
 
-DADOS OBJETIVOS (use para não errar; não repita números ao aluno):
+DADOS OBJETIVOS (só para você não errar a leitura; NUNCA os repasse ao aluno):
 - Avaliação do motor: {analise['descricao']}
 - Material: {mat['descricao']}
 - Peças soltas/atacadas do aluno: {indefesas_jogador}
 - Peças soltas/atacadas do adversário: {indefesas_adversario}
 - Rei do aluno: {rei_jogador}
 - Rei do adversário: {rei_adversario}
-- Lances candidatos do motor, do melhor para o pior:
+- Linhas do motor (SEGREDO: servem só para você saber se a posição é tática ou calma, se pede ataque ou defesa):
 {candidatos_str}
 
 O QUE O ALUNO ESTÁ PENSANDO:
 {pensamento_str}
 
 RESPONDA preenchendo:
-- "leitura_da_posicao": 2 a 4 frases sobre o que a posição pede (estrutura de peões, peças ativas e inativas, segurança dos reis, desequilíbrios). SEM lances e SEM números de avaliação.
+- "tipo_de_posicao": 2 a 4 frases dizendo que tipo de posição é esta (tática ou calma; aberta ou fechada; quem tem a iniciativa; quais desequilíbrios existem) e o que isso exige do raciocínio agora (calcular lances forçantes, melhorar peças, defender, simplificar...).
 - {instrucao_raciocinio}
-- "perguntas_guia": 2 a 4 perguntas curtas que o aluno deve se fazer antes de jogar. SEM lances.
-- "planos": 1 a 3 planos, cada um com "titulo" e "explicacao", descritos em palavras (casas e peças podem aparecer; lances não).
-- "ideias_candidatas": para CADA lance candidato do motor listado acima, um objeto com "lance" (exatamente como listado) e "ideia" (a ideia por trás dele, em 1 a 2 frases). NÃO diga qual é o melhor, NÃO compare, NÃO cite avaliações.
+- "roteiro": 3 a 5 passos, NA ORDEM em que o aluno deve avaliar esta posição. Cada passo tem "o_que_avaliar" (o que olhar, em uma frase, podendo citar peças e casas que JÁ existem no tabuleiro) e "por_que" (por que isso importa NESTA posição e por que vem nesta ordem, em 1 a 2 frases). O roteiro ensina a procurar, não entrega o que vai ser achado.
+- "principio": 1 a 2 frases com a regra geral de pensamento que esta posição ensina e que vale em outras partidas.
 
 REGRAS OBRIGATÓRIAS:
-- Em "leitura_da_posicao", "sobre_o_seu_raciocinio", "perguntas_guia" e "planos" é PROIBIDO escrever lances em notação (ex.: Nf3, exd5, O-O, Cf3, "lance e4"). Descreva ideias, não jogadas.
-- Nunca invente lances, peças ou casas.
-- Escreva em português do Brasil.
+- É PROIBIDO escrever lances em notação (ex.: Nf3, exd5, O-O, Cf3, "lance e4").
+- É PROIBIDO descrever lances em palavras ("leve o cavalo para f5", "avance o peão de h", "troque as damas", "sacrifique o bispo em h7"). Diga o que avaliar, nunca o que jogar.
+- NÃO diga qual lance é o melhor, NÃO sugira candidatos e NÃO revele números de avaliação nem quem está melhor em porcentagem.
+- Nunca invente peças ou casas.
+- Escreva em português do Brasil, falando diretamente com o aluno ("você").
 - Responda ESTRITAMENTE com um único JSON válido, sem texto antes ou depois e sem fences markdown.
 
 {{
-  "leitura_da_posicao": "string",
+  "tipo_de_posicao": "string",
   "sobre_o_seu_raciocinio": "string ou null",
-  "perguntas_guia": ["string"],
-  "planos": [{{"titulo": "string", "explicacao": "string"}}],
-  "ideias_candidatas": [{{"lance": "string", "ideia": "string"}}]
+  "roteiro": [{{"o_que_avaliar": "string", "por_que": "string"}}],
+  "principio": "string"
 }}"""
 
 
-def problemas_da_resposta(
-    resposta: RespostaConsulta,
-    candidatos_san: list[str],
-    permitidos: set[str],
-) -> list[str]:
+def problemas_da_resposta(resposta: RespostaConsulta) -> list[str]:
     """O que a resposta fez de errado, em frases que servem de correção ao modelo.
 
-    A camada "pensar" não pode ter lance NENHUM — por isso a verificação usa um
-    conjunto de permitidos vazio: qualquer lance escrito ali é problema, mesmo
-    que legal. Na camada de ideias vale o contrário: só lances reais.
+    A resposta inteira não pode ter lance NENHUM — por isso a verificação usa um
+    conjunto de permitidos vazio: qualquer lance escrito é problema, mesmo que
+    legal. Lance descrito em palavras também conta.
     """
 
     problemas: list[str] = []
-    textos_pensar = [
-        resposta.leitura_da_posicao,
-        resposta.sobre_o_seu_raciocinio or "",
-        *resposta.perguntas_guia,
-        *(f"{plano.titulo} {plano.explicacao}" for plano in resposta.planos),
-    ]
-    texto_pensar = " ".join(textos_pensar)
-    lances_na_camada_pensar = detectar_lances_inventados(texto_pensar, set())
+    texto = " ".join(
+        [
+            resposta.tipo_de_posicao,
+            resposta.sobre_o_seu_raciocinio or "",
+            *(f"{passo.o_que_avaliar} {passo.por_que}" for passo in resposta.roteiro),
+            resposta.principio,
+        ]
+    )
+    lances = detectar_lances_inventados(texto, set())
     # O detector herdado do explicador só conhece a notação inglesa. Em
-    # português "Cf3" e "Dxd5" passariam direto pela camada que promete não
-    # ter lance nenhum.
-    for achado in PADRAO_LANCE_PT.findall(texto_pensar):
-        if achado not in lances_na_camada_pensar:
-            lances_na_camada_pensar.append(achado)
-    if lances_na_camada_pensar:
+    # português "Cf3" e "Dxd5" passariam direto.
+    for achado in PADRAO_LANCE_PT.findall(texto):
+        if achado not in lances:
+            lances.append(achado)
+    if lances:
+        problemas.append("A resposta citou lances, o que é proibido: " + ", ".join(lances))
+
+    por_extenso = [achado.group(0) for achado in PADRAO_LANCE_POR_EXTENSO.finditer(texto)]
+    if por_extenso:
         problemas.append(
-            "A parte de pensar citou lances, o que é proibido: "
-            + ", ".join(lances_na_camada_pensar)
+            "A resposta descreveu lances em palavras, o que é proibido: "
+            + "; ".join(f'"{trecho}"' for trecho in por_extenso)
         )
 
-    for ideia in resposta.ideias_candidatas:
-        if ideia.lance not in candidatos_san:
-            problemas.append(f"'{ideia.lance}' não é um dos lances candidatos fornecidos")
-        inventados = detectar_lances_inventados(ideia.ideia, permitidos)
-        if inventados:
-            problemas.append(
-                f"A ideia de {ideia.lance} citou lances inexistentes: {', '.join(inventados)}"
-            )
-
-    if not resposta.leitura_da_posicao.strip():
-        problemas.append("'leitura_da_posicao' veio vazia")
+    if not resposta.tipo_de_posicao.strip():
+        problemas.append("'tipo_de_posicao' veio vazio")
+    if len(resposta.roteiro) < 3:
+        problemas.append("'roteiro' precisa de pelo menos 3 passos")
+    if not resposta.principio.strip():
+        problemas.append("'principio' veio vazio")
     return problemas
 
 
-def resposta_deterministica(
-    elementos: dict[str, Any], cor_jogador: str, candidatos_san: list[str]
-) -> RespostaConsulta:
+def resposta_deterministica(elementos: dict[str, Any], cor_jogador: str) -> RespostaConsulta:
     """Resposta sem Gemini, quando ele falha ou insiste em violar as regras.
 
-    É pobre de propósito: só afirma o que o tabuleiro prova. Melhor uma consulta
-    modesta e verdadeira do que uma eloquente com um lance escondido na camada
-    que prometeu não ter nenhum.
+    É modesta de propósito: só afirma o que o tabuleiro prova, e o roteiro é o
+    método geral (ameaças, peças soltas, lances forçantes, reis, pior peça)
+    ordenado pelo que esta posição tem de concreto. Nunca cita a lista de
+    xeques e capturas do inspetor: ela é feita de lances.
     """
 
     adversaria = "PRETAS" if cor_jogador == "BRANCAS" else "BRANCAS"
-    leitura = [elementos["material"]["descricao"] + "."]
-    rei = elementos["seguranca_rei"].get(cor_jogador, {}).get("resumo")
-    if rei:
-        leitura.append(f"Seu rei: {rei.lower()}.")
     soltas = elementos["pecas_indefesas"][cor_jogador]
-    if soltas:
-        leitura.append("Atenção às suas peças sem defesa suficiente: " + "; ".join(soltas) + ".")
     alvos = elementos["pecas_indefesas"][adversaria]
-    if alvos:
-        leitura.append("Do outro lado há alvos: " + "; ".join(alvos) + ".")
+    ameacas = elementos.get("ameacas_imediatas") or {}
+    ha_forcantes = bool(ameacas.get("cheques") or ameacas.get("capturas"))
+    tatica = bool(soltas or alvos)
 
+    tipo = [elementos["material"]["descricao"] + "."]
+    if tatica:
+        tipo.append(
+            "Há peças sem defesa suficiente no tabuleiro, então a posição é tática: "
+            "antes de qualquer plano, ela pede cálculo."
+        )
+    else:
+        tipo.append(
+            "Nenhuma peça está solta, então a posição tende a ser de manobra: "
+            "o que decide é melhorar peças e escolher um plano."
+        )
+
+    roteiro = [
+        PassoDoRoteiro(
+            o_que_avaliar="O que o último lance do adversário mudou: o que ele passou a atacar e que casa deixou de defender.",
+            por_que="A maioria dos erros de quem está em dúvida vem de não ver a ameaça; nenhum plano vale se a posição não estiver segura.",
+        )
+    ]
+    if soltas:
+        roteiro.append(
+            PassoDoRoteiro(
+                o_que_avaliar="Suas peças sem defesa suficiente: " + "; ".join(soltas) + ".",
+                por_que="Peça solta é o primeiro alvo de qualquer tática do adversário, e resolver isso vem antes de atacar.",
+            )
+        )
+    if alvos or ha_forcantes:
+        roteiro.append(
+            PassoDoRoteiro(
+                o_que_avaliar="Seus xeques, capturas e ameaças"
+                + (": do outro lado há alvos (" + "; ".join(alvos) + ")." if alvos else "."),
+                por_que="Lances forçantes vêm antes dos calmos porque limitam as respostas do adversário, e por isso dá para calculá-los até o fim.",
+            )
+        )
+    rei = elementos["seguranca_rei"].get(cor_jogador, {}).get("resumo")
+    rei_adversario = elementos["seguranca_rei"].get(adversaria, {}).get("resumo")
+    resumos_reis = "; ".join(texto for texto in (rei, rei_adversario) if texto)
+    roteiro.append(
+        PassoDoRoteiro(
+            o_que_avaliar="A segurança dos dois reis" + (f": {resumos_reis}." if resumos_reis else "."),
+            por_que="É ela que diz se é hora de atacar ou de consolidar antes.",
+        )
+    )
+    roteiro.append(
+        PassoDoRoteiro(
+            o_que_avaliar="Qual é a sua peça menos ativa, e onde ela trabalharia melhor.",
+            por_que="Quando nada forçante funciona, melhorar a pior peça é o plano que quase nunca piora a posição.",
+        )
+    )
+
+    principio = (
+        "Em posição com peças soltas, a ordem é segurança, depois lances forçantes, e só então planos."
+        if tatica
+        else "Em posição sem nada forçante, não procure um lance brilhante: procure a peça que está pior e dê a ela uma função."
+    )
     return RespostaConsulta(
-        leitura_da_posicao=" ".join(leitura),
+        tipo_de_posicao=" ".join(tipo),
         sobre_o_seu_raciocinio=None,
-        perguntas_guia=[
-            "O que o adversário ameaça com o último lance dele?",
-            "Qual é a sua peça menos ativa, e onde ela trabalharia melhor?",
-            "Algum xeque, captura ou ameaça direta muda a posição agora?",
-        ],
-        planos=[],
-        ideias_candidatas=[
-            IdeiaCandidata(lance=lance, ideia="O motor considera este lance; pense no que ele muda.")
-            for lance in candidatos_san
-        ],
+        roteiro=roteiro,
+        principio=principio,
     )
 
 
@@ -330,8 +371,6 @@ def gerar_resposta(
     prompt: str,
     elementos: dict[str, Any],
     cor_jogador: str,
-    candidatos_san: list[str],
-    permitidos: set[str],
     logger: logging.Logger,
 ) -> tuple[RespostaConsulta, str]:
     """Uma chamada ao Gemini, no máximo uma correção, e o fallback se preciso.
@@ -341,7 +380,7 @@ def gerar_resposta(
     """
 
     if client is None:
-        return resposta_deterministica(elementos, cor_jogador, candidatos_san), "fallback"
+        return resposta_deterministica(elementos, cor_jogador), "fallback"
 
     tentativa_prompt = prompt
     for tentativa in range(2):
@@ -354,7 +393,7 @@ def gerar_resposta(
             logger.warning("Consulta ao vivo: falha ao chamar o Gemini (%s).", error)
             break
         else:
-            problemas = problemas_da_resposta(resposta, candidatos_san, permitidos)
+            problemas = problemas_da_resposta(resposta)
             if not problemas:
                 return resposta, "gemini"
 
@@ -365,7 +404,7 @@ def gerar_resposta(
             + "\nCorrija e responda apenas com o JSON válido."
         )
 
-    return resposta_deterministica(elementos, cor_jogador, candidatos_san), "fallback"
+    return resposta_deterministica(elementos, cor_jogador), "fallback"
 
 
 def win_percent_do_jogador(analise: dict[str, Any], cor_jogador: str) -> float:
@@ -385,6 +424,10 @@ def consultar_posicao(
     engine_lock: threading.Lock | None = None,
 ) -> dict[str, Any]:
     """Monta a consulta completa para a posição depois de `lances`.
+
+    `como_pensar` é o que o jogador vê. `motor` é interno: vai para o banco
+    (o desfecho do D-68 compara o lance jogado com ele) e o servidor não o
+    devolve.
 
     ValueError para entrada inválida (lance ilegal, cor errada, partida já
     terminada, vez do adversário) — o servidor devolve 400 com a mensagem.
@@ -418,24 +461,12 @@ def consultar_posicao(
     analise = analisar_posicao_com_engine(
         engine, board, searchtime_ms=STOCKFISH_SEARCHTIME_MS, engine_lock=engine_lock
     )
-    linhas = _linhas_para_camadas(analise["linhas_taticas"])
-    candidatos_san = [linha["lance"] for linha in linhas]
-    permitidos = obter_lances_permitidos(board, analise["linhas_taticas"])
+    linhas = _linhas_do_motor(analise["linhas_taticas"])
 
     prompt = build_prompt_consulta(
         board, cor, lances_san, analise, elementos, pensamento_limpo, adversario
     )
-    resposta, origem = gerar_resposta(
-        gemini_client, prompt, elementos, cor, candidatos_san, permitidos, logger
-    )
-
-    # A ordem alfabética esconde o ranking do motor na camada de ideias; uma
-    # ideia por candidato, e só candidato real.
-    ideia_por_lance = {ideia.lance: ideia.ideia for ideia in resposta.ideias_candidatas}
-    ideias = [
-        {"lance": lance, "ideia": ideia_por_lance.get(lance)}
-        for lance in sorted(candidatos_san, key=str.lower)
-    ]
+    resposta, origem = gerar_resposta(gemini_client, prompt, elementos, cor, logger)
 
     return {
         "fen": board.fen(),
@@ -444,15 +475,10 @@ def consultar_posicao(
         "numero_lance": board.fullmove_number,
         "cor_jogador": cor,
         "pensamento": pensamento_limpo,
-        "camada_pensar": {
-            "leitura_da_posicao": resposta.leitura_da_posicao,
-            "sobre_o_seu_raciocinio": resposta.sobre_o_seu_raciocinio,
-            "perguntas_guia": resposta.perguntas_guia,
-            "planos": [plano.model_dump() for plano in resposta.planos],
-        },
-        "camada_ideias": {"ideias": ideias},
-        "camada_motor": {
-            "melhor_lance": candidatos_san[0] if candidatos_san else None,
+        "como_pensar": resposta.model_dump(),
+        "motor": {
+            "candidatos": [linha["lance"] for linha in linhas],
+            "melhor_lance": linhas[0]["lance"] if linhas else None,
             "avaliacao": analise["descricao"],
             "win_percent_jogador": round(win_percent_do_jogador(analise, cor), 1),
             "linhas": linhas,

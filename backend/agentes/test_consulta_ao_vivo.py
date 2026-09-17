@@ -17,8 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.agentes import consulta_ao_vivo as modulo  # noqa: E402
 from backend.agentes.consulta_ao_vivo import (  # noqa: E402
-    IdeiaCandidata,
-    PlanoConsulta,
+    PassoDoRoteiro,
     RespostaConsulta,
     consultar_posicao,
     gerar_resposta,
@@ -46,11 +45,14 @@ ELEMENTOS = {
 
 def resposta_valida(**extras) -> RespostaConsulta:
     base = {
-        "leitura_da_posicao": "O centro está aberto e o rei preto ainda está na casa e8.",
+        "tipo_de_posicao": "O centro está aberto e o rei preto ainda está na casa e8.",
         "sobre_o_seu_raciocinio": None,
-        "perguntas_guia": ["Qual peça sua está sem função?"],
-        "planos": [PlanoConsulta(titulo="Abrir a coluna e", explicacao="O rei preto não rocou.")],
-        "ideias_candidatas": [IdeiaCandidata(lance="Nc3", ideia="Desenvolve e controla d5.")],
+        "roteiro": [
+            PassoDoRoteiro(o_que_avaliar="O que o último lance preto ameaça.", por_que="Segurança primeiro."),
+            PassoDoRoteiro(o_que_avaliar="Se o cavalo em c6 está defendido.", por_que="Peça solta vira alvo."),
+            PassoDoRoteiro(o_que_avaliar="Qual peça sua está sem função.", por_que="Posição calma pede manobra."),
+        ],
+        "principio": "Com o rei adversário no centro, abrir linhas vale mais que ganhar material.",
     }
     base.update(extras)
     return RespostaConsulta(**base)
@@ -108,36 +110,49 @@ class ReconstruirPartidaTest(unittest.TestCase):
 
 class ProblemasDaRespostaTest(unittest.TestCase):
     def test_resposta_limpa_nao_tem_problema(self) -> None:
-        self.assertEqual(problemas_da_resposta(resposta_valida(), ["Nc3"], {"Nc3"}), [])
+        self.assertEqual(problemas_da_resposta(resposta_valida()), [])
 
-    def test_lance_em_ingles_na_camada_pensar_e_problema(self) -> None:
-        resposta = resposta_valida(leitura_da_posicao="Jogue Nf3 e depois roque.")
-        problemas = problemas_da_resposta(resposta, ["Nc3"], {"Nc3", "Nf3"})
-        self.assertTrue(any("Nf3" in p for p in problemas))
+    def test_lance_em_ingles_e_problema(self) -> None:
+        resposta = resposta_valida(tipo_de_posicao="Jogue Nf3 e depois roque.")
+        self.assertTrue(any("Nf3" in p for p in problemas_da_resposta(resposta)))
 
-    def test_lance_em_portugues_na_camada_pensar_e_problema(self) -> None:
+    def test_lance_em_portugues_e_problema(self) -> None:
         """O detector herdado só conhecia notação inglesa: 'Cf3' passava."""
+        resposta = resposta_valida(principio="Na dúvida, Cf3 resolve.")
+        self.assertTrue(any("Cf3" in p for p in problemas_da_resposta(resposta)))
+
+    def test_lance_escondido_no_por_que_do_roteiro_e_problema(self) -> None:
+        roteiro = [
+            *resposta_valida().roteiro[:2],
+            PassoDoRoteiro(o_que_avaliar="O centro.", por_que="Porque depois de exd5 a coluna abre."),
+        ]
+        self.assertTrue(problemas_da_resposta(resposta_valida(roteiro=roteiro)))
+
+    def test_lance_descrito_em_palavras_e_problema(self) -> None:
+        """'Leve o cavalo para f5' é dar o lance sem escrever a notação."""
+        for frase in (
+            "Leve o cavalo para f5 e veja o que acontece.",
+            "Vale avançar o peão até h5.",
+            "Pense em reposicionar a torre para a casa d1.",
+        ):
+            with self.subTest(frase=frase):
+                problemas = problemas_da_resposta(resposta_valida(principio=frase))
+                self.assertTrue(any("em palavras" in p for p in problemas))
+
+    def test_casas_e_pecas_que_existem_podem_aparecer(self) -> None:
         resposta = resposta_valida(
-            planos=[PlanoConsulta(titulo="Cavalo", explicacao="Leve o cavalo com Cf3.")]
+            tipo_de_posicao=(
+                "O bispo em c4 mira f7 e a casa d5 está fraca. O jogador que olhar para f7 "
+                "entende o movimento das peças para a ala do rei."
+            )
         )
-        problemas = problemas_da_resposta(resposta, ["Nc3"], {"Nc3"})
-        self.assertTrue(any("Cf3" in p for p in problemas))
+        self.assertEqual(problemas_da_resposta(resposta), [])
 
-    def test_lance_legal_ainda_e_proibido_na_camada_pensar(self) -> None:
-        resposta = resposta_valida(perguntas_guia=["E se você jogar Nc3?"])
-        problemas = problemas_da_resposta(resposta, ["Nc3"], {"Nc3"})
-        self.assertTrue(problemas)
-
-    def test_casas_e_pecas_podem_aparecer(self) -> None:
-        resposta = resposta_valida(
-            leitura_da_posicao="O bispo em c4 mira f7 e a casa d5 está fraca."
-        )
-        self.assertEqual(problemas_da_resposta(resposta, ["Nc3"], {"Nc3"}), [])
-
-    def test_ideia_de_lance_que_nao_e_candidato_e_problema(self) -> None:
-        resposta = resposta_valida(ideias_candidatas=[IdeiaCandidata(lance="h4", ideia="Avança.")])
-        problemas = problemas_da_resposta(resposta, ["Nc3"], {"Nc3", "h4"})
-        self.assertTrue(any("h4" in p for p in problemas))
+    def test_roteiro_curto_ou_campos_vazios_sao_problema(self) -> None:
+        resposta = resposta_valida(roteiro=resposta_valida().roteiro[:1], principio=" ")
+        problemas = problemas_da_resposta(resposta)
+        self.assertTrue(any("roteiro" in p for p in problemas))
+        self.assertTrue(any("principio" in p for p in problemas))
 
 
 class GerarRespostaTest(unittest.TestCase):
@@ -146,57 +161,60 @@ class GerarRespostaTest(unittest.TestCase):
 
     def test_resposta_boa_na_primeira_chamada(self) -> None:
         with patch.object(modulo, "call_gemini", return_value=self._json(resposta_valida())) as gemini:
-            resposta, origem = gerar_resposta(
-                object(), "prompt", ELEMENTOS, "BRANCAS", ["Nc3"], {"Nc3"}, LOGGER
-            )
+            resposta, origem = gerar_resposta(object(), "prompt", ELEMENTOS, "BRANCAS", LOGGER)
         self.assertEqual(origem, "gemini")
         self.assertEqual(gemini.call_count, 1)
-        self.assertIn("rei preto", resposta.leitura_da_posicao)
+        self.assertIn("rei preto", resposta.tipo_de_posicao)
 
     def test_uma_correcao_e_so(self) -> None:
-        ruim = self._json(resposta_valida(leitura_da_posicao="Jogue Nc3 agora."))
+        ruim = self._json(resposta_valida(tipo_de_posicao="Jogue Nc3 agora."))
         bom = self._json(resposta_valida())
         with patch.object(modulo, "call_gemini", side_effect=[ruim, bom]) as gemini:
-            _, origem = gerar_resposta(
-                object(), "prompt", ELEMENTOS, "BRANCAS", ["Nc3"], {"Nc3"}, LOGGER
-            )
+            _, origem = gerar_resposta(object(), "prompt", ELEMENTOS, "BRANCAS", LOGGER)
         self.assertEqual(origem, "gemini")
         self.assertEqual(gemini.call_count, 2)
         # A segunda chamada leva o motivo da rejeição.
         self.assertIn("proibido", gemini.call_args_list[1].args[1])
 
     def test_duas_violacoes_caem_no_fallback_sem_terceira_chamada(self) -> None:
-        ruim = self._json(resposta_valida(leitura_da_posicao="Jogue Nc3 agora."))
+        ruim = self._json(resposta_valida(tipo_de_posicao="Jogue Nc3 agora."))
         with patch.object(modulo, "call_gemini", side_effect=[ruim, ruim, ruim]) as gemini:
-            resposta, origem = gerar_resposta(
-                object(), "prompt", ELEMENTOS, "BRANCAS", ["Nc3"], {"Nc3"}, LOGGER
-            )
+            resposta, origem = gerar_resposta(object(), "prompt", ELEMENTOS, "BRANCAS", LOGGER)
         self.assertEqual(origem, "fallback")
         self.assertEqual(gemini.call_count, 2)
-        self.assertNotIn("Nc3", resposta.leitura_da_posicao)
+        self.assertNotIn("Nc3", resposta.tipo_de_posicao)
 
     def test_json_invalido_conta_como_violacao(self) -> None:
         with patch.object(modulo, "call_gemini", side_effect=["não é json", self._json(resposta_valida())]):
-            _, origem = gerar_resposta(
-                object(), "prompt", ELEMENTOS, "BRANCAS", ["Nc3"], {"Nc3"}, LOGGER
-            )
+            _, origem = gerar_resposta(object(), "prompt", ELEMENTOS, "BRANCAS", LOGGER)
         self.assertEqual(origem, "gemini")
 
     def test_falha_de_rede_nao_insiste(self) -> None:
         with patch.object(modulo, "call_gemini", side_effect=RuntimeError("429")) as gemini:
-            _, origem = gerar_resposta(
-                object(), "prompt", ELEMENTOS, "BRANCAS", ["Nc3"], {"Nc3"}, LOGGER
-            )
+            _, origem = gerar_resposta(object(), "prompt", ELEMENTOS, "BRANCAS", LOGGER)
         self.assertEqual(origem, "fallback")
         self.assertEqual(gemini.call_count, 1)
 
-    def test_fallback_deterministico_nao_cita_lance_na_camada_pensar(self) -> None:
-        resposta, origem = gerar_resposta(
-            None, "prompt", ELEMENTOS, "BRANCAS", ["Nc3", "d4"], {"Nc3", "d4"}, LOGGER
-        )
+    def test_fallback_deterministico_passa_nas_proprias_regras(self) -> None:
+        resposta, origem = gerar_resposta(None, "prompt", ELEMENTOS, "BRANCAS", LOGGER)
         self.assertEqual(origem, "fallback")
-        self.assertEqual(problemas_da_resposta(resposta, ["Nc3", "d4"], {"Nc3", "d4"}), [])
-        self.assertIn("c6", resposta.leitura_da_posicao)  # o alvo real do adversário
+        self.assertEqual(problemas_da_resposta(resposta), [])
+        texto = " ".join(passo.o_que_avaliar for passo in resposta.roteiro)
+        self.assertIn("c6", texto)  # o alvo real do adversário
+        self.assertIn("tática", resposta.tipo_de_posicao)
+
+    def test_fallback_nunca_repassa_os_lances_do_inspetor(self) -> None:
+        """A lista de xeques e capturas do inspetor é feita de lances."""
+        elementos = {
+            **ELEMENTOS,
+            "pecas_indefesas": {"BRANCAS": [], "PRETAS": []},
+            "seguranca_rei": {},
+            "ameacas_imediatas": {"cheques": ["Bxf7+"], "capturas": ["Nxe5"]},
+        }
+        resposta, _ = gerar_resposta(None, "prompt", elementos, "BRANCAS", LOGGER)
+        self.assertEqual(problemas_da_resposta(resposta), [])
+        self.assertNotIn("Bxf7", resposta.model_dump_json())
+        self.assertIn("manobra", resposta.tipo_de_posicao)
 
 
 class ConsultarPosicaoTest(unittest.TestCase):
@@ -219,17 +237,7 @@ class ConsultarPosicaoTest(unittest.TestCase):
     def _consultar(self, lances, cor, resposta_gemini=None, **extras):
         gemini = json.dumps(
             resposta_gemini
-            or {
-                "leitura_da_posicao": "Centro em tensão.",
-                "sobre_o_seu_raciocinio": None,
-                "perguntas_guia": ["O que o adversário ameaça?"],
-                "planos": [{"titulo": "Centro", "explicacao": "Ganhar espaço."}],
-                "ideias_candidatas": [
-                    {"lance": "d4", "ideia": "Abre o centro."},
-                    {"lance": "Nc3", "ideia": "Desenvolve."},
-                    {"lance": "c3", "ideia": "Prepara d4."},
-                ],
-            }
+            or resposta_valida(tipo_de_posicao="Centro em tensão.").model_dump()
         )
         with patch.object(modulo, "analisar_posicao_com_engine", return_value=self.ANALISE), \
                 patch.object(modulo, "call_gemini", return_value=gemini) as chamada:
@@ -250,19 +258,30 @@ class ConsultarPosicaoTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             consultar_posicao(MagicMock(), object(), LOGGER, mate_do_louco, "BRANCAS")
 
-    def test_ideias_em_ordem_alfabetica_escondem_o_ranking(self) -> None:
+    def test_como_pensar_nao_tem_lance_e_o_motor_fica_separado(self) -> None:
+        """O que o jogador vê não tem lance; o motor fica numa chave interna,
+        que o servidor grava para o desfecho e não devolve."""
         resultado, _ = self._consultar(["e4", "e5", "Nf3", "Nc6"], "BRANCAS")
-        lances = [ideia["lance"] for ideia in resultado["camada_ideias"]["ideias"]]
-        self.assertEqual(lances, ["c3", "d4", "Nc3"])
-        self.assertEqual(resultado["camada_motor"]["melhor_lance"], "d4")
+        self.assertEqual(set(resultado["como_pensar"]), {"tipo_de_posicao", "sobre_o_seu_raciocinio", "roteiro", "principio"})
+        for lance in ("d4", "Nc3", "c3"):
+            self.assertNotIn(lance, json.dumps(resultado["como_pensar"]))
+        self.assertEqual(resultado["motor"]["candidatos"], ["d4", "Nc3", "c3"])
+        self.assertEqual(resultado["motor"]["melhor_lance"], "d4")
 
-    def test_camadas_e_perspectiva_do_jogador(self) -> None:
+    def test_perspectiva_do_jogador(self) -> None:
         resultado, _ = self._consultar(["e4", "e5", "Nf3", "Nc6"], "brancas")
         self.assertEqual(resultado["cor_jogador"], "BRANCAS")
         self.assertEqual(resultado["numero_lance"], 3)
-        self.assertEqual(resultado["camada_motor"]["win_percent_jogador"], 54.1)
+        self.assertEqual(resultado["motor"]["win_percent_jogador"], 54.1)
         self.assertEqual(resultado["gerado_por"], "gemini")
         self.assertEqual(resultado["lances_san"], ["e4", "e5", "Nf3", "Nc6"])
+
+    def test_prompt_pede_metodo_e_proibe_dar_o_lance(self) -> None:
+        _, chamada = self._consultar(["e4", "e5", "Nf3", "Nc6"], "BRANCAS")
+        prompt = chamada.call_args.args[1]
+        self.assertIn("COMO AVALIAR", prompt)
+        self.assertIn("descrever lances em palavras", prompt)
+        self.assertNotIn("ideias_candidatas", prompt)
 
     def test_pensamento_do_usuario_chega_ao_prompt(self) -> None:
         _, chamada = self._consultar(

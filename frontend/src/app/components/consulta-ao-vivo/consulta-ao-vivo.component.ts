@@ -22,9 +22,6 @@ import {
   salvarPartida
 } from './partida-espelho';
 
-/** Até onde o jogador já abriu a resposta de uma consulta. */
-export type NivelRevelado = 1 | 2 | 3;
-
 export interface ConsultaExibida {
   chave: string;
   dados: ConsultaAoVivo;
@@ -39,9 +36,9 @@ export const ESPERA_APOS_RECUSA_MS = 60000;
  * Consulta ao vivo (D-67): espelhar uma partida em andamento e pedir ajuda
  * para PENSAR quando travar. Exclusiva do dono do projeto.
  *
- * A resposta chega inteira, mas é aberta em camadas: primeiro o que pensar,
- * depois as ideias candidatas, e só por último o lance do motor. Pular direto
- * para a terceira é possível — a tela só não oferece isso como primeiro passo.
+ * A resposta ensina a avaliar a posição — que tipo de posição é, um roteiro
+ * do que olhar e por quê, e o princípio por trás — e não traz lance nenhum
+ * (D-70): a decisão continua sendo do jogador.
  *
  * Desde o D-69 a partida também pode vir da plataforma (Lichess ou Chess.com):
  * a tela atualiza sozinha a cada poucos segundos, e o tabuleiro deixa de aceitar
@@ -69,7 +66,6 @@ export class ConsultaAoVivoComponent implements OnInit, OnDestroy {
 
   readonly partida = signal<PartidaEspelho>(novaPartida('BRANCAS', 'LICHESS', ''));
   readonly consultas = signal<ConsultaExibida[]>([]);
-  readonly revelado = signal<Record<string, NivelRevelado>>({});
   readonly limitePorPartida = signal(3);
 
   readonly lanceDigitado = signal('');
@@ -221,7 +217,6 @@ export class ConsultaAoVivoComponent implements OnInit, OnDestroy {
       }
     });
     this.consultas.set([]);
-    this.revelado.set({});
     // O id da partida espelhada vem da partida real: consultas feitas antes de
     // uma recarga, ou em outro aparelho, voltam junto.
     await Promise.all([this.carregarConsultas(escolhida.partida_espelho_id), this.atualizarPartida()]);
@@ -318,11 +313,12 @@ export class ConsultaAoVivoComponent implements OnInit, OnDestroy {
     if (!desfecho.lance_jogado) {
       return 'A partida terminou nesta posição.';
     }
+    // Depois da partida, comparar com o motor já não tira decisão de ninguém.
     const relacao = desfecho.era_o_melhor
       ? 'era o lance do motor'
       : desfecho.era_candidato
-        ? 'era uma das ideias candidatas'
-        : 'não estava entre as ideias candidatas';
+        ? 'estava entre os lances que o motor considerava'
+        : 'não estava entre os lances que o motor considerava';
     const queda = desfecho.queda_win_percent;
     const custo =
       queda === null
@@ -349,8 +345,6 @@ export class ConsultaAoVivoComponent implements OnInit, OnDestroy {
         .map((dados, indice) => ({ chave: dados.id ?? `carregada-${indice}`, dados }))
         .reverse();
       this.consultas.set(exibidas);
-      // Consulta de antes da recarga volta toda aberta: o jogador já a viu.
-      this.revelado.set(Object.fromEntries(exibidas.map((c) => [c.chave, 3 as NivelRevelado])));
     }
   }
 
@@ -419,7 +413,6 @@ export class ConsultaAoVivoComponent implements OnInit, OnDestroy {
     this.avisoFimDePartida.set(null);
     this.partida.set(novaPartida(atual.cor, atual.plataforma, atual.adversario));
     this.consultas.set([]);
-    this.revelado.set({});
     this.limparPensamento();
     this.erroConsulta.set(null);
     this.erroLance.set(null);
@@ -476,7 +469,6 @@ export class ConsultaAoVivoComponent implements OnInit, OnDestroy {
 
     const chave = resposta.dados.id ?? `local-${Date.now()}`;
     this.consultas.update((lista) => [{ chave, dados: resposta.dados! }, ...lista]);
-    this.revelado.update((mapa) => ({ ...mapa, [chave]: 1 }));
     // O servidor é quem sabe quantas sobram; a lista local só cobre esta aba.
     this.limitePorPartida.set(this.consultas().length + resposta.dados.consultas_restantes);
     this.limparPensamento();
@@ -487,14 +479,6 @@ export class ConsultaAoVivoComponent implements OnInit, OnDestroy {
     this.candidatos.set('');
     this.trava.set('');
     this.mostrarPensamento.set(false);
-  }
-
-  nivel(chave: string): NivelRevelado {
-    return this.revelado()[chave] ?? 1;
-  }
-
-  revelar(chave: string, nivel: NivelRevelado): void {
-    this.revelado.update((mapa) => ({ ...mapa, [chave]: Math.max(this.nivel(chave), nivel) as NivelRevelado }));
   }
 
   rotuloCor(cor: CorJogador): string {

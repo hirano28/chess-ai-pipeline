@@ -14,18 +14,14 @@ function consultaFake(extras: Partial<ConsultaAoVivo> = {}): ConsultaAoVivo {
     cor_jogador: 'BRANCAS',
     lances_san: ['e4', 'e5', 'Nf3', 'Nc6'],
     pensamento: null,
-    camada_pensar: {
-      leitura_da_posicao: 'O centro está em tensão.',
-      sobre_o_seu_raciocinio: null,
-      perguntas_guia: ['O que o adversário ameaça?'],
-      planos: [{ titulo: 'Desenvolver', explicacao: 'Tire as peças da primeira fileira.' }]
-    },
-    camada_ideias: { ideias: [{ lance: 'Bb5', ideia: 'Pressiona o cavalo de c6.' }] },
-    camada_motor: {
-      melhor_lance: 'Bc4',
-      avaliacao: '+0.40',
-      win_percent_jogador: 53.7,
-      linhas: [{ lance: 'Bc4', avaliacao: '+40', sequencia: ['Bc4', 'Bc5'] }]
+    como_pensar: {
+      tipo_de_posicao: 'O centro está em tensão.',
+      sobre_o_seu_raciocinio: 'Você olhou o ataque antes de ver se suas peças estavam seguras.',
+      roteiro: [
+        { o_que_avaliar: 'O que o adversário ameaça.', por_que: 'Nenhum plano vale com uma peça caindo.' },
+        { o_que_avaliar: 'Qual peça sua ainda não saiu.', por_que: 'Na abertura, tempo perdido pesa mais.' }
+      ],
+      principio: 'Desenvolva antes de abrir o centro.'
     },
     gerado_por: 'gemini',
     consultas_restantes: 2,
@@ -241,7 +237,7 @@ describe('ConsultaAoVivoComponent (D-67)', () => {
         component.descreverDesfecho(
           comDesfecho({ status: 'casada', lance_jogado: 'Bc4', queda_win_percent: 12.4, era_candidato: false, era_o_melhor: false })
         )
-      ).toBe('Você jogou Bc4: não estava entre as ideias candidatas e custou 12.4%.');
+      ).toBe('Você jogou Bc4: não estava entre os lances que o motor considerava e custou 12.4%.');
       expect(
         component.descreverDesfecho(
           comDesfecho({ status: 'casada', lance_jogado: 'Nf1', queda_win_percent: -0.5, era_candidato: true, era_o_melhor: true })
@@ -314,7 +310,7 @@ describe('ConsultaAoVivoComponent (D-67)', () => {
     expect(texto()).toContain('espelhe o lance dele primeiro');
   });
 
-  it('consulta manda os lances e o pensamento, e revela em camadas', async () => {
+  it('consulta manda os lances e o pensamento, e mostra como avaliar sem lance nenhum', async () => {
     const consultar = vi
       .spyOn(service, 'consultar')
       .mockResolvedValue({ success: true, dados: consultaFake() });
@@ -337,21 +333,15 @@ describe('ConsultaAoVivoComponent (D-67)', () => {
     });
     expect(enviado.partida_espelho_id).toBe(component.partida().id);
 
-    // Camada 1 à vista; ideias e motor escondidos.
+    // D-70: tipo de posição, raciocínio, roteiro com o porquê e princípio.
     expect(texto()).toContain('O centro está em tensão.');
-    expect(texto()).toContain('O que o adversário ameaça?');
-    expect(texto()).not.toContain('Pressiona o cavalo de c6.');
-    expect(texto()).not.toContain('Melhor lance');
-
-    component.revelar('c1', 2);
-    fixture.detectChanges();
-    expect(texto()).toContain('Pressiona o cavalo de c6.');
-    expect(texto()).not.toContain('Melhor lance');
-
-    component.revelar('c1', 3);
-    fixture.detectChanges();
-    expect(texto()).toContain('Melhor lance');
-    expect(texto()).toContain('Bc4');
+    expect(texto()).toContain('Você olhou o ataque antes');
+    expect(texto()).toContain('O que o adversário ameaça.');
+    expect(texto()).toContain('Nenhum plano vale com uma peça caindo.');
+    expect(texto()).toContain('Desenvolva antes de abrir o centro.');
+    // E nada que leve ao lance: nem botão de candidatos, nem de motor.
+    expect(texto()).not.toContain('candidatas');
+    expect(texto()).not.toContain('lance do motor');
 
     // O campo de pensamento é limpo para a próxima dúvida.
     expect(component.situacao()).toBe('');
@@ -411,8 +401,6 @@ describe('ConsultaAoVivoComponent (D-67)', () => {
     expect(component.partida().lances).toEqual(['d4', 'd5']);
     expect(listar).toHaveBeenCalledWith(salva.id);
     expect(component.consultas().length).toBe(1);
-    // Já vista antes: volta toda aberta.
-    expect(component.nivel('antiga')).toBe(3);
   });
 
   it('partida nova troca o id e zera lances e consultas', async () => {

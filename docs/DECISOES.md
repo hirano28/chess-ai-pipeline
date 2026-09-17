@@ -3779,6 +3779,70 @@ tela aberta é o teste que falta.
 **Testes:** 22 no módulo de plataformas, 10 nos endpoints, 8 no componente —
 955 backend, 314 frontend.
 
+### D-70 — A consulta ao vivo ensina a avaliar a posição, e não entrega lance
+
+**Pedido do dono:** durante uma partida espelhada, ajuda para saber *como
+avaliar* a posição e *por que* pensar daquele jeito — não quais são os melhores
+lances.
+
+**O que mudou.** As camadas 2 (ideias candidatas) e 3 (lance do motor) do D-67
+saíram. A resposta passou a ter um único bloco, `como_pensar`:
+
+- `tipo_de_posicao` — tática ou calma, aberta ou fechada, quem tem a
+  iniciativa, e o que isso exige do raciocínio agora;
+- `sobre_o_seu_raciocinio` — comenta o *processo* do jogador (o que avaliou,
+  o que deixou de fora, em que ordem deveria ter olhado); se ele listou lances,
+  não diz qual é bom;
+- `roteiro` — 3 a 5 passos na ordem em que avaliar, cada um com `o_que_avaliar`
+  e `por_que` (por que isso importa NESTA posição e nesta ordem);
+- `principio` — a regra de pensamento que vale em outras partidas.
+
+Planos e perguntas-guia também saíram: um plano descrito em palavras já é meia
+resposta, e o roteiro cobre as perguntas com o porquê junto.
+
+**Esconder, não só não mostrar.** No D-67 a ocultação era da tela; as camadas
+chegavam inteiras ao navegador. Agora o servidor não devolve nada do motor: o
+que o Stockfish diz vai para `resposta.motor` no banco (o desfecho do D-68
+compara o lance jogado com os candidatos) e o modelo de resposta da API não tem
+campo para isso. Nem a aba de rede mostra o lance.
+
+**O Stockfish continua rodando**, por dois motivos: o desfecho precisa dele, e o
+Gemini erra a leitura sem ele — é a análise que diz se a posição é tática (o
+roteiro começa por ameaças e lances forçantes) ou calma (começa por peças e
+estrutura). As linhas vão no prompt marcadas como segredo, só para esse fim.
+
+**Verificado, não só pedido.** Além da notação inglesa e portuguesa, a resposta
+agora é rejeitada se *descrever* um lance em palavras ("leve o cavalo para f5",
+"avance o peão até h5"): verbo de movimento no imperativo ou infinitivo seguido
+de uma casa. O padrão só pega formas de comando, para "o jogador olha para f7"
+não ser falso positivo. Roteiro com menos de 3 passos ou princípio vazio também
+contam como problema. O limite é honesto: uma dica disfarçada sem casa ("pense
+em trocar as damas") não é detectável por padrão; o prompt a proíbe
+explicitamente, e é o que resta.
+
+**Fallback determinístico** também virou roteiro: o que o último lance do
+adversário mudou → peças soltas suas → lances forçantes (quando há alvos) →
+segurança dos reis → a pior peça, com o porquê de cada um, e um princípio
+diferente para posição tática e calma. Nunca repassa a lista de xeques e
+capturas do inspetor, que é feita de lances.
+
+**O desfecho do D-68 continua comparando com o motor** ("era o lance do motor",
+"estava entre os lances que o motor considerava"). Isso aparece só em "Suas
+dúvidas anteriores", depois de a partida ser coletada — quando já não tira
+decisão de ninguém.
+
+**Sem migração:** a tabela estava vazia quando o formato mudou (conferido antes).
+
+**Verificação real:** API local, Gemini de verdade, duas posições — a italiana
+fechada do D-67 com o pensamento preenchido e uma posição de lance crítico real
+do dono (pretas, lance 27). As duas vieram do Gemini na primeira tentativa, em
+10–11 s, com 4 passos cada, nenhum lance no texto e nenhum campo do motor na
+resposta HTTP; o `motor` foi gravado no banco. Telas fotografadas em desktop e
+celular sem erro de console. As duas consultas de teste foram apagadas depois.
+
+**Testes:** 31 no módulo (eram 28), API e componente adaptados — 958 backend,
+314 frontend.
+
 ---
 
 ## Decisões tomadas sobre o que NÃO fazer

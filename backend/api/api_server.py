@@ -709,44 +709,23 @@ class EstadoPartidaSincronizadaResponse(PartidaEmAndamentoResponse):
     historico_completo: bool = True
 
 
-class PlanoConsultaResponse(BaseModel):
-    titulo: str
-    explicacao: str
+class PassoDoRoteiroResponse(BaseModel):
+    o_que_avaliar: str
+    por_que: str
 
 
-class CamadaPensar(BaseModel):
-    """Camada 1: sem nenhum lance concreto."""
+class ComoPensar(BaseModel):
+    """Como avaliar a posição e por quê (D-70). Nenhum lance, em campo nenhum.
 
-    leitura_da_posicao: str
+    O que o motor disse é gravado junto (o desfecho do D-68 precisa) e de
+    propósito não tem campo aqui: se não sai da API, não aparece nem na aba de
+    rede do navegador.
+    """
+
+    tipo_de_posicao: str
     sobre_o_seu_raciocinio: str | None = None
-    perguntas_guia: list[str] = Field(default_factory=list)
-    planos: list[PlanoConsultaResponse] = Field(default_factory=list)
-
-
-class IdeiaCandidataResponse(BaseModel):
-    lance: str
-    ideia: str | None = None
-
-
-class CamadaIdeias(BaseModel):
-    """Camada 2: candidatos em ordem alfabética, que esconde o ranking do motor."""
-
-    ideias: list[IdeiaCandidataResponse] = Field(default_factory=list)
-
-
-class LinhaMotor(BaseModel):
-    lance: str
-    avaliacao: str
-    sequencia: list[str] = Field(default_factory=list)
-
-
-class CamadaMotor(BaseModel):
-    """Camada 3: o veredito do Stockfish. A tela só mostra com clique explícito."""
-
-    melhor_lance: str | None = None
-    avaliacao: str
-    win_percent_jogador: float
-    linhas: list[LinhaMotor] = Field(default_factory=list)
+    roteiro: list[PassoDoRoteiroResponse] = Field(default_factory=list)
+    principio: str
 
 
 class DesfechoConsulta(BaseModel):
@@ -773,9 +752,7 @@ class ConsultaAoVivoResponse(BaseModel):
     cor_jogador: str
     lances_san: list[str] = Field(default_factory=list)
     pensamento: PensamentoConsulta | None = None
-    camada_pensar: CamadaPensar
-    camada_ideias: CamadaIdeias
-    camada_motor: CamadaMotor
+    como_pensar: ComoPensar
     gerado_por: str
     consultas_restantes: int
     criado_em: str | None = None
@@ -2582,9 +2559,7 @@ def _consulta_para_resposta(row: dict[str, Any], restantes: int) -> ConsultaAoVi
             candidatos=row.get("pensamento_candidatos"),
             trava=row.get("pensamento_trava"),
         ),
-        camada_pensar=CamadaPensar(**resposta["camada_pensar"]),
-        camada_ideias=CamadaIdeias(**resposta["camada_ideias"]),
-        camada_motor=CamadaMotor(**resposta["camada_motor"]),
+        como_pensar=ComoPensar(**resposta["como_pensar"]),
         gerado_por=row.get("gerado_por") or resposta.get("gerado_por") or "gemini",
         consultas_restantes=restantes,
         criado_em=row.get("criado_em"),
@@ -2895,7 +2870,8 @@ def consultar_ao_vivo(
         "pensamento_trava": pensamento.get("trava"),
         "resposta": {
             chave: resultado[chave]
-            for chave in ("camada_pensar", "camada_ideias", "camada_motor", "gerado_por")
+            # `motor` é gravado para o desfecho (D-68) e nunca devolvido (D-70).
+            for chave in ("como_pensar", "motor", "gerado_por")
         },
         "gerado_por": resultado["gerado_por"],
     }

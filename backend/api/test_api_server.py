@@ -4590,14 +4590,14 @@ def _resultado_consulta_fake() -> dict[str, Any]:
         "numero_lance": 3,
         "cor_jogador": "BRANCAS",
         "pensamento": {"situacao": "Não sei o que fazer", "candidatos": None, "trava": None},
-        "camada_pensar": {
-            "leitura_da_posicao": "Centro em tensão.",
+        "como_pensar": {
+            "tipo_de_posicao": "Centro em tensão.",
             "sobre_o_seu_raciocinio": "Faltou olhar o peão de e5.",
-            "perguntas_guia": ["O que o adversário ameaça?"],
-            "planos": [{"titulo": "Centro", "explicacao": "Ganhar espaço."}],
+            "roteiro": [{"o_que_avaliar": "O que o adversário ameaça.", "por_que": "Segurança primeiro."}],
+            "principio": "Com o centro em tensão, desenvolva antes de abrir.",
         },
-        "camada_ideias": {"ideias": [{"lance": "Bb5", "ideia": "Pressiona c6."}]},
-        "camada_motor": {
+        "motor": {
+            "candidatos": ["Bb5", "d4"],
             "melhor_lance": "Bb5",
             "avaliacao": "+0.40",
             "win_percent_jogador": 53.7,
@@ -4690,7 +4690,8 @@ class ConsultaAoVivoTest(unittest.TestCase):
             )
         self.assertEqual(resposta.status_code, 404)
 
-    def test_consulta_devolve_as_tres_camadas_e_grava(self) -> None:
+    def test_consulta_devolve_como_pensar_e_grava_o_motor_sem_devolver(self) -> None:
+        """D-70: o motor vai para o banco (desfecho) e nenhum lance sai na resposta."""
         mock_client = self._cliente(feitas=1)
         with patch.object(
             api_server, "consultar_posicao", return_value=_resultado_consulta_fake()
@@ -4703,8 +4704,9 @@ class ConsultaAoVivoTest(unittest.TestCase):
         corpo = resposta.json()
         self.assertEqual(corpo["id"], "consulta-1")
         self.assertEqual(corpo["consultas_restantes"], 1)  # 3 - 1 feita - esta
-        self.assertEqual(corpo["camada_pensar"]["leitura_da_posicao"], "Centro em tensão.")
-        self.assertEqual(corpo["camada_motor"]["melhor_lance"], "Bb5")
+        self.assertEqual(corpo["como_pensar"]["tipo_de_posicao"], "Centro em tensão.")
+        self.assertNotIn("motor", corpo)
+        self.assertNotIn("Bb5", resposta.text)
         self.assertEqual(corpo["pensamento"]["situacao"], "Não sei o que fazer")
 
         self.assertEqual(consultar.call_args.args[3], ["e4", "e5", "Nf3", "Nc6"])
@@ -4714,7 +4716,7 @@ class ConsultaAoVivoTest(unittest.TestCase):
         self.assertEqual(gravado["user_id"], USER_ID_TESTE)
         self.assertEqual(gravado["partida_espelho_id"], PARTIDA_ESPELHO)
         self.assertEqual(gravado["numero_lance"], 3)
-        self.assertIn("camada_motor", gravado["resposta"])
+        self.assertEqual(gravado["resposta"]["motor"]["melhor_lance"], "Bb5")
         self.assertEqual(gravado["pensamento_situacao"], "Não sei o que fazer")
 
     def test_teto_da_partida_barra_antes_do_motor(self) -> None:
@@ -4784,7 +4786,7 @@ class ConsultaAoVivoTest(unittest.TestCase):
             "pensamento_trava": None,
             "resposta": {
                 chave: resultado[chave]
-                for chave in ("camada_pensar", "camada_ideias", "camada_motor", "gerado_por")
+                for chave in ("como_pensar", "motor", "gerado_por")
             },
             "gerado_por": "gemini",
             "criado_em": "2026-09-17T14:00:00+00:00",
@@ -4823,7 +4825,7 @@ class ConsultaAoVivoTest(unittest.TestCase):
             "adversario": "amigo_do_clube",
             "resposta": {
                 chave: resultado[chave]
-                for chave in ("camada_pensar", "camada_ideias", "camada_motor", "gerado_por")
+                for chave in ("como_pensar", "motor", "gerado_por")
             },
             "gerado_por": "gemini",
             "criado_em": "2026-09-17T14:00:00+00:00",

@@ -241,9 +241,10 @@ def desfecho(
     board.push(posicao.lance_seguinte)
     depois = win_percent_na_posicao(engine, board, cor_jogador)
 
-    ideias = ((resposta or {}).get("camada_ideias") or {}).get("ideias") or []
-    candidatos = {ideia.get("lance") for ideia in ideias if isinstance(ideia, dict)}
-    melhor = ((resposta or {}).get("camada_motor") or {}).get("melhor_lance")
+    # D-70: o que o motor disse fica só no banco; a consulta não mostra lances.
+    motor = (resposta or {}).get("motor") or {}
+    candidatos = set(motor.get("candidatos") or [])
+    melhor = motor.get("melhor_lance")
     return {
         "lance_jogado": san,
         "queda_win_percent_jogado": round(antes - depois, 2),
