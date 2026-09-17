@@ -2,8 +2,9 @@
 doc: BANCO.md
 escopo: schema do Supabase, vocabulário controlado, invariantes e regras de migração
 nao_contem: contagem de linhas nem estado dos dados (ver ESTADO.md)
-verificado_em: 2026-09-15
+verificado_em: 2026-09-16
 fonte: introspecção direta do projeto Supabase pmzmershonrqzwbmhaco
+tabelas: 23 no schema `public`, todas com RLS ligada, todas descritas na seção 1
 ---
 
 # Banco de dados — Supabase (Postgres + pgvector)
@@ -92,7 +93,9 @@ backend (service role) chama; sem a revogação, qualquer usuário logado
 poderia chamar o RPC direto via `POST /rest/v1/rpc/incrementar_uso_diario`
 passando o `user_id` de outra pessoa e esgotar o limite dela. RLS na tabela:
 cada usuário só lê a própria linha (`user_id = auth.uid()`), sem policy de
-escrita para `authenticated` — a única escrita é via RPC. ### OAuth do Lichess (D-33)
+escrita para `authenticated` — a única escrita é via RPC.
+
+### OAuth do Lichess (D-33)
 
 | Tabela | Colunas relevantes | Papel |
 |---|---|---|
@@ -203,6 +206,10 @@ mapeamento tag → categoria.
 | `diagnosticos.tipo_erro` | `PROCESSO`, `CONTEUDO`, `INDETERMINADO` |
 | `revisoes_pensamento.qualidade_lance` | `BOM`, `SUBOTIMO`, `RUIM` |
 | `revisoes_pensamento.qualidade_raciocinio` | `SOLIDO`, `FALHO`, `INDETERMINADO` |
+| `partidas.cadencia` (D-57) | `BULLET`, `BLITZ`, `RAPIDA`, `CLASSICA`, `CORRESPONDENCIA`, `DESCONHECIDA` — nullable, e **`DESCONHECIDA` não é o mesmo que `NULL`**: `NULL` é "ainda não classificada" (rode `backfill_cadencia.py`), `DESCONHECIDA` é "classificada, e o PGN não informa". O corte é sobre `base + 40 × incremento`, como no Lichess |
+| `fila_treino_espacado.origem` (D-48/D-49/D-55) | `lance_critico`, `exercicio_tatico`, `exercicio_posicional` — pareado com o `check num_nonnulls(lance_id, exercicio_id, posicional_id) = 1` |
+| `exercicios_taticos.categoria_hexagono` e `exercicios_posicionais.categoria_hexagono` | as 6 de `HEXAGON_CATEGORIES`: `TATICA`, `ESTRATEGIA`, `FINAIS`, `ESTRUTURA_DE_PEOES`, `GESTAO_DE_TEMPO`, `CALCULO`. O check aceita as 6 nas duas tabelas, mas na prática cada fonte cobre só as suas — ver a seção 1 |
+| `exercicios_posicionais.severidade` (D-55) | `Mistake`, `Blunder` — em inglês e capitalizado de propósito: é o texto que o próprio Lichess escreve na anotação do broadcast, e reescrevê-lo esconderia a procedência |
 
 ## 4. Invariantes que o código assume
 

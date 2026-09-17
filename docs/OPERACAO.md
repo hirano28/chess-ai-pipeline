@@ -2,7 +2,7 @@
 doc: OPERACAO.md
 escopo: comandos, execução de scripts, automação, variáveis de ambiente, troubleshooting
 nao_contem: arquitetura (ver ARQUITETURA.md), schema (ver BANCO.md), estado (ver ESTADO.md)
-verificado_em: 2026-09-15
+verificado_em: 2026-09-16
 ---
 
 # Operação
@@ -71,8 +71,19 @@ Para gerar a lista automaticamente e não esquecer nenhum módulo:
 python -m unittest $(find backend -name "test_*.py" | sed 's/\.py$//' | sed 's#/#.#g')
 ```
 
-Ao criar um módulo de teste novo, registre-o também em `CLAUDE.md` e em
-`.github/workflows/deploy-backend.yml` (regra R8) — a lista do CI é mantida à mão.
+Ao criar um módulo de teste novo, registre-o **nesta lista acima** e em
+`.github/workflows/deploy-backend.yml` (regra R8) — as duas são mantidas à mão,
+e esquecer a do CI faz o teste nunca rodar lá. (`CLAUDE.md` não tem mais lista
+de testes; a R8 aponta para cá.) Conferência rápida de que as duas batem:
+
+```bash
+find backend -name "test_*.py" | wc -l                          # módulos em disco
+grep -cE "^\s+backend\..*test_" .github/workflows/deploy-backend.yml   # módulos no CI
+```
+
+O `-E "^\s+backend\..*test_"` é para não contar junto a linha do `paths:` no
+topo do workflow, que também casa com `backend.`. Os dois números têm que ser
+iguais.
 
 ### Frontend
 
@@ -179,6 +190,20 @@ commitados.
 `POSICIONAL_EVAL_MAX_CP`, `POSICIONAL_QUEDA_MIN_CP`,
 `POSICIONAL_SEGUNDOS_PRESSAO`, `POSICIONAL_PECAS_FINAL`,
 `POSICIONAL_POR_CATEGORIA`, `POSICIONAL_EXIGIR_TITULO`.
+
+**Ajuste fino do motor, do OCR e da coleta.** Todas opcionais, com default no
+código, e nenhuma delas é segredo — ficaram fora da lista acima até a revisão
+de documentação de 16/09/2026, embora o código as leia desde sempre:
+
+| Variável | Onde é lida | Para que serve |
+|---|---|---|
+| `STOCKFISH_DEPTH` | `analisar_partidas.py`, `gerar_resumo_partida.py`, `revisar_pensamento.py` | profundidade da análise (é o que exige `--memory 2Gi` no Cloud Run, regra R10) |
+| `STOCKFISH_SEARCHTIME_MS` | `analisar_partidas.py`, `explicador_posicao.py`, `revisar_exercicio_avulso.py`, `revisar_pensamento.py` | teto de tempo por posição, alternativa à profundidade |
+| `WINDOW_SIZE_EROSAO` | `analisar_partidas.py` | tamanho da janela de lances que define um evento `EROSAO` |
+| `LIMIAR_APURO_TEMPO_SEG` | `agente1_linter.py`, `gerar_resumo_partida.py` | abaixo de quantos segundos no relógio o erro conta como apuro de tempo (é o que alimenta a tag `gestao_de_tempo_ruim`) |
+| `GEMINI_RATE_LIMIT_SLEEP_SEC` | `agente1_linter.py` | pausa entre chamadas para não bater no rate limit da API |
+| `CHESSCOM_USER_AGENT` | `coletar_partidas_chesscom.py` | User-Agent identificável que a API do Chess.com pede; tem default no código, então só mexa se a coleta começar a tomar 403 |
+| `TESSERACT_PATH` / `POPPLER_PATH` | `processar_livro.py` | binários de OCR e de rasterização de PDF; só importam na máquina que processa livro, não em produção |
 
 **OAuth do Lichess (D-33).** As 4 últimas são opcionais, com default no código.
 Nenhuma delas é segredo: o Lichess usa cliente público, sem `client_secret` e
@@ -309,7 +334,18 @@ teste unitário. O procedimento completo está em `docs/ESTADO.md` §6.
 | Comando | O que faz |
 |---|---|
 | `python backend/common/gerar_sessao_local.py <email> [saida.json]` | Emite uma sessão real do Supabase Auth via magic link (Admin API), sem precisar da senha. Sem argumento de saída, imprime só o `access_token` — útil para `curl -H "Authorization: Bearer ..."`. **O token é credencial válida: não cole em log, issue nem commit.** |
-| `cd frontend && npm run telas -- <sessao.json> [pasta]` | Fotografa as 7 telas em 1440px e 390px, com a sessão injetada. Requer `npx playwright install chromium` na primeira vez, e os dois servidores no ar. |
+| `cd frontend && npm run telas -- <sessao.json> [pasta]` | Fotografa as 7 telas de lista fixa em 1440px e 390px, com a sessão injetada. Requer `npx playwright install chromium` na primeira vez, e os dois servidores no ar. |
+
+Duas variáveis opcionais do `capturar-telas.mjs` (D-54):
+
+- **`ROTAS_EXTRA`** acrescenta rotas à lista fixa, no formato
+  `"/caminho:nome-do-arquivo"`, separadas por vírgula. Existe porque rota com
+  parâmetro não cabe numa lista fixa — o id muda a cada execução. Para
+  fotografar a tela de sessão:
+  `ROTAS_EXTRA="/sessao/<uuid-real>:sessao" npm run telas -- ../sessao.json ../telas`
+- **`ESPERA_MS`** (default 4500) é quanto esperar a tela assentar antes do
+  clique do obturador. As telas buscam dado da API ao entrar; baixar esse
+  valor rende um álbum de esqueletos de carregamento.
 
 `npm run telas` é captura, não teste: não afirma nada sobre o que fotografou e
 não roda em CI. Serve para alguém olhar — foi assim que apareceram o markdown

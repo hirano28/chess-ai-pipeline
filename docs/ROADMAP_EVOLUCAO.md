@@ -2,12 +2,36 @@
 doc: ROADMAP_EVOLUCAO.md
 escopo: plano de evolução por fases e o raciocínio de priorização
 nao_contem: status de execução nem contagens (ver ESTADO.md) — este arquivo é o plano, não o estado
-verificado_em: 2026-09-11
+verificado_em: 2026-09-16
+status: **Fases 12 a 18 ENTREGUES.** Documento histórico — ver o aviso abaixo
 ---
 
 # Roadmap de Evolução — Do Diagnóstico por Blunder ao Diagnóstico Multidimensional
 
-O que já foi executado de cada fase está em `ESTADO.md`, não aqui.
+> ## ⚠️ Leia isto antes de tratar qualquer fase abaixo como pendente
+>
+> **As sete fases deste roadmap (12 a 18) foram todas entregues até 15/09/2026.**
+> Conferido em 16/09/2026 contra o código e o banco:
+>
+> | Fase | Entregue em | Onde está hoje |
+> |---|---|---|
+> | 12 — Win% no lugar de centipawns | D-1 | `backend/common/chess_math.py`, coluna `lances_criticos.queda_win_percent` |
+> | 13 — Detector de erosão estratégica | — | `tipo_evento = 'EROSAO'`, com prompt próprio no Agente 1 (D-3) |
+> | 14 — Estatísticas por fase/cor/abertura | D-12, D-13 | `metricas_lichess_partida`, `partidas.abertura_normalizada`, `GET /insights/repertorio` |
+> | 15 — Relógio / gestão de tempo | D-43 | `tempos_lance`, backfill do Chess.com, tag `gestao_de_tempo_ruim` |
+> | 16 — Captura de pensamento via Studies | D-43 | `anotacoes_pensamento`, `diagnosticos.tipo_erro` (PROCESSO vs CONTEÚDO) |
+> | 17 — Gap puzzle vs. partida | D-41 | `GET /insights/puzzles`, componente `puzzles-insights` |
+> | 18 — Opening Explorer + Tablebase | D-42 | `GET /partidas/{id}/teoria-abertura`, `GET /analise/syzygy` |
+>
+> O texto original das fases foi preservado abaixo porque explica **por que**
+> cada uma foi priorizada assim — o raciocínio continua útil para decidir a
+> próxima leva. Mas ele não descreve trabalho a fazer.
+>
+> **Este documento não cobre o que veio depois.** O eixo de trabalho de
+> setembro/2026 foi outro: transformar diagnóstico em treino (D-48 a D-59 —
+> repetição espaçada, catálogos de exercício, sessões executáveis, cadência).
+> Nada disso estava previsto aqui. Para saber o que existe hoje, leia
+> `docs/ESTADO.md`; para saber por quê, `docs/DECISOES.md`.
 
 Consolidação das duas pesquisas em fases executáveis, na ordem de melhor custo-benefício (mais barato e maior impacto primeiro). Numeração continua a partir da Fase 11 (loop adaptativo) do guia original.
 

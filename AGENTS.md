@@ -2,7 +2,7 @@
 doc: AGENTS.md
 papel: PONTO DE ENTRADA CANÔNICO para qualquer agente de IA neste repositório
 vale_para: Claude Code, Gravity/Antigravity, Cursor, Codex e qualquer outro
-verificado_em: 2026-09-11
+verificado_em: 2026-09-16
 ---
 
 # AGENTS.md — Contrato de trabalho para agentes de IA
@@ -11,9 +11,18 @@ Este é o **único ponto de entrada canônico**. `CLAUDE.md` aponta para cá; to
 outro documento de conhecimento vive em `docs/` e é referenciado pelo roteador
 da seção 3. Se dois arquivos se contradisserem, **este vence**.
 
-Projeto: pipeline pessoal de treino de xadrez de Edson Hirano (`hirano28`).
-Um único usuário; o Laboratório de Raciocínio é compartilhado com poucos amigos
-via chaves de API individuais. Não é produto comercial nem multiusuário.
+Projeto: pipeline de treino de xadrez de Edson Hirano (`hirano28`), hoje com um
+único usuário real de dado (todo o acervo de partidas pertence a
+`edson.hirano.dev@gmail.com`).
+
+**O código é multiusuário desde o D-28** e o objetivo declarado é chegar a
+produto de mercado. Não trate nada aqui como "ferramenta pessoal, pode
+simplificar": o pipeline em lote percorre `perfis_usuario` e atribui `user_id`
+linha a linha, as tabelas raiz têm RLS isolada por dono, e as rotas da API
+tiram o dono da sessão sem fallback. Uma escrita que assuma "só existe um
+usuário" é bug de vazamento esperando o segundo cadastro. O que ainda **não**
+existe é o resto de um produto comercial — cobrança, planos, onboarding de
+desconhecido, suporte —, e é isso que separa o estado atual do objetivo.
 
 ---
 
@@ -23,8 +32,16 @@ Partidas jogadas no Lichess e no Chess.com são coletadas automaticamente, o
 Stockfish acha os lances ruins, o Gemini diagnostica a causa de cada erro usando
 um vocabulário fechado de 16 tags, a estatística agregada aponta o gargalo atual,
 um RAG sobre livros de xadrez cita a teoria pertinente, e uma sprint de treino é
-prescrita. Em paralelo, três ferramentas web interativas (Laboratório de
-Raciocínio, Explicador de Posição, Analisador de Partida) dão feedback sob demanda.
+prescrita — e, desde o D-54, **executada dentro do produto**, o que é o que fecha
+o loop adaptativo. O treino tem duas formas: a fila diária de repetição espaçada
+(SM-2 sobre os próprios erros do jogador, mais dois catálogos de exercícios) e a
+sessão de treino focado, que é o formato longo com começo e fim. Em paralelo,
+três ferramentas web interativas (Laboratório de Raciocínio, Explicador de
+Posição, Analisador de Partida) dão feedback sob demanda.
+
+Duas metades, portanto: **diagnosticar** (o pipeline acima) e **treinar**
+(D-48 em diante). Um agente que só leu a primeira metade vai propor de novo
+coisas que já existem.
 
 ---
 
@@ -49,7 +66,8 @@ Raciocínio, Explicador de Posição, Analisador de Partida) dão feedback sob d
 | Rodar/depurar script, pipeline, teste, variável de ambiente | `docs/OPERACAO.md` |
 | Saber **por que** algo foi feito daquele jeito antes de mudar | `docs/DECISOES.md` |
 | Saber o estado real hoje (números, pendências, o que está quebrado) | `docs/ESTADO.md` |
-| Planejar próximas fases do produto | `docs/ROADMAP_EVOLUCAO.md` |
+| Planejar próximas fases do produto | `docs/ROADMAP_EVOLUCAO.md` — as Fases 12–18 dele **já foram entregues**; leia o cabeçalho antes de tratar qualquer item como pendente |
+| Entender a rotina de uso pela ótica do dono (humano, não agente) | `docs/GUIA_DO_PROJETO.md` |
 | Mexer na rubrica dos 8 passos | `docs/GUIA_GUESS_THE_MOVE.md` — **leia a regra R9 antes** |
 
 ---

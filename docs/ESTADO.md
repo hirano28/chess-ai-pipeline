@@ -20,22 +20,22 @@ atualize também a data no cabeçalho.
 | Testes de frontend (Vitest) | **233**, todos passando, em 27 arquivos |
 | `ng build` de produção | passa com **0 warnings e 0 erros**; bundle inicial ~10.73 kB (D-44), CSS 42,4 kB cru / 7,5 kB transferido após o sistema de design (D-47) |
 
-`.github/workflows/deploy-backend.yml` lista os 35 módulos de teste do backend
-à mão (incluindo `backend.rag.test_importar_indice_conceitual`, `backend.rag.test_processar_livro`,
-`backend.ingestao.test_backfill_tempos_chesscom`,
-`backend.common.test_lichess_explorer`, `backend.common.test_syzygy_tablebase`,
-`backend.agentes.test_insights_repertorio`, `backend.agentes.test_insights_puzzles`,
-`backend.agentes.test_medir_eficacia`, `backend.common.test_lichess_oauth`,
-`backend.ingestao.test_importar_puzzle_activity`, `backend.agentes.test_agente2_analista`,
-`backend.common.test_notacao_pt`, `backend.analise_engine.test_backfill_fen_lances_criticos`,
-`backend.ingestao.test_coletar_partidas`, `backend.ingestao.test_coletar_partidas_chesscom`,
-`backend.ingestao.test_common_ingestao`, `backend.common.test_spaced_repetition` e
-`backend.agentes.test_popular_fila_treino_espacado` (D-48),
-`backend.rag.test_importar_exercicios_taticos` (D-49), e
-`backend.common.test_progress`/`backend.common.test_settings` (auditoria de
-qualidade pós-D-49) —
-regra R8 cumprida). Continua sendo uma lista mantida manualmente: todo módulo
-de teste novo precisa ser adicionado lá também.
+`.github/workflows/deploy-backend.yml` lista os **37** módulos de teste do
+backend à mão, e em 16/09/2026 a lista do CI batia exatamente com os 37
+arquivos `test_*.py` em disco — regra R8 cumprida. A enumeração nominal que
+ficava aqui foi removida na revisão de documentação de 16/09/2026: ela
+envelhecia a cada módulo novo (chegou a listar 35 quando já eram 37) e
+duplicava uma lista que já existe em dois lugares mantidos à mão. O jeito
+certo de conferir é comparar os dois números, não ler nomes:
+
+```bash
+find backend -name "test_*.py" | wc -l                                # 37
+grep -cE "^\s+backend\..*test_" .github/workflows/deploy-backend.yml  # 37
+```
+
+Divergiu? O módulo novo entrou em disco e não no CI — o teste existe, passa
+localmente e **nunca roda no CI**. Foi o que aconteceu com
+`backend.common.test_notacao_pt`, e é a razão de a R8 existir.
 
 ## 2. Volume de dados
 
@@ -48,8 +48,9 @@ pendência P-11 abaixo).
 | Tabela | Linhas |
 |---|---|
 | `partidas` | 240 (02/07/2026 a 15/09/2026); todas com status `concluido`, 230 com `abertura_normalizada` e **todas as 240 com `cadencia`** preenchida (D-57) |
-| `lances_criticos` | 714 |
-| `diagnosticos` | 714 |
+| `lances_criticos` | 718 |
+| `diagnosticos` | 718 |
+| `perfis_usuario` | 2 (o dono do acervo + uma conta sem partida ingerida). É a tabela que prova que o multi-tenant do D-28 não é hipótese |
 | `puzzle_atividade` | 660, em 41 dias distintos |
 | `tempos_lance` | 16.161, cobrindo 228 partidas (4.847 do Lichess + 11.314 do Chess.com via backfill D-43) |
 | `livros_chunks` | 621 (370 anteriores + 251 de *How to Reassess Your Chess*, Silman 3ª ed.) |
@@ -61,8 +62,8 @@ pendência P-11 abaixo).
 | `metricas_lichess_partida` | 18, para 67 partidas do Lichess; 14 já têm `precisao_abertura`/`precisao_meiojogo` preenchidas e 12 têm `precisao_final` — colunas novas (ver `BANCO.md`) sendo preenchidas prospectivamente pelo pipeline automatizado (D-37), sem reprocessamento retroativo das linhas mais antigas |
 | `analises_hexagono` | 5 |
 | `sessoes_treino` | 5 prescritas, **0 concluídas**, 0 com eficácia medida. A validação do D-54 concluiu uma sessão de verdade (5/0/0 → 5/1/0, a primeira da história do produto) e **foi revertida de propósito**: aquele treino não aconteceu — os 12 exercícios foram respondidos por script, com lances quaisquer. Deixar a marca produziria a primeira medição de eficácia do produto em cima de um treino inexistente. O caminho está validado; o número volta a subir quando houver sessão real |
-| `resumo_partida` | 135 |
-| `fila_treino_espacado` | 632, todas `lance_critico` (D-48), escalonadas em 64 dias a 10 novas/dia até 17/11/2026 — **19 vencidas hoje e 9 atrasadas**. Os cards de catálogo das validações do D-54/D-55 foram removidos junto com a reversão da sessão. A fila cresce 10/dia independentemente do consumo, e é isso que o teto do D-56 protege |
+| `resumo_partida` | 136 |
+| `fila_treino_espacado` | 632, todas `lance_critico` (D-48), escalonadas a 10 novas/dia até 17/11/2026 — nenhuma de catálogo, porque os cards das validações do D-54/D-55 saíram junto com a reversão da sessão. **19 vencidos e 9 atrasados** em 16/09/2026 — número que muda todo dia, então rode a query da seção 6 em vez de confiar neste. Meça no fuso de Brasília, não em `current_date`: a API decide o "hoje" da fila em `America/Sao_Paulo` e à noite o UTC já virou. A fila cresce 10/dia venha alguém respondê-la ou não, e é esse crescimento que o teto do D-56 contém na exibição — sem nunca escondê-lo, porque `vencidos_total` continua dizendo o tamanho real |
 | `exercicios_taticos` | 1.200 (D-49); 300 por categoria em `TATICA`/`CALCULO`/`FINAIS`/`ESTRUTURA_DE_PEOES` — `ESTRATEGIA`/`GESTAO_DE_TEMPO` seguem sem cobertura AQUI, e é esperado: não existe tema de puzzle equivalente |
 | `exercicios_posicionais` | **2.381** (tabela nova, D-55), de **1.764 partidas OTB em 510 torneios** distintos (broadcasts do Lichess, maio a agosto/2026), 451 delas com um GM; ~594 em cada uma de `ESTRATEGIA`/`GESTAO_DE_TEMPO`/`FINAIS`/`ESTRUTURA_DE_PEOES`. A primeira leva do D-55 tinha 1.200 exercícios de só **69 torneios**, quase todos do mesmo dia — a amostragem por reservatório do D-58 é o que multiplicou a variedade por 7 |
 | **Catálogo somado, por categoria** | `TATICA` 300, `CALCULO` 300, `ESTRATEGIA` 593, `GESTAO_DE_TEMPO` 600, `FINAIS` 894, `ESTRUTURA_DE_PEOES` 894 — **as 6 categorias do Hexágono têm material pela primeira vez** (fecha o P-15) |
@@ -368,6 +369,13 @@ componente e o mesmo padrão de persistência do item ativo em `localStorage`
 salvava em `revisao_exercicio_avulso` mas não tinha histórico navegável.
 
 ### P-11 — Fase B do multi-tenant: Auth no frontend + RLS por usuário ✅ Fase B concluída em 13/09/2026
+
+> **Leia como registro histórico, fase por fase.** Cada parágrafo abaixo está
+> datado e descreve o estado **daquele dia**, incluindo estados transitórios que
+> já foram superados. Duas frases em particular não valem mais: o `authGuard`
+> "não usa o guard em nenhuma rota" (B.1, 12/09) e "`X-API-Key` continua sendo
+> exigida" (B.2, 13/09). Hoje o guard está nas 7 rotas do dashboard e o
+> `X-API-Key` não existe mais no código — ver a seção 5 e `ARQUITETURA.md` §5.
 
 **Fase A concluída (11/09/2026).** `user_id NOT NULL` nas 6 tabelas raiz,
 backfill das 900 linhas existentes, `DEFAULT_USER_ID` preenchendo toda escrita
@@ -760,8 +768,11 @@ persistência automática e histórico navegável; Analisador de Partida com
 histórico e reprocessamento; as 3 telas interativas compartilham o mesmo
 componente de histórico (`historico-analise`) e o mesmo padrão de
 sobrevivência a F5 via `localStorage` (ver D-11 em `DECISOES.md`); deploy
-contínuo de frontend e backend; autenticação por múltiplas chaves nomeadas;
-`abertura_normalizada` preenchida para as 215 partidas existentes e captura de
+contínuo de frontend e backend; autenticação **só** por sessão do Supabase Auth
+(`Authorization: Bearer`) — a frase "autenticação por múltiplas chaves nomeadas"
+que ficava aqui descrevia o `X-API-Key`, aposentado como porta de entrada em
+D-25 e removido do código numa auditoria pós-D-49;
+`abertura_normalizada` preenchida para 230 das 240 partidas e captura de
 precisão por fase (`precisao_abertura`/`precisao_meiojogo`/`precisao_final`)
 daqui pra frente no enriquecimento Lichess (ver D-12 em `DECISOES.md`);
 `GET /insights/repertorio` já consome isso (D-13) e cruza com resultado, lance
@@ -778,12 +789,33 @@ agora é idêntico entre anônimo e autenticado, confirmado caractere a
 caractere e via `curl` direto no PostgREST com o JWT real. Uma análise real
 no Laboratório (Stockfish + Gemini, não mock), salva estando logado, grava
 com o `user_id` real da conta (D-17); a mesma ação sem sessão continua
-gravando `DEFAULT_USER_ID`, como sempre. `authGuard` está ligado nas 6 rotas
-do dashboard desde D-23 (Fase B efetivamente concluída; `/treino` somou-se
-às 5 originais em D-48) — a frase acima sobre
+gravando `DEFAULT_USER_ID`, como sempre. `authGuard` está ligado nas **7 rotas**
+do dashboard desde D-23 (Fase B efetivamente concluída; `/treino` somou-se às 5
+originais em D-48 e `/sessao/:id` em D-54) — a frase acima sobre
 "deliberadamente desligado" descrevia só o estado transitório de B.1
 (12/09/2026) e ficou desatualizada quando B foi fechada no dia seguinte; ver
 `app.routes.ts`.
+
+**A metade de treino também está validada de ponta a ponta** (D-48 a D-59,
+setembro/2026), e é o que o texto acima, escrito antes dela, não cobria:
+
+- **Fila diária de repetição espaçada** (`/treino`, D-48) sobre os próprios
+  lances `PICO` já diagnosticados, com SM-2 real, teto de exibição e o número
+  do atraso exposto em vez de escondido (D-56).
+- **Dois catálogos de exercício** somando as 6 categorias do Hexágono pela
+  primeira vez: táticos do dump de puzzles do Lichess (D-49, CC0) e posicionais
+  de broadcasts OTB reais (D-55, CC BY-SA 4.0 — a procedência é exibida depois
+  da resposta porque a licença exige atribuição, não por enfeite).
+- **Sessão de treino focado executável** (`/sessao/:id`, D-54): blocos de estudo
+  marcáveis e bloco de prática que enfileira exercícios de verdade, com
+  conclusão automática quando o último termina. É o que faltava para
+  `medir_eficacia.py` ter o que medir.
+- **Cadência das partidas** (D-57): as 240 classificadas, e o Hexágono passou a
+  exibir a ressalva de que 59,2% do corpus é blitz acima do diagnóstico.
+
+O que **não** está validado: nenhuma sessão real foi concluída por um humano
+até hoje (ver `sessoes_treino` na seção 2), então o loop adaptativo tem o
+caminho provado mas ainda não produziu uma medição de eficácia legítima.
 
 ## 6. Como re-verificar
 
@@ -836,9 +868,8 @@ select
 select tag, count(*) n from diagnosticos d, unnest(d.tags_falha) tag
 group by tag order by n desc;
 
--- composição por cadência
-select coalesce(substring(pgn from '\[TimeControl "([^"]+)"\]'),'?') tc, count(*)
-from partidas where status_processamento='concluido' group by 1 order by 2 desc;
+-- (a contagem manual de TimeControl por regex sobre o PGN que ficava aqui foi
+--  substituída pela coluna partidas.cadencia no D-57 — ver a query mais abaixo)
 
 -- distribuição de abertura_normalizada
 select abertura_normalizada, count(*) n from partidas
@@ -852,10 +883,18 @@ from partidas
 where plataforma in ('LICHESS','CHESSCOM') and abertura_normalizada is not null
 group by 1, 2 order by total desc;
 
--- P-11/D-16: cada uma das 6 tabelas tem que ter SELECT pra {anon} E {authenticated}
+-- RLS das 6 tabelas do dashboard. ATENÇÃO: o comentário que ficava aqui dizia
+-- "tem que ter SELECT pra {anon} E {authenticated}" — isso valia no D-16 e
+-- VIROU O CONTRÁRIO no D-23/D-24. Seguir a versão antiga hoje seria recriar o
+-- vazamento que o P-13 documenta. O correto agora: policy só de
+-- {authenticated}, isolada por dono, e NENHUMA de {anon} no schema inteiro.
 select tablename, policyname, roles, cmd from pg_policies
 where tablename in ('analises_hexagono','lances_criticos','partidas','resumo_partida','revisao_exercicio_avulso','sessoes_treino')
 order by tablename, roles::text;
+
+-- o schema inteiro continua sem policy de anon? Tem que voltar 0 linhas.
+select tablename, policyname from pg_policies
+where schemaname='public' and 'anon' = any(roles);
 
 -- dono preenchido nas 6 tabelas raiz (P-11 / D-14): com_user tem que bater com total
 select 'partidas' t, count(*) total, count(user_id) com_user from partidas
@@ -884,8 +923,13 @@ select count(*) sem_cadencia from partidas where cadencia is null;
 
 -- a fila está consumível? (D-56) A população acrescenta 10/dia venha alguém
 -- respondê-los ou não; `atrasados` crescendo mês a mês é o sinal de alerta.
-select count(*) filter (where proxima_revisao_data <= current_date) vencidos,
-       count(*) filter (where proxima_revisao_data < current_date) atrasados,
+--
+-- CUIDADO COM O FUSO: `current_date` aqui é UTC, mas a API decide o "hoje" da
+-- fila em America/Sao_Paulo (`_hoje_local()` em api_server.py). Entre 21h e
+-- meia-noite de Brasília as duas discordam em um dia, e a query parece acusar
+-- cards que o app ainda não mostra. Não é bug da fila.
+select count(*) filter (where proxima_revisao_data <= (now() at time zone 'America/Sao_Paulo')::date) vencidos,
+       count(*) filter (where proxima_revisao_data <  (now() at time zone 'America/Sao_Paulo')::date) atrasados,
        count(*) total
 from fila_treino_espacado;
 

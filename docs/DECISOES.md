@@ -3030,6 +3030,59 @@ limpador genérico não alcança.
 
 ---
 
+### D-60 — Reconciliação "de/para" entre a documentação e o projeto real
+
+Auditoria de todos os 10 documentos de conhecimento (`AGENTS.md`, `CLAUDE.md` e
+os 8 de `docs/`) contra o código, o banco de produção e os workflows, em
+16/09/2026. Não houve mudança de comportamento do sistema: só de documento.
+
+**Por que fazer isso como trabalho próprio.** Os documentos foram atualizados a
+cada entrega, mas sempre pela ponta que a entrega tocava. O que apodrece é o
+resto — a afirmação de outra seção que a entrega tornou falsa sem ninguém
+reler. Esse tipo de erro não aparece em teste nenhum e só custa caro quando um
+agente age sobre ele.
+
+**Os três achados que eram perigosos, não só velhos:**
+
+1. **`ESTADO.md` §6 mandava garantir policy de RLS para `anon`.** O comentário
+   era verdade no D-16 e virou o oposto no D-23/D-24, que removeram todas as
+   policies `to anon` justamente porque elas vazavam dado pessoal (P-13). Um
+   agente seguindo a instrução recriaria o vazamento achando que corrigia
+   RLS. Substituído pela regra atual mais uma query que falha alto: o schema
+   inteiro tem que devolver zero policies de `anon`.
+2. **`ESTADO.md` §5 dizia que a autenticação é "por múltiplas chaves
+   nomeadas".** O `X-API-Key` foi aposentado no D-25 e removido do código numa
+   auditoria pós-D-49. `ARQUITETURA.md` e `OPERACAO.md` já diziam isso; só o
+   documento de estado ficou para trás, e é o que um agente lê primeiro para
+   saber o que existe.
+3. **`AGENTS.md` afirmava "não é multiusuário".** Factualmente errado desde o
+   D-28: o pipeline percorre `perfis_usuario`, as tabelas raiz têm RLS por dono
+   e as rotas tiram o `user_id` da sessão sem fallback. A frase convidava a
+   simplificações que seriam vazamento no segundo cadastro.
+
+**Outros ajustes:** `ROADMAP_EVOLUCAO.md` ganhou um aviso no topo — as Fases 12
+a 18 foram todas entregues, e o documento lido de cima parecia um plano
+pendente; `GUIA_DO_PROJETO.md` não mencionava `/treino` nem as sessões, isto é,
+o guia do dono não falava da parte que ele usa todo dia; `ARQUITETURA.md` não
+tinha a rota `/sessao/:id` nem 4 componentes; `OPERACAO.md` §7 não listava 8
+variáveis de ambiente que o código lê; `BANCO.md` §3 não tinha os enumerados de
+`cadencia`, `origem` e `severidade`.
+
+**Uma decisão de forma:** a lista nominal de módulos de teste que `ESTADO.md`
+mantinha foi **removida**, não corrigida. Ela dizia "35 módulos" quando já eram
+37 — um terceiro lugar para manter à mão, fadado a divergir dos dois que a R8
+já exige. No lugar ficou o par de comandos que compara disco e CI; o número
+certo se descobre, não se memoriza.
+
+**Achado lateral, registrado para não virar falso alarme:** `current_date` do
+Postgres é UTC, mas a API decide o "hoje" da fila em `America/Sao_Paulo`
+(`_hoje_local()`). Entre 21h e meia-noite de Brasília as duas discordam em um
+dia, e a query de verificação parece acusar cards que a tela não mostra. Não é
+defeito da fila — a query da seção 6 do `ESTADO.md` passou a medir no fuso
+certo.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

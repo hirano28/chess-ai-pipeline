@@ -2,7 +2,7 @@
 doc: ARQUITETURA.md
 escopo: componentes, fluxo de dados, superfície de API, frontend, topologia de deploy
 nao_contem: estado factual (ver ESTADO.md), comandos (ver OPERACAO.md), schema (ver BANCO.md)
-verificado_em: 2026-09-15
+verificado_em: 2026-09-16
 ---
 
 # Arquitetura do Chess AI Pipeline
@@ -55,6 +55,12 @@ Enriquecimentos que entram lateralmente nesse fluxo:
   relógio, tudo calculado pelo próprio Lichess).
 - `backend/agentes/normalizar_aberturas.py` → `partidas.abertura_normalizada`
   (agrupamento por família reconhecível; ver `BANCO.md` §4 e `DECISOES.md` D-12).
+- `backend/ingestao/backfill_cadencia.py` → `partidas.cadencia` (D-57, execução
+  única; a classificação em si mora em `backend/common/cadencia.py`, que a
+  coleta também chama para preencher a coluna em partida nova). Diferente de
+  `parse_time_control`, esse módulo **não chuta**: PGN sem header de
+  `TimeControl` vira `DESCONHECIDA`, porque adivinhar contaminaria a própria
+  estatística que a coluna existe para limpar.
 - `backend/ingestao/importar_anotacoes_lichess.py` → `anotacoes_pensamento`
   (comentários que o jogador escreveu em um Lichess Study).
 - `backend/ingestao/importar_puzzle_activity.py` → `puzzle_atividade`.
@@ -173,17 +179,22 @@ Angular 21, standalone components, signals, Tailwind CSS 4, testes em Vitest.
 | `/laboratorio` | `laboratorio-raciocinio` | exercício avulso com feedback imediato |
 | `/explicador` | `explicador-posicao` | explicação didática de uma posição |
 | `/analisador` | `analisador-partida` | cola PGN, acompanha o progresso, lê o resumo |
-| `/treino` | `treino-do-dia` | repetição espaçada sobre os próprios lances críticos já diagnosticados (D-48) e, quando pedido, exercícios do catálogo tático focados numa categoria fraca (D-49) — diferente das "Sessões de treino" da tela `/` (prescrição semanal do Agente 3) |
+| `/treino` | `treino-do-dia` | repetição espaçada sobre os próprios lances críticos já diagnosticados (D-48) e, quando pedido, exercícios dos catálogos tático (D-49) e posicional (D-55) focados numa categoria fraca — diferente das "Sessões de treino" da tela `/` (prescrição semanal do Agente 3). Aceita `?sessao_id=` para virar a prática de uma sessão específica (D-56), e o card cronometrado de `GESTAO_DE_TEMPO` mostra o relógio antes do tabuleiro de propósito (D-55) |
+| `/sessao/:id` | `sessao-execucao` | D-54: execução de uma sessão de treino focado — blocos de estudo marcáveis um a um e um bloco de prática que leva para `/treino?sessao_id=`. É a tela que transformou a prescrição do Agente 3 em algo que se conclui, e é a `data_concluida` que ela produz que `medir_eficacia.py` espera |
 | `/perfil` | `perfil-usuario` | cadastra a(s) conta(s) de Lichess/Chess.com de quem está logado (D-28) |
 | `/login` | `login` | signUp/signInWithPassword do Supabase Auth (Fase B.1 — ver D-15 em `DECISOES.md`) |
 
-`authGuard` está ligado nas 6 rotas do dashboard (todas acima, exceto
-`/login`) desde D-23 — ver a nota mais abaixo sobre a Fase B.
+`authGuard` está ligado nas **7 rotas** do dashboard (todas acima, exceto
+`/login`) desde D-23 — `/treino` entrou em D-48 e `/sessao/:id` em D-54. Ver a
+nota mais abaixo sobre a Fase B.
 
 Componentes de apoio: `tabuleiro-preview` (tabuleiro 8x8 em CSS Grid com SVGs do
 conjunto cburnett; `[miniatura]="true"` dá a versão compacta sem coordenadas nem
 barra de ferramentas), `narrativa-analise`, `perguntas-pendentes`,
-`sessoes-treino`, `historico-analise` (lista de histórico genérica e reutilizável
+`sessoes-treino`, `repertorio-insights` (D-40), `puzzles-insights` (D-41),
+`modal-onboarding-contas` (convite para cadastrar a conta de Lichess/Chess.com
+de quem ainda não tem perfil — sem ela a pessoa loga e nunca vê partida
+nenhuma), `historico-analise` (lista de histórico genérica e reutilizável
 — ver D-11 em `DECISOES.md`; as 3 telas interativas mapeiam seus próprios itens
 para o shape `HistoricoAnaliseItem` e tratam `(itemClicado)` para restaurar o que
 só cada uma sabe restaurar). Desde o D-51, um item de histórico pode trazer `fen`
@@ -194,8 +205,11 @@ Cada uma das 3 telas interativas persiste o item ativo em `localStorage` para
 sobreviver a um F5 (`chess_analisador_partida_ativa`, `chess_explicador_ativo`,
 `chess_laboratorio_ativo`). `frontend/src/app/shared/` guarda os helpers puros
 compartilhados por elas: `data.ts` (formatação de data), `lichess.ts` (URL de
-análise) e `fen.ts` (`orientacaoDoFen`, que escolhe a perspectiva da miniatura
-pelo lado que está na vez de jogar).
+análise), `fen.ts` (`orientacaoDoFen`, que escolhe a perspectiva da miniatura
+pelo lado que está na vez de jogar) e `texto.ts` (`segmentosDeNegrito`, que quebra
+o `**negrito**` que o Gemini escreve nas narrativas em segmentos — devolver
+segmentos em vez de HTML deixa o template usar `<strong>` sem `innerHTML`, então
+nada que venha do modelo é interpretado como marcação; D-52).
 
 **Sistema de design — `frontend/src/styles.css` é a única fonte de verdade de
 cor, sombra, raio e tipografia (D-47).** Um bloco `@theme` do Tailwind 4 define
