@@ -93,8 +93,8 @@ pendência P-11 abaixo).
 | `perfis_usuario` | 2 (o dono do acervo + uma conta sem partida ingerida). É a tabela que prova que o multi-tenant do D-28 não é hipótese |
 | `puzzle_atividade` | 660, em 41 dias distintos |
 | `tempos_lance` | 16.161, cobrindo 228 partidas (4.847 do Lichess + 11.314 do Chess.com via backfill D-43) |
-| `livros_chunks` | 1621 (1354 anteriores + 267 de "Understanding Chess Endgames", John Nunn, D-77 — só RAG vetorial, sem capítulo citável) |
-| `indice_conceitual` | 274 (216 anteriores + 58 de "Segredos da Moderna Estratégia", D-74; sem alteração no D-76/D-77) |
+| `livros_chunks` | 2092 (1621 anteriores + 244 de "Arte do Ataque no Xadrez", Vukovic, D-78 — só RAG vetorial — + 227 de "The Complete Manual of Positional Chess Vol 1", Sakaev/Landa, D-78) |
+| `indice_conceitual` | 370 (274 anteriores + 96 de "The Complete Manual of Positional Chess Vol 1", D-78) |
 | `anotacoes_pensamento` | 23, cobrindo 3 partidas |
 | `revisoes_pensamento` | 23, todas em 1 único dia |
 | `revisao_exercicio_avulso` | 17 |
@@ -871,7 +871,12 @@ e "Los 100 Finales que Hay que Saber" de Jesús de la Villa (D-76, 167
 chunks só na busca vetorial — o livro nomeia finais como "Final 71. ..."
 em vez de capítulo, então não gerou citação nova em `indice_conceitual`),
 mais "Understanding Chess Endgames" de John Nunn (D-77, 267 chunks, mesmo
-tratamento — organizado por final numerado, sem capítulo detectável);
+tratamento — organizado por final numerado, sem capítulo detectável),
+"Arte do Ataque no Xadrez" de Vukovic (D-78, 244 chunks só na busca
+vetorial — sumário e corpo usam formatos de capítulo inconsistentes entre
+si) e "The Complete Manual of Positional Chess Vol 1" de Sakaev/Landa
+(D-78, 227 chunks, 96 conceitos, 30 capítulos com título real conferido
+manualmente página a página antes da sugestão de conceito);
 Laboratório de Raciocínio com notação PT/EN, reconhecimento de posição por foto, preview do tabuleiro e
 histórico navegável dos exercícios salvos; Explicador de Posição com
 persistência automática e histórico navegável; Analisador de Partida com

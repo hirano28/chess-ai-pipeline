@@ -4318,6 +4318,72 @@ query). `indice_conceitual` inalterado em 274.
 
 ---
 
+### D-78 — "Arte do Ataque no Xadrez" (Vukovic, só RAG) e "The Complete Manual of Positional Chess Vol 1" (Sakaev/Landa, com citação real) — escolhidos pelo maior conteúdo entre os candidatos já validados
+
+**Contexto:** pedido do usuário — "escolha os próximos 2 livros que tem
+mais conteúdo pra agregar nas nossas ferramentas". Entre os candidatos já
+confirmados com texto nativo (sem OCR) nas checagens anteriores (D-74),
+os dois maiores eram "Arte do Ataque no Xadrez" (Vukovic, 429 páginas) e
+"The Complete Manual of Positional Chess Vol 1" (Sakaev/Landa, 320
+páginas).
+
+**"Arte do Ataque no Xadrez" — achado de inconsistência interna do
+próprio livro:** o `--preview` deu 0 capítulos em 244 chunks. Investigando
+a fundo (testando `detect_chapter()` linha a linha contra o texto real):
+o sumário lista os capítulos como `"12. Título"` (com ponto — que bate no
+`NUMBERED_CHAPTER_PATTERN`), mas o cabeçalho real de cada capítulo no
+corpo do livro usa `"12 Título"` (só espaço, sem pontuação nenhuma — que
+não bate). O pipeline já tem proteção deliberada contra confundir sumário
+com capítulo real (só aceita capítulo numerado nas 2 primeiras linhas
+"significativas" da página, e só em sequência estrita a partir de 1) —
+essa proteção funcionou corretamente aqui, rejeitando tanto o sumário
+quanto o corpo (que usa formato diferente). Cogitei relaxar
+`NUMBERED_CHAPTER_PATTERN` para aceitar "N Título" sem pontuação, mas
+isso abriria risco real de falso positivo: lances de xadrez anotados como
+`"11 Qxd4 Rd8"` têm exatamente o formato "número + espaço + maiúscula" e
+aparecem aos milhares num livro de ataque cheio de análise de partida — o
+guard de sequência estrita reduz mas não elimina esse risco,
+especialmente nos números baixos (1, 2, 3...) que colidem facilmente com
+número de lance. Decidido não arriscar; mesmo tratamento do D-76/D-77 (só
+RAG vetorial), sem repetir a pergunta ao usuário por já ser padrão
+estabelecido para esse tipo de caso.
+
+**"The Complete Manual of Positional Chess Vol 1" — capítulo real,
+título verificado manualmente antes da sugestão:** aqui o `--preview` já
+veio bom de cara — 30 capítulos detectados (`Chapter N`), sequenciais,
+5–20 páginas cada. Mas o título capturado era só `"Chapter N"`, sem a
+frase descritiva (que fica na linha seguinte, não capturada pelo
+`CHAPTER_PATTERNS`, que só olha o sufixo na mesma linha). Antes de rodar
+qualquer coisa cara, extraí o título real de cada um dos 30 capítulos
+direto da página (via `pdfplumber`, sem custo), lendo as primeiras linhas
+de cada página de início de capítulo — não inventei nenhum título, todos
+vêm do texto literal do livro. Apliquei essas correções em `livros_chunks`
+**antes** de rodar `sugerir_indice_conceitual.py`, ao contrário do D-74
+(onde a correção veio depois, por já ter descoberto o problema só na
+revisão). Resultado: as 96 sugestões saíram já com título completo e
+correto, sem precisar de revisão/descarte pós-geração como no D-74.
+
+**Achado lateral, dois processos do SO por uma única execução:**
+verificando por que o processamento do Sakaev/Landa não mostrava progresso
+por vários minutos, encontrei um processo filho (`C:\Python312\python.exe`)
+gerado pelo processo da venv, com CPU real (38s) e memória real (1,5GB) —
+diferente do bug do D-72 (que eram processos duplicados/órfãos de
+execuções distintas), aqui é pai+filho de uma única invocação, o pai
+ficando ocioso enquanto o filho faz o trabalho de verdade. Confirmado via
+`ParentProcessId` antes de mexer em qualquer coisa — não matei nenhum
+processo, só esperei terminar.
+
+**Verificação real:** `--preview` gratuito nos dois antes de gastar
+qualquer coisa. Processamento completo contra produção
+(`pmzmershonrqzwbmhaco`): `livros_chunks` 1621→2092 (+244 Vukovic +227
+Sakaev/Landa, confirmado por query). Títulos dos 30 capítulos do
+Sakaev/Landa corrigidos e conferidos por query antes da sugestão de
+conceito. `indice_conceitual` 274→370 (+96, só do Sakaev/Landa).
+Recontagem por categoria: TATICA 38→57, ESTRATEGIA 36→40, CALCULO 32→52,
+GESTAO_DE_TEMPO 13→18, FINAIS 14→15, ESTRUTURA_DE_PEOES continua em 4.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

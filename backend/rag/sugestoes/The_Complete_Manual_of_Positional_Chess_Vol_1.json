@@ -1,0 +1,599 @@
+{
+  "livro": "The Complete Manual of Positional Chess Vol 1",
+  "capitulos": [
+    {
+      "capitulo": "Chapter 1: An advantage in development",
+      "pagina_min": 18,
+      "pagina_max": 24,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Atrasar o desenvolvimento das peças na abertura mantém o rei vulnerável no centro a ataques decisivos."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "Trocas de peões que abrem colunas e diagonais centrais favorecem o lado que possui melhor mobilização e atividade."
+        },
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "Gastar tempos capturando peões ou movendo peões na abertura cede a iniciativa e o controle do jogo ao adversário."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Posicionar peças em casas inconvenientes prejudica a harmonia entre as forças e dificulta planos defensivos e ofensivos."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 2: The centre and its significance",
+      "pagina_min": 25,
+      "pagina_max": 36,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "controle do centro",
+          "resumo_curto": "O domínio das casas centrais assegura maior mobilidade para as peças e fundamenta os planos estratégicos da abertura."
+        },
+        {
+          "conceito": "visao_em_tunel",
+          "resumo_curto": "Perseguir peças secundárias na ala ignorando as disputas centrais e a segurança do próprio rei resulta em punições táticas imediatas."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Descentralizar cavalos e expor a dama enquanto os bispos ainda não foram desenvolvidos desorganiza a defesa e cede a iniciativa."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "Forçar tensões de peões centrais com o desenvolvimento atrasado abre linhas que apenas beneficiam o adversário mais ativo."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 3: Do not make unnecessary pawn moves if you have not completed your development",
+      "pagina_min": 37,
+      "pagina_max": 42,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Atrasar o desenvolvimento com lances prematuros de peão expõe o rei a ataques fulminantes no centro."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Mover peões desnecessariamente na abertura compromete a estrutura de peões e cria casas fracas irreparáveis."
+        },
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "Gastar tempos com movimentações supérfluas cede a iniciativa ao adversário, facilitando rupturas centrais ativas."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 4: Do not develop the queen too early",
+      "pagina_min": 43,
+      "pagina_max": 50,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Desenvolver a dama precocemente para atacar ou capturar peões distantes negligencia os princípios básicos da abertura e expõe a posição."
+        },
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "Gastar vários tempos movendo a mesma peça concede ao adversário a oportunidade de acelerar o desenvolvimento e assumir o controle do jogo."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Aventurar a dama sozinha no campo inimigo enquanto as demais peças permanecem nas casas iniciais deixa o exército desarticulado e vulnerável."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 5: Do not move the same piece twice",
+      "pagina_min": 51,
+      "pagina_max": 54,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Mover repetidamente a mesma peça na abertura atrasa a mobilização das demais, deixando o exército descoordenado e inativo."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "Abrir o centro quando as próprias peças não estão desenvolvidas beneficia o adversário que possui maior prontidão de combate."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Superestimar fatores como o par de bispos ou postos avançados ignorando o grave atraso no desenvolvimento posicional."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 6: Do not leave the king in the centre",
+      "pagina_min": 55,
+      "pagina_max": 61,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Deixar o rei no centro durante a abertura sem realizar o roque expõe a posição a ataques decisivos."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Adiar o roque impede a conexão entre as torres e deixa peças desprotegidas e vulneráveis a golpes táticos."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Iniciar operações ativas no centro antes de abrigar o rei e completar o desenvolvimento costuma ser duramente punido."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 7: An unprepared attack",
+      "pagina_min": 62,
+      "pagina_max": 68,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Iniciar ações ofensivas antes de completar o desenvolvimento das peças cria fraquezas e expõe o jogador a fortes contra-ataques."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Negligenciar o roque e manter o rei no centro em posições abertas o deixa vulnerável a combinações táticas decisivas."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "A ruptura e a abertura de linhas no centro favorecem o lado que possui maior mobilidade e superioridade no desenvolvimento."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 8: Calculation of variations and methods of taking decisions",
+      "pagina_min": 70,
+      "pagina_max": 75,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "O texto ensina a estruturar a tomada de decisões e limitar lances candidatos para evitar o esgotamento mental e erros no cálculo."
+        },
+        {
+          "conceito": "gestao_de_tempo_ruim",
+          "resumo_curto": "O autor alerta contra a análise profunda e desnecessária de variantes, prevenindo o apuro de tempo durante a partida."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "O exemplo prático demonstra como explorar o rei adversário enfraquecido através de temas táticos e sacrifícios na ala do rei."
+        },
+        {
+          "conceito": "passividade_excessiva",
+          "resumo_curto": "O trecho mostra como tirar proveito de peças adversárias passivas e sem coordenação para criar compensação dinâmica e ataque."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 9: The piece and pawn centre and the fight against it",
+      "pagina_min": 76,
+      "pagina_max": 87,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "centro móvel de peões",
+          "resumo_curto": "Mobilizar uma massa central de peões permite desalojar peças ativas do adversário e abrir linhas cruciais para o ataque."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Peças desarmonizadas e afastadas do centro facilitam rupturas temáticas do adversário e falham na defesa mútua."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "O colapso defensivo no centro frequentemente expõe o monarca a redes de mate decorrentes da invasão de peças maiores."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 10: Coordination and piece activity",
+      "pagina_min": 88,
+      "pagina_max": 98,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "coordenação de peças",
+          "resumo_curto": "A atuação harmoniosa e integrada das forças é indispensável para conduzir ataques decisivos e sustentar a defesa."
+        },
+        {
+          "conceito": "passividade excessiva",
+          "resumo_curto": "Peças afastadas dos pontos de conflito e sem funções ativas facilitam a iniciativa e rupturas do adversário."
+        },
+        {
+          "conceito": "segurança do rei",
+          "resumo_curto": "O enfraquecimento das casas ao redor do rei permite investidas fulminantes, especialmente com a cooperação de dama e cavalo."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 11: Developing the initiative",
+      "pagina_min": 99,
+      "pagina_max": 111,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "O atraso no desenvolvimento permite ao adversário sacrificar material para ativar suas peças e assumir o controle dinâmico da partida."
+        },
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Deixar de realizar lances profiláticos essenciais possibilita a invasão de peças adversárias em casas críticas e o surgimento de temas táticos."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "A falta de harmonia e a instabilidade na disposição das peças deixam a posição vulnerável a golpes combinatórios decisivos."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 12: Prophylactic thinking. Fighting against the opponent's ideas",
+      "pagina_min": 112,
+      "pagina_max": 121,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Antecipar e neutralizar os planos e intenções do adversário antes que ele consiga gerar contrajogo."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Avaliar criteriosamente se o rei fica mais seguro no centro ou após o roque, sem interferir na ação das próprias peças."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Limitar o raio de ação das peças inimigas por meio da estrutura de peões, mantendo-as passivas e desarticuladas."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 13: Limiting the opponent's counterplay and piece manoeuvrability",
+      "pagina_min": 122,
+      "pagina_max": 132,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "restrição de peças",
+          "resumo_curto": "Técnica estratégica focada em limitar a mobilidade e neutralizar o raio de ação das peças ativas do oponente."
+        },
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Ocorre quando um jogador deixa de antecipar rupturas e ameaças do oponente, permitindo que seu contrajogo seja completamente sufocado."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Má disposição posicional das peças que quebra a harmonia defensiva e facilita o avanço restritivo do adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 14: Prophylaxis, strengthening one's own position",
+      "pagina_min": 133,
+      "pagina_max": 142,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "melhoria de peças",
+          "resumo_curto": "Identificar e manobrar a peça pior colocada para casas mais ativas e seguras."
+        },
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Falhar em antecipar as intenções e rupturas do adversário antes de prosseguir com planos lentos."
+        },
+        {
+          "conceito": "abertura de linhas",
+          "resumo_curto": "Abrir colunas e diagonais no setor do tabuleiro onde se concentra a iniciativa ofensiva."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Explorar a falta de contrajogo adversário para desmantelar a estrutura defensiva do monarca rival."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 15: Schematic thinking. Regrouping one's forces, transferring pieces to more favourable positions",
+      "pagina_min": 143,
+      "pagina_max": 161,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "pensamento esquemático",
+          "resumo_curto": "Consiste em idealizar a casa perfeita para cada peça em posições estratégicas antes de determinar a rota concreta para movê-las."
+        },
+        {
+          "conceito": "reagrupamento de peças",
+          "resumo_curto": "Envolve manobrar peças para diagonais ou casas mais ativas para aumentar a pressão sobre pontos-chave do adversário."
+        },
+        {
+          "conceito": "passividade excessiva",
+          "resumo_curto": "A falta de planos ativos e de contrajogo permite que o oponente fortaleça a posição livremente até desferir golpes centrais decisivos."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 16: A space advantage",
+      "pagina_min": 162,
+      "pagina_max": 172,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "vantagem de espaço",
+          "resumo_curto": "O avanço de peões garante liberdade de manobra para as próprias peças enquanto restringe a mobilidade das forças adversárias."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Peões fixados nas cores do próprio bispo criam casas fracas e tornam-se alvos fáceis para o ataque inimigo."
+        },
+        {
+          "conceito": "passividade_excessiva",
+          "resumo_curto": "Posições puramente defensivas e sem contra-ataque acabam sucumbindo a rupturas táticas e posicionais preparadas pelo oponente."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 17: The problem of exchanges. Simplifying positions",
+      "pagina_min": 173,
+      "pagina_max": 190,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "troca_desfavoravel",
+          "resumo_curto": "Trocar peças ativas por passivas ou sem justificativa estratégica clara debilita a posição e favorece os planos do oponente."
+        },
+        {
+          "conceito": "simplificacao_prematura",
+          "resumo_curto": "Propor ou aceitar a troca de damas de forma precipitada elimina recursos valiosos de contra-ataque, como xeques perpétuos."
+        },
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Falhar em antecipar e conter os planos e manobras ativas do adversário antes de iniciar os próprios avanços compromete a iniciativa."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 18: Weak squares. Control of key central squares or a complex thereof",
+      "pagina_min": 191,
+      "pagina_max": 212,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "casas fracas",
+          "resumo_curto": "Ocupação e exploração de casas que não podem ser protegidas por peões adversários para transformá-las em postos avançados para as peças."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Avanços descuidados de peões criam vulnerabilidades permanentes na estrutura que facilitam a infiltração inimiga."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "O enfraquecimento do complexo de casas ao redor do monarca viabiliza invasões e ataques táticos decisivos do adversário."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Ceder o controle de casas centrais essenciais sem a devida compensação compromete a harmonia e o plano estratégico da posição."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 19: Open and half-open files",
+      "pagina_min": 213,
+      "pagina_max": 224,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "controle de coluna aberta",
+          "resumo_curto": "A ocupação de colunas abertas e semiabertas por peças pesadas permite penetrar na posição adversária e assegurar grande vantagem posicional."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Manter o rei vulnerável no centro em posições abertas expõe a posição a ataques diretos e redes de mate fatais."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "A omissão de sequências táticas forçadas no cálculo pode desperdiçar uma vitória imediata e levar ao empate."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 20: The advantage of two bishops",
+      "pagina_min": 226,
+      "pagina_max": 237,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "par de bispos",
+          "resumo_curto": "O par de bispos atua com enorme força ao coordenar o controle de diagonais abertas, especialmente em finais com peões espalhados em ambos os flancos."
+        },
+        {
+          "conceito": "passividade_excessiva",
+          "resumo_curto": "Uma postura puramente defensiva e inerte priva a posição de contrajogo, permitindo ao oponente expandir sua vantagem espacial e tática."
+        },
+        {
+          "conceito": "troca_desfavoravel",
+          "resumo_curto": "Realizar trocas de peças sem avaliar a qualidade das forças remanescentes pode apenas acentuar a superioridade posicional do adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 21: \"Good\" and \"bad\" bishops",
+      "pagina_min": 238,
+      "pagina_max": 246,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "bispo mau",
+          "resumo_curto": "Peça obstruída pela própria cadeia de peões que deve ser trocada ou ativada para não comprometer a posição."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Colocar peões na mesma cor das casas do próprio bispo limita a mobilidade da peça e cria debilidades duradouras."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "Executar uma ideia estratégica correta com a ordem de lances imprecisa permite refutações táticas decisivas do adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 22: Knight or bishop?",
+      "pagina_min": 248,
+      "pagina_max": 256,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "bispo contra cavalo",
+          "resumo_curto": "A força relativa entre bispos e cavalos depende da estrutura de peões, favorecendo bispos em posições abertas e cavalos em centros fechados."
+        },
+        {
+          "conceito": "posto avançado",
+          "resumo_curto": "Uma casa protegida de onde o cavalo não pode ser expulso por peões adversários maximiza a força e a influência da peça."
+        },
+        {
+          "conceito": "lance intermediário",
+          "resumo_curto": "Manobra tática inserida antes da continuação óbvia para alterar a dinâmica do cálculo e obter vantagem na posição."
+        },
+        {
+          "conceito": "abertura de linhas desfavorável",
+          "resumo_curto": "Decisão de abrir o centro que cede colunas e casas ativas cruciais para a coordenação das peças inimigas."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 23: Opposite-coloured bishops",
+      "pagina_min": 257,
+      "pagina_max": 259,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "bispos de cores opostas",
+          "resumo_curto": "Favorecem o ataque no meio-jogo pelo controle unilateral de diagonais e acentuam tendências de empate em finais puros."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "O ataque contra o rei torna-se devastador quando o defensor não consegue contestar as casas da cor do bispo adversário."
+        },
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Subestimar os perigos táticos do adversário e avançar peões defensivos enfraquece fatalmente o abrigo do monarca."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 24: Secure points, outposts",
+      "pagina_min": 261,
+      "pagina_max": 267,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "posto avançado",
+          "resumo_curto": "Uma casa protegida e imune ao ataque de peões adversários serve de base estável para manobras de peças decisivas."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "O avanço descuidado ou a degradação da estrutura de peões cria debilidades e casas de apoio permanentes para o oponente."
+        },
+        {
+          "conceito": "troca_desfavoravel",
+          "resumo_curto": "A troca inadequada de peças menores pode enfraquecer complexos de casas e transferir o controle estratégico ao adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 25: A knight on the edge of the board stands badly/well",
+      "pagina_min": 268,
+      "pagina_max": 271,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "cavalo na borda",
+          "resumo_curto": "Cavalos posicionados nas extremidades do tabuleiro controlam menos casas e tendem a ficar mal colocados se não cumprirem uma tarefa concreta."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "A captura inadequada de peões abriu colunas perigosas em direção ao rei, facilitando o ataque adversário."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "O afastamento de peças para longe do centro e da ala do rei impediu que trabalhassem em harmonia para conter as ameaças."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 26: Play on the wing. Do not attack on the wing if the centre is insecure!",
+      "pagina_min": 272,
+      "pagina_max": 283,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque na ala",
+          "resumo_curto": "Operações ofensivas nos flancos devem ser realizadas principalmente quando o centro está estável ou bloqueado por peões."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Iniciar ações na ala sem a devida segurança central permite que o adversário puna o avanço com um contra-ataque no centro."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Ataques de flanco buscam frequentemente romper o abrigo do rei adversário, exigindo defesas atentas e medidas profiláticas."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 27: Transferring the king from flank to flank",
+      "pagina_min": 284,
+      "pagina_max": 290,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Evacuar o rei voluntariamente para uma ala protegida garante que ele não fique exposto antes da abertura de linhas."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Iniciar rupturas ofensivas com pressa e sem a devida consolidação posicional do rei pode dissipar a vantagem."
+        },
+        {
+          "conceito": "manobra do rei",
+          "resumo_curto": "Transladar o rei de um flanco a outro em pleno meio-jogo serve para abrigá-lo em refúgio seguro ou ativá-lo no ataque."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 28: \"Superfluous\" pieces",
+      "pagina_min": 292,
+      "pagina_max": 295,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Ocorre quando duas peças disputam a mesma casa ideal, tornando uma delas supérflua e confinada a um posto inferior."
+        },
+        {
+          "conceito": "troca_desfavoravel",
+          "resumo_curto": "O lado com vantagem de espaço deve evitar simplificações desnecessárias que aliviem o aperto posicional do adversário."
+        },
+        {
+          "conceito": "passividade_excessiva",
+          "resumo_curto": "A escassez de casas ativas para manobrar restringe as peças menores e sufoca qualquer tentativa de contrajogo."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 29: Paying attention to the opponent's possibilities. Loss of concentration",
+      "pagina_min": 296,
+      "pagina_max": 301,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Ocorre quando o jogador relaxa prematuramente em posições favoráveis e deixa de antecipar as ameaças e contra-ataques do oponente."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "Consiste em não verificar com precisão os recursos forçados e defesas do adversário antes de executar um suposto lance vencedor."
+        },
+        {
+          "conceito": "erro_tecnico_de_final",
+          "resumo_curto": "Acontece ao desperdiçar posições simplificadas ou finais teoricamente ganhos por excesso de confiança e descuido com ideias de empate."
+        }
+      ]
+    },
+    {
+      "capitulo": "Chapter 30: Methods of defence",
+      "pagina_min": 302,
+      "pagina_max": 320,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "passividade_excessiva",
+          "resumo_curto": "Abandonar a resistência passiva em posições inferiores e buscar ativamente contrajogo ou complicações táticas para criar problemas práticos ao adversário."
+        },
+        {
+          "conceito": "xeque perpétuo",
+          "resumo_curto": "Recurso tático de defesa usado para salvar posições difíceis ao forçar uma sequência interminável de xeques contra o rei inimigo."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A vulnerabilidade do rei adversário permite ao lado defensor contra-atacar e neutralizar a vantagem rival através de ameaças diretas."
+        }
+      ]
+    }
+  ]
+}
