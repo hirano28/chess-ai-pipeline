@@ -9,6 +9,9 @@ on:
 jobs:
   pipeline-semanal:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write   # o passo "Abrir issue de falha" no fim do job
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -65,3 +68,39 @@ jobs:
           name: logs-pipeline-semanal
           path: backend/logs/*.log
           if-no-files-found: warn
+
+      # Alerta de falha (D-61) — mesma justificativa do pipeline diario, com um
+      # agravante: este roda 1x por semana. Uma falha silenciosa aqui significa
+      # SETE dias sem hexagono novo nem medicao de eficacia, e a proxima chance
+      # de perceber so viria na segunda seguinte.
+      - name: Abrir issue de falha
+        if: >-
+          failure()
+          || steps.medir_eficacia.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITULO: "Falha automatica: Pipeline semanal"
+          URL_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          corpo=$(printf '%s\n' \
+            "O workflow **Pipeline semanal** falhou (no todo ou em alguma etapa)." \
+            "" \
+            "- Run: $URL_RUN" \
+            "- Commit: \`${{ github.sha }}\`" \
+            "- Status do job: ${{ job.status }}" \
+            "" \
+            "| Etapa | Resultado |" \
+            "| --- | --- |" \
+            "| Medir eficacia | ${{ steps.medir_eficacia.outcome || 'nao executada' }} |" \
+            "| Agente 2 (hexagono) | ${{ steps.agente2_analista.outcome || 'nao executada' }} |" \
+            "| Agente 3 (sprint) | ${{ steps.agente3_prescritor.outcome || 'nao executada' }} |" \
+            "" \
+            "Sem isto nao ha hexagono novo, sprint prescrita nem medicao de eficacia por mais uma semana.")
+          existente=$(gh issue list --state open --label falha-automacao \
+            --search "$TITULO in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existente" ]; then
+            gh issue comment "$existente" --body "$corpo"
+          else
+            gh issue create --title "$TITULO" --label falha-automacao --body "$corpo"
+          fi

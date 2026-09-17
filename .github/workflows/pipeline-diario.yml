@@ -10,6 +10,9 @@ jobs:
   pipeline-diario:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write   # o passo "Abrir issue de falha" no fim do job
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -128,3 +131,60 @@ jobs:
           name: logs-pipeline-diario
           path: backend/logs/*.log
           if-no-files-found: warn
+
+      # Alerta de falha (D-61). O resumo do job acima so aparece pra quem abre
+      # a pagina do run -- e foi exatamente por isso que uma quebra de CI
+      # passou dois dias sem ninguem notar, enquanto a coleta de partidas
+      # parava. Uma issue chega por notificacao e fica aberta ate alguem
+      # fechar, entao o alerta sobrevive a nao ser lido na hora.
+      # A condicao cobre DOIS casos. O obvio e o job falhar. O silencioso e a
+      # maioria das etapas de coleta ter `continue-on-error: true` -- decisao
+      # correta (a queda do Chess.com nao pode matar a coleta do Lichess), mas
+      # com um efeito colateral ruim: o job fica verde tendo coletado zero
+      # partida. Sem a segunda metade da condicao, o alerta perderia justo o
+      # modo de falha mais dificil de perceber.
+      - name: Abrir issue de falha
+        if: >-
+          failure()
+          || steps.coletar_lichess.outcome == 'failure'
+          || steps.coletar_chesscom.outcome == 'failure'
+          || steps.importar_puzzles.outcome == 'failure'
+          || steps.enriquecer_lichess.outcome == 'failure'
+          || steps.popular_fila_treino.outcome == 'failure'
+          || steps.gerar_perguntas.outcome == 'failure'
+          || steps.gerar_resumos.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITULO: "Falha automatica: Pipeline diario"
+          URL_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          corpo=$(printf '%s\n' \
+            "O workflow **Pipeline diario** falhou (no todo ou em alguma etapa)." \
+            "" \
+            "- Run: $URL_RUN" \
+            "- Commit: \`${{ github.sha }}\`" \
+            "- Status do job: ${{ job.status }}" \
+            "" \
+            "| Etapa | Resultado |" \
+            "| --- | --- |" \
+            "| Coleta Lichess | ${{ steps.coletar_lichess.outcome || 'nao executada' }} |" \
+            "| Coleta Chess.com | ${{ steps.coletar_chesscom.outcome || 'nao executada' }} |" \
+            "| Puzzles Lichess | ${{ steps.importar_puzzles.outcome || 'nao executada' }} |" \
+            "| Enriquecer Lichess | ${{ steps.enriquecer_lichess.outcome || 'nao executada' }} |" \
+            "| Analise Stockfish | ${{ steps.analisar_engine.outcome || 'nao executada' }} |" \
+            "| Agente 1 | ${{ steps.agente1_linter.outcome || 'nao executada' }} |" \
+            "| Fila de treino espacado | ${{ steps.popular_fila_treino.outcome || 'nao executada' }} |" \
+            "| Perguntas pendentes | ${{ steps.gerar_perguntas.outcome || 'nao executada' }} |" \
+            "| Resumos de partidas | ${{ steps.gerar_resumos.outcome || 'nao executada' }} |" \
+            "" \
+            "Com a coleta parada nao entram partidas novas, e sem elas nao ha diagnostico nem fila de treino.")
+          # Uma issue por falha recorrente, nao uma por dia: se ja existe uma
+          # aberta, comenta nela.
+          existente=$(gh issue list --state open --label falha-automacao \
+            --search "$TITULO in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existente" ]; then
+            gh issue comment "$existente" --body "$corpo"
+          else
+            gh issue create --title "$TITULO" --label falha-automacao --body "$corpo"
+          fi

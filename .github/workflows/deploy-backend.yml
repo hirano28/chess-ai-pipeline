@@ -23,6 +23,9 @@ jobs:
     name: Testar e Deployar no Cloud Run
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write   # o passo "Abrir issue de falha" no fim do job
 
     steps:
       - name: Checkout do repositorio
@@ -171,6 +174,24 @@ jobs:
             echo "Health check falhou com status code: $STATUS_CODE" >&2
             exit 1
           fi
+
+          # /health responder 200 NAO prova que este commit subiu: ele responde
+          # 200 igual numa revisao antiga. Foi assim que o backend ficou parado
+          # no D-49 por dois dias com o health check verde, enquanto a Vercel
+          # publicava um frontend que chamava endpoints inexistentes.
+          # Confirmar qual imagem esta de fato servindo trafego fecha esse furo.
+          IMAGEM_ESPERADA="${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          IMAGEM_SERVIDA=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region "${{ env.GCP_REGION }}" \
+            --format="value(spec.template.spec.containers[0].image)")
+          if [ "$IMAGEM_SERVIDA" != "$IMAGEM_ESPERADA" ]; then
+            echo "A revisao ativa nao e a deste commit." >&2
+            echo "  esperada: $IMAGEM_ESPERADA" >&2
+            echo "  servindo: $IMAGEM_SERVIDA" >&2
+            exit 1
+          fi
+          echo "Revisao ativa confere com o commit: $IMAGEM_SERVIDA"
+
           echo "Deploy realizado com sucesso! Servico ativo em: $SERVICE_URL"
           echo "SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
 
@@ -187,3 +208,31 @@ jobs:
               echo "- **URL do Servico:** $SERVICE_URL"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Alerta de falha (D-61). Este e o alerta mais importante dos tres: uma
+      # falha aqui nao derruba a aplicacao -- ela congela o backend numa versao
+      # antiga enquanto a Vercel segue publicando o frontend a cada push. O
+      # resultado e o pior tipo de defeito: telas novas chamando endpoints que
+      # ainda nao existem em producao, com /health respondendo 200 o tempo todo.
+      - name: Abrir issue de falha
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITULO: "Falha automatica: Deploy do backend"
+          URL_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          corpo=$(printf '%s\n' \
+            "O deploy do backend no Cloud Run **falhou**." \
+            "" \
+            "- Run: $URL_RUN" \
+            "- Commit: \`${{ github.sha }}\`" \
+            "" \
+            "**O backend em producao continua na versao anterior.** A Vercel publica o frontend a cada push de forma independente, entao ate isto ser corrigido producao fica com frontend novo e backend velho -- telas chamando endpoints inexistentes. O \`/health\` responde 200 mesmo assim; para conferir de verdade, chame um endpoint introduzido no commit acima.")
+          existente=$(gh issue list --state open --label falha-automacao \
+            --search "$TITULO in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existente" ]; then
+            gh issue comment "$existente" --body "$corpo"
+          else
+            gh issue create --title "$TITULO" --label falha-automacao --body "$corpo"
+          fi
