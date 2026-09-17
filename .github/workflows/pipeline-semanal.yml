@@ -76,6 +76,7 @@ jobs:
       - name: Abrir issue de falha
         if: >-
           failure()
+          || cancelled()
           || steps.medir_eficacia.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -215,7 +215,11 @@ jobs:
       # resultado e o pior tipo de defeito: telas novas chamando endpoints que
       # ainda nao existem em producao, com /health respondendo 200 o tempo todo.
       - name: Abrir issue de falha
-        if: failure()
+        # `cancelled()` junto com `failure()`: um estouro de `timeout-minutes`
+        # aparece como cancelamento, e deploy interrompido no meio deixa
+        # exatamente a divergencia frontend/backend que este alerta existe
+        # para denunciar.
+        if: failure() || cancelled()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TITULO: "Falha automatica: Deploy do backend"

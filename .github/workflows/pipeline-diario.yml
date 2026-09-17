@@ -9,7 +9,12 @@ on:
 jobs:
   pipeline-diario:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 50, nao 30: o dia a dia processa poucas partidas e termina folgado, mas
+    # uma execucao de recuperacao (pipeline parado alguns dias, backlog
+    # acumulado) leva muito mais tempo no Stockfish e no Gemini. Com 30 min a
+    # recuperacao de 17/09/2026 foi cancelada no meio dos resumos -- justamente
+    # a execucao que mais precisava terminar.
+    timeout-minutes: 50
     permissions:
       contents: read
       issues: write   # o passo "Abrir issue de falha" no fim do job
@@ -137,15 +142,23 @@ jobs:
       # passou dois dias sem ninguem notar, enquanto a coleta de partidas
       # parava. Uma issue chega por notificacao e fica aberta ate alguem
       # fechar, entao o alerta sobrevive a nao ser lido na hora.
-      # A condicao cobre DOIS casos. O obvio e o job falhar. O silencioso e a
+      # A condicao cobre TRES casos. O obvio e o job falhar. O segundo e o job
+      # ser CANCELADO: e assim que um estouro de `timeout-minutes` aparece, e
+      # `failure()` sozinho nao pega -- foi o que deixou a recuperacao de
+      # 17/09/2026 morrer calada no passo de resumos. O terceiro e a
       # maioria das etapas de coleta ter `continue-on-error: true` -- decisao
       # correta (a queda do Chess.com nao pode matar a coleta do Lichess), mas
       # com um efeito colateral ruim: o job fica verde tendo coletado zero
-      # partida. Sem a segunda metade da condicao, o alerta perderia justo o
-      # modo de falha mais dificil de perceber.
+      # partida. Sem os testes de `outcome`, o alerta perderia justo o modo de
+      # falha mais dificil de perceber.
+      #
+      # Um cancelamento manual tambem vai abrir issue. Aceito de proposito:
+      # cancelamento manual e raro e a issue se fecha num clique, enquanto um
+      # timeout silencioso custa um dia inteiro de coleta.
       - name: Abrir issue de falha
         if: >-
           failure()
+          || cancelled()
           || steps.coletar_lichess.outcome == 'failure'
           || steps.coletar_chesscom.outcome == 'failure'
           || steps.importar_puzzles.outcome == 'failure'
