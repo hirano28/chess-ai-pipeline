@@ -7,6 +7,7 @@ from backend.agentes.agente3_prescritor import (
     ModuloTreino,
     ReferenciaFonteError,
     SprintTreino,
+    buscar_conceitos,
     fetch_latest_analysis,
     listar_usuarios_com_analise,
     salvar_sessao,
@@ -90,6 +91,44 @@ class FetchLatestAnalysisTest(unittest.TestCase):
             "user_id", "user-a"
         )
         self.assertEqual(resultado, {"gargalo_sistemico_atual": "TATICA"})
+
+
+class BuscarConceitosTest(unittest.TestCase):
+    """D-74: conceito sem acento/com underscore precisa ser encontrado."""
+
+    def test_encontra_conceito_sem_acento_e_com_underscore(self) -> None:
+        client = MagicMock()
+        client.table.return_value.select.return_value.execute.return_value.data = [
+            {"id": "1", "conceito": "fraqueza_estrutural_de_peoes"},
+            {"id": "2", "conceito": "seguranca_do_rei"},
+            {"id": "3", "conceito": "sacrifício de qualidade"},
+        ]
+
+        conceitos = buscar_conceitos(client, "TATICA")
+
+        ids = {row["id"] for row in conceitos}
+        self.assertIn("2", ids)  # "segurança do rei" bate em "seguranca_do_rei"
+        self.assertNotIn("3", ids)  # não tem nenhum termo de TATICA
+
+    def test_categoria_desconhecida_nao_encontra_nada(self) -> None:
+        client = MagicMock()
+        client.table.return_value.select.return_value.execute.return_value.data = [
+            {"id": "1", "conceito": "avaliacao_posicional_incorreta"},
+        ]
+
+        conceitos = buscar_conceitos(client, "CATEGORIA_INEXISTENTE")
+
+        self.assertEqual(conceitos, [])
+
+    def test_nao_duplica_quando_conceito_bate_em_mais_de_um_termo(self) -> None:
+        client = MagicMock()
+        client.table.return_value.select.return_value.execute.return_value.data = [
+            {"id": "1", "conceito": "avaliacao_posicional_incorreta com centro"},
+        ]
+
+        conceitos = buscar_conceitos(client, "ESTRATEGIA")
+
+        self.assertEqual(len(conceitos), 1)
 
 
 class SalvarSessaoTest(unittest.TestCase):

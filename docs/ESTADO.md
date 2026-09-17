@@ -861,6 +861,12 @@ Your Chess" de Jeremy Silman, "How to Calculate Chess Tactics" de Valeri Beim
 reforçam a busca vetorial mas ainda não geraram citação em
 `indice_conceitual` por não terem capítulo detectável, e "Segredos da
 Moderna Estratégia" de John Watson (D-74, 380 chunks, 58 conceitos);
+`buscar_conceitos()` (`agente3_prescritor.py`) agora normaliza acento e
+underscore antes de comparar (D-75) — a busca de citação por categoria do
+Hexágono deixou de ignorar conceitos salvos em formato de tag
+(`fraqueza_estrutural_de_peoes`), destravando conceitos que já estavam no
+banco desde antes: TATICA 8→38, ESTRATEGIA 11→36, CALCULO 14→32 (FINAIS e
+GESTAO_DE_TEMPO inalterados, ESTRUTURA_DE_PEOES continua em 4 — ver D-75);
 Laboratório de Raciocínio com notação PT/EN, reconhecimento de posição por foto, preview do tabuleiro e
 histórico navegável dos exercícios salvos; Explicador de Posição com
 persistência automática e histórico navegável; Analisador de Partida com

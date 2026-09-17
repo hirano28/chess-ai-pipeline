@@ -9,6 +9,7 @@ import re
 import sys
 import time
 import traceback
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -158,19 +159,32 @@ def fetch_latest_analysis(client: Client, user_id: str) -> dict[str, Any] | None
     return data[0] if data else None
 
 
-def buscar_conceitos(client: Client, categoria: str) -> list[dict[str, Any]]:
-    """Busca conceitos do índice relacionados à categoria via ILIKE."""
+def _normalizar_conceito(texto: str) -> str:
+    """Remove acentos e sublinhados para comparar por substring.
 
-    termos = CATEGORY_SEARCH_TERMS.get(categoria, [])
+    O Gemini às vezes sugere conceitos em formato de tag, sem acento e com
+    underscore (ex.: `fraqueza_estrutural_de_peoes`), enquanto os termos de
+    busca por categoria usam português com acento e espaço (ex.: `estrutura
+    de peões`). Sem essa normalização, boa parte dos conceitos sugeridos
+    fica invisível para a busca de citação mesmo estando no índice (achado
+    do D-72, quantificado no D-74 em docs/DECISOES.md).
+    """
+
+    sem_acento = unicodedata.normalize("NFKD", texto)
+    sem_acento = "".join(c for c in sem_acento if not unicodedata.combining(c))
+    return sem_acento.replace("_", " ").lower()
+
+
+def buscar_conceitos(client: Client, categoria: str) -> list[dict[str, Any]]:
+    """Busca conceitos do índice relacionados à categoria, tolerante a
+    diferença de acento/underscore entre o termo e o conceito salvo."""
+
+    termos = [_normalizar_conceito(termo) for termo in CATEGORY_SEARCH_TERMS.get(categoria, [])]
+    response = client.table("indice_conceitual").select("*").execute()
     encontrados: dict[Any, dict[str, Any]] = {}
-    for termo in termos:
-        response = (
-            client.table("indice_conceitual")
-            .select("*")
-            .ilike("conceito", f"%{termo}%")
-            .execute()
-        )
-        for row in response.data or []:
+    for row in response.data or []:
+        conceito_normalizado = _normalizar_conceito(row.get("conceito") or "")
+        if any(termo in conceito_normalizado for termo in termos):
             chave = row.get("id", row.get("conceito"))
             encontrados[chave] = row
     return list(encontrados.values())

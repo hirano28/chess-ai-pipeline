@@ -4167,6 +4167,80 @@ impacto real.
 
 ---
 
+### D-75 — Corrigido o gap de acento/underscore em `buscar_conceitos()`, destravando conceitos já salvos
+
+**Contexto:** apontado como achado pendente no D-72 e quantificado no D-74
+— o Gemini frequentemente sugere conceitos em formato de tag, sem acento e
+com underscore (`fraqueza_estrutural_de_peoes`, `seguranca_do_rei`),
+enquanto `CATEGORY_SEARCH_TERMS` (`agente3_prescritor.py`) busca por termo
+em português com acento e espaço (`estrutura de peões`, `segurança do
+rei`) via `ILIKE`. Como `ILIKE` não normaliza acento, uma fração grande dos
+conceitos já salvos em `indice_conceitual` nunca aparecia na busca de
+citação (`buscar_conceitos()`, usada por `popular_fila_treino_espacado.py`
+e pela prescrição do Agente 3) — o dado existia no banco mas era invisível
+para esse caminho de código. Depois de processar o D-74 e ver o ganho real
+ficar bem menor do que o esperado, o usuário pediu pra corrigir isso agora,
+em vez de continuar só adicionando mais livros.
+
+**Decisão:** normalizar os dois lados da comparação (o `conceito` salvo e
+os termos de `CATEGORY_SEARCH_TERMS`) removendo acento
+(`unicodedata.normalize("NFKD", ...)` + descartar caracteres combinantes) e
+trocando `_` por espaço antes de comparar por substring, em vez de usar
+`ILIKE` direto no Postgres. Optei por trazer as ~274 linhas de
+`indice_conceitual` de uma vez (`select("*")`, sem filtro) e filtrar em
+Python, ao invés de `N` chamadas `.ilike()` (uma por termo) como antes —
+mais simples de testar (`unittest` puro, sem precisar simular o
+comportamento de acento do Postgres num mock) e também mais barato em
+round-trips de rede (1 chamada em vez de até 7). A tabela é um catálogo
+compartilhado pequeno (não escala por usuário), então trazer tudo de uma
+vez é seguro.
+
+**Por que não resolvi durante o D-74:** decidiu-se separar em duas
+decisões porque são mudanças de natureza diferente — D-74 foi ingestão de
+dado (processar um livro), D-75 é uma mudança de comportamento de busca em
+produção (afeta a prescrição de todo usuário, não só o livro novo).
+Mudança de comportamento merece o próprio registro e a própria verificação
+de regressão, sem depender de reler o histórico de um commit de dados.
+
+**Resultado real, medido antes e depois do fix** (mesma query de
+`buscar_conceitos()` por categoria, contra produção):
+
+| Categoria | Antes | Depois |
+|---|---|---|
+| TATICA | 8 | 38 |
+| ESTRATEGIA | 11 | 36 |
+| CALCULO | 14 | 32 |
+| GESTAO_DE_TEMPO | 13 | 13 (sem mudança) |
+| FINAIS | 14 | 14 (sem mudança) |
+| **ESTRUTURA_DE_PEOES** | **4** | **4 (sem mudança)** |
+
+TATICA, ESTRATEGIA e CALCULO saltaram porque boa parte dos termos de
+`CATEGORY_SEARCH_TERMS` dessas categorias (`segurança do rei`, `avaliação`,
+`iniciativa`, `profilaxia`) já tinha correspondente direto nos conceitos
+salvos, só que mascarado por acento/underscore. **ESTRUTURA_DE_PEOES
+continua travado em 4 mesmo depois do fix** — achado honesto: não é (só)
+um problema de acento. O conceito mais comum sugerido pelo Gemini para
+peão fraco é `fraqueza_estrutural_de_peoes` (com a palavra "estrutural"),
+enquanto o termo de busca da categoria é "estrutura de peões" (sem o
+"-al"): são raízes de palavra diferentes, substring não bate mesmo sem
+acento. Resolver isso é um problema de vocabulário/sinônimo, não de
+formatação — e fica fora do escopo deste fix (mudar a lista de termos de
+busca é uma decisão de produto sobre o que conta como "sobre estrutura de
+peões", não uma correção técnica; não decidi isso sozinho).
+
+**Verificação real:** 3 testes novos em
+`backend/agentes/test_agente3_prescritor.py`
+(`BuscarConceitosTest`) cobrindo o caso de acento+underscore, categoria
+inexistente e não-duplicação; suíte completa do backend (todos os módulos
+`test_*.py`) rodada depois do fix, saída limpa (`exit=0`), incluindo os 25
+testes de `popular_fila_treino_espacado.py` (que consome
+`buscar_conceitos()` mas mocka a função inteira, então não foi afetado
+pela mudança de implementação interna). Contagem por categoria antes/depois
+confirmada por query direta contra o Supabase de produção
+(`pmzmershonrqzwbmhaco`), não estimada.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a
