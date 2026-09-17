@@ -61,6 +61,7 @@ jobs:
             backend.agentes.test_medir_eficacia \
             backend.agentes.test_normalizar_aberturas \
             backend.agentes.test_popular_fila_treino_espacado \
+            backend.agentes.test_refazer_trecho \
             backend.agentes.test_revisar_exercicio_avulso \
             backend.agentes.test_revisar_pensamento \
             backend.analise_engine.test_analisar_partidas \
@@ -76,6 +77,7 @@ jobs:
             backend.common.test_spaced_repetition \
             backend.common.test_syzygy_tablebase \
             backend.common.test_tenant \
+            backend.common.test_treino_trecho \
             backend.ingestao.test_backfill_pgn_lichess \
             backend.ingestao.test_backfill_tempos_chesscom \
             backend.ingestao.test_coletar_partidas \

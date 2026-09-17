@@ -71,6 +71,7 @@ from backend.agentes.insights_repertorio import (  # noqa: E402
 from backend.agentes.popular_fila_treino_espacado import (  # noqa: E402
     resolver_citacao,
 )
+from backend.agentes.refazer_trecho import jogar_passo_do_trecho  # noqa: E402
 from backend.agentes.revisar_exercicio_avulso import (  # noqa: E402
     EngineIndisponivelError,
     avaliar_lance_avulso,
@@ -87,6 +88,7 @@ from backend.agentes.revisar_pensamento import (  # noqa: E402
     load_settings,
 )
 from backend.analise_engine.analisar_partidas import (  # noqa: E402
+    load_erosao_settings,
     load_settings as load_analysis_settings,
     update_status,
 )
@@ -101,6 +103,18 @@ from backend.common.progress import log_and_print  # noqa: E402
 from backend.common.spaced_repetition import (  # noqa: E402
     atualizar_agendamento,
     nota_sm2_da_qualidade_lance,
+)
+from backend.common.treino_trecho import (  # noqa: E402
+    ProgressoCorrompidoError,
+    classificar_trecho,
+    curva_do_trecho,
+    elo_do_oponente,
+    normalizar_progresso,
+    progresso_inicial,
+    queda_liquida_do_trecho,
+    reconstruir_tabuleiro,
+    resumo_do_veredito,
+    total_lances_do_trecho,
 )
 from backend.common.syzygy_tablebase import (  # noqa: E402
     avaliar_lance_final_syzygy,
@@ -154,6 +168,12 @@ LIMITES_DIARIOS_ENV: dict[str, tuple[str, int]] = {
     # rotas caras acima, só pra conter abuso/loop, não pra frear o uso normal
     # (o propósito do D-48 é permitir muitas repetições por dia).
     "treino-responder": ("LIMITE_DIARIO_TREINO_RESPONDER", 200),
+    # D-66: um card de trecho gasta 8 requisições (uma por lance da janela),
+    # cada uma com 3 interações com o motor. Contar na mesma cota de
+    # /responder faria um único trecho parecer 8 revisões e esgotaria o dia
+    # cedo demais; o teto próprio é maior pelo mesmo motivo, e continua sendo
+    # um freio de abuso contra o engine_lock (R3), não do uso normal.
+    "treino-trecho": ("LIMITE_DIARIO_TREINO_TRECHO", 400),
     # D-65: a importação sob demanda dispara coleta + Stockfish + Agente 1 de
     # várias partidas de uma vez. É a rota mais cara que existe, por isso o
     # menor teto — ela serve ao onboarding ("quero ver meu Hexágono agora"),
@@ -317,6 +337,23 @@ class ResolverFenResponse(BaseModel):
     fen: str
 
 
+class TrechoEmAndamento(BaseModel):
+    """Estado do "Refazer o trecho" de um card de EROSAO (D-66).
+
+    Vai junto do card porque o trecho sobrevive a fechar o navegador: quem
+    voltar no meio precisa ver a posição onde parou e os lances que já jogou.
+
+    O que NÃO vem aqui é a avaliação de cada lance. Erosão é justamente o que
+    se perde sem perceber — um "-4%" a cada lance transformaria a janela em
+    oito exercícios táticos com placar, e o drill deixaria de medir o que
+    nomeia. A curva inteira aparece de uma vez no fim.
+    """
+
+    total_lances: int
+    lances_feitos: int
+    historico: list[str] = Field(default_factory=list)
+
+
 class ItemFilaTreino(BaseModel):
     """Um card pendente de revisão hoje (D-48; D-49 acrescentou a origem
     'exercicio_tatico', do catálogo importado do Lichess).
@@ -329,6 +366,13 @@ class ItemFilaTreino(BaseModel):
     fila_id: int
     fen: str
     origem: str
+    # D-66: 'PICO' (um lance) ou 'EROSAO' (a janela inteira, refeita contra o
+    # motor). Só vem em card de lance próprio; o que muda o formato é este
+    # campo, não `origem` - um card de erosão continua sendo um lance crítico
+    # do usuário.
+    tipo_evento: str | None = None
+    numero_lance_fim: int | None = None
+    trecho: TrechoEmAndamento | None = None
     numero_lance: int | None = None
     cor_jogada: str | None = None
     data_partida: str | None = None
@@ -400,6 +444,62 @@ class ResponderTreinoResponse(BaseModel):
     fora_do_tempo: bool = False
     proxima_revisao_data: str
     repeticoes: int
+
+
+class TrechoRequest(BaseModel):
+    """Um lance do jogador dentro do trecho sendo refeito (D-66).
+
+    Não carrega posição: a do servidor vem do replay do histórico gravado, e é
+    a única que vale. O cliente só diz o que jogaria.
+    """
+
+    lance: str
+
+
+class LanceDaCurvaResponse(BaseModel):
+    """Quanto cada lance do jogador custou, na revelação do fim do trecho."""
+
+    numero: int
+    lance: str
+    win_antes: float
+    win_depois: float
+    queda: float
+
+
+class TrechoResponse(BaseModel):
+    """Resposta de POST /treino/{fila_id}/trecho (D-66).
+
+    Enquanto o trecho corre, só os campos de andamento vêm preenchidos - o
+    jogador vê a resposta do motor e a posição nova, e nada sobre quanto
+    perdeu. Os campos de veredito só aparecem com `concluido = true`, e aí de
+    uma vez: a queda líquida, a curva lance a lance, a comparação com a
+    partida e o reagendamento do SM-2.
+    """
+
+    lance_interpretado: str
+    lance_oponente: str | None = None
+    fen: str
+    lances_feitos: int
+    total_lances: int
+    historico: list[str] = Field(default_factory=list)
+    concluido: bool
+    # A partida acabou dentro do trecho (mate ou empate). O veredito sai da
+    # posição real onde parou, e não é erro: é o desfecho mais informativo que
+    # o drill pode dar.
+    fim_de_partida: bool = False
+
+    qualidade_lance: str | None = None
+    queda_liquida: float | None = None
+    queda_original: float | None = None
+    resumo: str | None = None
+    curva: list[LanceDaCurvaResponse] = Field(default_factory=list)
+    raiz_conceitual_violada: str | None = None
+    tags_falha: list[str] = Field(default_factory=list)
+    livro_citado: str | None = None
+    capitulo_citado: str | None = None
+    pagina_citada: int | None = None
+    proxima_revisao_data: str | None = None
+    repeticoes: int | None = None
 
 
 class FocoTreinoResponse(BaseModel):
@@ -918,6 +1018,7 @@ verificar_limite_revisar_avulso = limite_diario("revisar-avulso")
 verificar_limite_reconhecer_posicao = limite_diario("reconhecer-posicao")
 verificar_limite_reprocessar = limite_diario("reprocessar")
 verificar_limite_treino_responder = limite_diario("treino-responder")
+verificar_limite_treino_trecho = limite_diario("treino-trecho")
 verificar_limite_importar = limite_diario("importar-partidas")
 
 
@@ -1104,8 +1205,9 @@ def obter_fila_treino(
         consulta = (
             client.table("fila_treino_espacado")
             .select(
-                "id, origem, repeticoes, total_revisoes, "
-                "lances_criticos(numero_lance, fen_antes_lance, "
+                "id, origem, repeticoes, total_revisoes, progresso_trecho, "
+                "lances_criticos(numero_lance, numero_lance_fim, tipo_evento, "
+                "fen_antes_lance, "
                 "partidas(cor_jogada, data_partida, plataforma)), "
                 "exercicios_taticos(fen, categoria_hexagono), "
                 "exercicios_posicionais(fen, categoria_hexagono, segundos_restantes)"
@@ -1180,12 +1282,44 @@ def obter_fila_treino(
             # mas um reprocessamento entre a população e esta consulta poderia
             # deixar a linha temporariamente inconsistente.
             continue
+
+        tipo_evento = str(lance.get("tipo_evento") or "PICO").upper()
+        trecho: TrechoEmAndamento | None = None
+        if tipo_evento == "EROSAO":
+            # Num card de trecho o que a tela mostra é onde o jogador PAROU, e
+            # essa posição não está guardada em lugar nenhum: ela é recalculada
+            # pelo replay dos SAN já jogados. É só python-chess, sem motor e
+            # sem consulta a mais - o custo de manter a única fonte da posição
+            # do lado do servidor.
+            progresso = normalizar_progresso(
+                row.get("progresso_trecho"),
+                fen,
+                total_lances_do_trecho(
+                    lance.get("numero_lance"), lance.get("numero_lance_fim")
+                ),
+            )
+            try:
+                fen = reconstruir_tabuleiro(fen, progresso["lances"]).fen()
+            except ProgressoCorrompidoError:
+                # Histórico ilegível: o card volta a aparecer do começo da
+                # janela, que é o pior caso aceitável (refazer o trecho
+                # inteiro), em vez de sumir da fila.
+                progresso = progresso_inicial(fen, progresso["total_lances"])
+            trecho = TrechoEmAndamento(
+                total_lances=progresso["total_lances"],
+                lances_feitos=len(progresso["win_depois"]),
+                historico=progresso["lances"],
+            )
+
         itens.append(
             ItemFilaTreino(
                 fila_id=row["id"],
                 fen=fen,
                 origem=origem,
+                tipo_evento=tipo_evento,
                 numero_lance=lance.get("numero_lance") or 0,
+                numero_lance_fim=lance.get("numero_lance_fim"),
+                trecho=trecho,
                 cor_jogada=partida.get("cor_jogada"),
                 data_partida=partida.get("data_partida"),
                 plataforma=partida.get("plataforma"),
@@ -1281,7 +1415,8 @@ def responder_treino(
             .select(
                 "id, lance_id, origem, intervalo_dias, fator_facilidade, repeticoes, "
                 "total_revisoes, livro_citado, capitulo_citado, pagina_citada, "
-                "lances_criticos(fen_antes_lance), exercicios_taticos(fen), "
+                "lances_criticos(fen_antes_lance, tipo_evento), "
+                "exercicios_taticos(fen), "
                 "exercicios_posicionais(fen, brancas, pretas, evento, data_partida, "
                 "jogo_url, segundos_restantes)"
             )
@@ -1317,6 +1452,17 @@ def responder_treino(
         lance_critico = fila_row.get("lances_criticos") or {}
         if isinstance(lance_critico, list):
             lance_critico = lance_critico[0] if lance_critico else {}
+        if str(lance_critico.get("tipo_evento") or "PICO").upper() == "EROSAO":
+            # D-66: card de erosão não se resolve num lance. Responder "o
+            # lance certo" aqui produziria um veredito sobre uma decisão que
+            # não é a que o evento mede — a janela inteira é o exercício.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Este card é um trecho a refazer, não um lance único. "
+                    "Use POST /treino/{fila_id}/trecho."
+                ),
+            )
         fen = lance_critico.get("fen_antes_lance")
     if not fen:
         raise HTTPException(
@@ -1425,6 +1571,238 @@ def responder_treino(
         proxima_revisao_data=agendamento.proxima_revisao_data.isoformat(),
         repeticoes=agendamento.repeticoes,
     )
+
+
+def _diagnostico_do_lance(client: Any, lance_id: str) -> dict[str, Any]:
+    """Causa raiz e tags do lance, para a revelação que vem depois da tentativa.
+
+    Falha de consulta devolve vazio de propósito (mesmo critério de
+    `responder_treino`): a explicação é complemento, e perdê-la é melhor do que
+    derrubar uma revisão já avaliada.
+    """
+
+    try:
+        resposta = (
+            client.table("diagnosticos")
+            .select("raiz_conceitual_violada, tags_falha")
+            .eq("lance_id", lance_id)
+            .execute()
+        )
+        linhas = resposta.data or []
+    except Exception:
+        return {}
+    return linhas[0] if linhas else {}
+
+
+@app.post("/treino/{fila_id}/trecho", response_model=TrechoResponse)
+def jogar_trecho(
+    fila_id: int,
+    payload: TrechoRequest,
+    user_id: str = Depends(verificar_limite_treino_trecho),
+) -> TrechoResponse:
+    """Avança um lance do "Refazer o trecho" de um card de EROSAO (D-66).
+
+    Um PICO pergunta "qual era o lance?"; uma EROSAO não tem essa pergunta - é
+    uma janela de 8 lances em que a posição escorregou sem nenhum erro isolado
+    grande o bastante para virar pico. O formato que cabe nela é jogar a janela
+    de novo, contra um motor limitado ao rating do adversário real, e medir no
+    fim a MESMA coisa que detectou o evento: a queda líquida de win% entre o
+    começo e o fim do trecho.
+
+    Cada chamada vale um lance do jogador mais a resposta do motor. A posição
+    corrente nunca vem do cliente: é reconstruída aqui pelo replay dos SAN já
+    gravados. O veredito, a curva e o reagendamento do SM-2 só saem na chamada
+    que fecha a janela; até lá o jogador não vê quanto está perdendo, porque
+    ver isso lance a lance é exatamente o que não acontece numa partida.
+    """
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resp_fila = (
+            client.table("fila_treino_espacado")
+            .select(
+                "id, lance_id, origem, progresso_trecho, intervalo_dias, "
+                "fator_facilidade, repeticoes, total_revisoes, livro_citado, "
+                "capitulo_citado, pagina_citada, "
+                "lances_criticos(numero_lance, numero_lance_fim, tipo_evento, "
+                "fen_antes_lance, queda_win_percent, "
+                "partidas(rating_oponente, rating_proprio))"
+            )
+            .eq("id", fila_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao consultar o card de treino: {error}"
+        ) from error
+
+    linhas_fila = resp_fila.data or []
+    if not linhas_fila:
+        # 404, nunca 403 (padrão IDOR-safe de D-29/D-30).
+        raise HTTPException(status_code=404, detail="Card de treino não encontrado.")
+    fila_row = linhas_fila[0]
+
+    lance_critico = fila_row.get("lances_criticos") or {}
+    if isinstance(lance_critico, list):
+        lance_critico = lance_critico[0] if lance_critico else {}
+    if str(lance_critico.get("tipo_evento") or "PICO").upper() != "EROSAO":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Este card é um lance único, não um trecho. "
+                "Use POST /treino/{fila_id}/responder."
+            ),
+        )
+
+    fen_inicial = lance_critico.get("fen_antes_lance")
+    if not fen_inicial:
+        raise HTTPException(
+            status_code=500, detail="Card de treino sem posição registrada."
+        )
+
+    partida = lance_critico.get("partidas") or {}
+    if isinstance(partida, list):
+        partida = partida[0] if partida else {}
+
+    total_lances = total_lances_do_trecho(
+        lance_critico.get("numero_lance"), lance_critico.get("numero_lance_fim")
+    )
+    progresso = normalizar_progresso(
+        fila_row.get("progresso_trecho"), fen_inicial, total_lances
+    )
+
+    try:
+        passo = jogar_passo_do_trecho(
+            _state["engine"],
+            _state.get("engine_lock"),
+            progresso,
+            payload.lance,
+            elo_do_oponente(
+                partida.get("rating_oponente"), partida.get("rating_proprio")
+            ),
+        )
+    except EngineIndisponivelError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except ProgressoCorrompidoError:
+        # Estado ilegível não é culpa de quem respondeu: zera o trecho e pede
+        # pra recomeçar, em vez de devolver um 400 acusando o lance.
+        try:
+            client.table("fila_treino_espacado").update(
+                {"progresso_trecho": None}
+            ).eq("id", fila_id).execute()
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "O progresso deste trecho ficou inconsistente e foi reiniciado. "
+                "Recarregue a fila e comece o trecho de novo."
+            ),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao avaliar o trecho: {error}"
+        ) from error
+
+    lances_feitos = len(passo.progresso["win_depois"])
+    resposta = TrechoResponse(
+        lance_interpretado=passo.lance_interpretado,
+        lance_oponente=passo.lance_oponente,
+        fen=passo.fen,
+        lances_feitos=lances_feitos,
+        total_lances=total_lances,
+        historico=passo.progresso["lances"],
+        concluido=passo.concluido,
+        fim_de_partida=passo.fim_por_fim_de_jogo,
+    )
+
+    if not passo.concluido:
+        try:
+            client.table("fila_treino_espacado").update(
+                {
+                    "progresso_trecho": passo.progresso,
+                    "atualizado_em": datetime.now(timezone.utc).isoformat(),
+                }
+            ).eq("id", fila_id).execute()
+        except Exception as error:
+            raise HTTPException(
+                status_code=500, detail=f"Falha ao salvar o trecho: {error}"
+            ) from error
+        return resposta
+
+    # Fechou a janela: agora sim o veredito, medido pelo mesmo instrumento que
+    # criou o evento.
+    _, limiar_erosao = load_erosao_settings()
+    queda_liquida = queda_liquida_do_trecho(passo.progresso)
+    # `queda_win_percent` é numeric no Postgres e chega ora como número, ora
+    # como string. Sem ela o card não perde o veredito: `classificar_trecho`
+    # ainda tem o limiar absoluto, que é o critério principal.
+    try:
+        queda_original: float | None = round(
+            float(lance_critico["queda_win_percent"]), 2
+        )
+    except (KeyError, TypeError, ValueError):
+        queda_original = None
+    qualidade = classificar_trecho(queda_liquida, queda_original, limiar_erosao)
+
+    hoje = _hoje_america_sao_paulo()
+    agendamento = atualizar_agendamento(
+        intervalo_dias=fila_row.get("intervalo_dias") or 0,
+        fator_facilidade=fila_row.get("fator_facilidade") or 2.5,
+        repeticoes=fila_row.get("repeticoes") or 0,
+        qualidade=nota_sm2_da_qualidade_lance(qualidade),
+        hoje=hoje,
+    )
+
+    try:
+        client.table("fila_treino_espacado").update(
+            {
+                "intervalo_dias": agendamento.intervalo_dias,
+                "fator_facilidade": agendamento.fator_facilidade,
+                "repeticoes": agendamento.repeticoes,
+                "total_revisoes": (fila_row.get("total_revisoes") or 0) + 1,
+                "ultima_qualidade": nota_sm2_da_qualidade_lance(qualidade),
+                "proxima_revisao_data": agendamento.proxima_revisao_data.isoformat(),
+                # O trecho é apagado ao fechar: na próxima repetição o card
+                # começa da posição original de novo. Guardar a linha jogada
+                # faria a revisão seguinte virar leitura do próprio gabarito.
+                "progresso_trecho": None,
+                "atualizado_em": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", fila_id).execute()
+    except Exception as error:
+        raise HTTPException(
+            status_code=500, detail=f"Falha ao reagendar o card de treino: {error}"
+        ) from error
+
+    diagnostico = _diagnostico_do_lance(client, fila_row["lance_id"])
+    resposta.qualidade_lance = qualidade
+    resposta.queda_liquida = queda_liquida
+    resposta.queda_original = queda_original
+    resposta.resumo = resumo_do_veredito(qualidade, queda_liquida, queda_original)
+    resposta.curva = [
+        LanceDaCurvaResponse(
+            numero=item.numero,
+            lance=item.lance,
+            win_antes=item.win_antes,
+            win_depois=item.win_depois,
+            queda=item.queda,
+        )
+        for item in curva_do_trecho(passo.progresso)
+    ]
+    resposta.raiz_conceitual_violada = diagnostico.get("raiz_conceitual_violada")
+    resposta.tags_falha = diagnostico.get("tags_falha") or []
+    resposta.livro_citado = fila_row.get("livro_citado")
+    resposta.capitulo_citado = fila_row.get("capitulo_citado")
+    resposta.pagina_citada = fila_row.get("pagina_citada")
+    resposta.proxima_revisao_data = agendamento.proxima_revisao_data.isoformat()
+    resposta.repeticoes = agendamento.repeticoes
+    return resposta
 
 
 @app.get("/treino/foco/disponibilidade", response_model=DisponibilidadeFocoResponse)

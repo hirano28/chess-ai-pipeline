@@ -3433,6 +3433,109 @@ deixado vazia.
 atualizado: "Analisar minha primeira partida" deixou de ser a única saída e
 virou a alternativa ("Colar um PGN").
 
+### D-66 — Os eventos de erosão ganham formato de treino: "Refazer o trecho"
+
+**Data:** 17/09/2026
+
+**Contexto.** Desde o D-27 o pipeline detecta dois tipos de lance crítico. O
+`PICO` é um lance: houve um erro isolado grande, existe um "lance certo", e
+treiná-lo é mostrar a posição e pedir o lance — foi isso que o D-48 fez. A
+`EROSAO` é outra coisa: uma janela de 8 lances do jogador em que a posição
+escorregou **sem nenhum erro isolado grande o bastante para virar pico**.
+
+Por não haver um lance certo a pedir, o D-48 a deixou de fora explicitamente
+("EROSAO é uma janela de vários lances, sem um único 'lance certo' bem definido
+pro formato de drill, fica fora do v1"). Ela ficou fora também do D-49 e do
+D-55. Em 17/09/2026 eram **106 eventos** — todos com `fen_antes_lance`,
+`numero_lance_fim` e diagnóstico prontos, todos parados. O detector trabalhava,
+o Agente 1 diagnosticava, e nada daquilo virava treino.
+
+**Decisão: o formato é refazer a janela.** Se a erosão é uma sequência, treiná-la
+é jogar a sequência de novo. O jogador recomeça na posição onde a janela abriu e
+joga os mesmos 8 lances contra o motor; no fim, mede-se a **mesma coisa que
+detectou o evento** — a queda líquida de win% entre o começo e o fim da janela.
+`detectar_erosao` calcula `janela[0].win_percent_before − janela[-1].win_percent_after`,
+e o drill calcula exatamente isso, com a mesma função de conversão e a mesma
+perspectiva de cor. Nenhum gabarito foi inventado: o instrumento que criou o
+card é o instrumento que dá a nota.
+
+**O adversário joga no rating do adversário real.** Stockfish inteiro
+transformaria toda tentativa em derrota e, via SM-2, prenderia o card na nota
+mínima para sempre — um drill impossível de vencer não ensina, só pune. Um motor
+fraco demais daria um "você segurou" que não significa nada. A referência certa
+é quem estava do outro lado naquele dia: `UCI_Elo` recebe o `rating_oponente` da
+partida (105 dos 106 eventos têm), com o `rating_proprio` como segunda opção e
+1600 como último recurso. A força volta ao máximo num `finally`, porque o motor
+é uma instância só compartilhada por todas as requisições (R3): sair de lá com
+`UCI_LimitStrength` ligado envenenaria a próxima análise de partida com um
+número errado, sem aparecer como erro em lugar nenhum.
+
+**Nenhuma avaliação aparece durante o trecho.** Isso é o desenho, não uma
+omissão: erosão é justamente o que se perde sem perceber. Dizer "-4%" a cada
+lance transformaria a janela em oito exercícios táticos com placar, e o drill
+deixaria de medir aquilo que nomeia. A curva inteira — quanto cada lance custou
+— aparece de uma vez no fim, que é quando ela vira informação útil: dá para ver
+em que ponto a posição começou a escorregar.
+
+**A nota.** `BOM` abaixo de `EROSAO_THRESHOLD_PERCENT` (15%, o mesmo limiar que
+define o evento): segurar a janela abaixo dele significa que, pelo instrumento
+que gerou este card, não houve erosão desta vez. Entre o limiar e a queda
+original, `SUBOTIMO` (errou de novo, errou menos). Repetir ou piorar, `RUIM`. O
+alvo absoluto é deliberado — um critério só relativo ("caiu menos que da outra
+vez") deixaria o card sem nenhuma forma de se formar.
+
+**Sem origem nova no schema.** O D-49 e o D-55 acrescentaram origens
+(`exercicio_tatico`, `exercicio_posicional`) porque apontavam para tabelas
+novas. Aqui não: um card de erosão continua sendo `origem = 'lance_critico'`
+com `lance_id` preenchido, e o que muda o formato é `lances_criticos.tipo_evento`,
+que já existe. Uma quarta origem guardaria em duas colunas um fato que só uma
+delas conhece. A única coluna nova é `progresso_trecho` (jsonb): os SAN já
+jogados e as leituras de win%. **A posição corrente nunca vem do cliente** — é
+reconstruída pelo replay desse histórico sobre `fen_antes_lance`, e o cliente só
+manda o texto do lance. Ao fechar a janela a coluna volta a `null`: guardar a
+linha jogada faria a próxima repetição virar leitura do próprio gabarito.
+
+**Cota diária própria.** Um card de pico é uma decisão; um de erosão são 8
+lances com resposta do motor a cada um — umas oito vezes o trabalho.
+Enfileirá-los por ordem de chegada faria um dia valer oito vezes outro, que é o
+mesmo erro do D-64 (medir a fila em linhas em vez de em esforço) numa escala
+diferente. `TREINO_TRECHOS_POR_DIA` (default 2) dá cota própria a eles e o resto
+do dia é completado com picos. Em 0, o recurso fica desligado sem deploy.
+
+**Dois achados durante a implementação:**
+
+1. **O mate teria recebido o pior veredito possível.** Numa posição de xeque-mate
+   o Stockfish devolve `{'type': 'mate', 'value': 0}`, e zero não tem sinal:
+   `evaluation_to_cp` lê isso como +10000, ou seja, vantagem das **brancas**,
+   seja quem for o matado. Quem desse mate de pretas no meio do trecho receberia
+   win% ≈ 0 e um `RUIM` catastrófico pelo melhor lance possível. `processar_partida`
+   nunca cruzou com o caso porque para no lance anterior ao mate
+   (`if board.is_checkmate(): break`). A correção não é perguntar melhor ao
+   motor: é não perguntar. Posição terminal o tabuleiro já resolve — mate a
+   favor é 100, contra é 0, empate é 50.
+
+2. **O aviso de "trecho reiniciado" sumia da tela.** Quando o progresso fica
+   inconsistente, o servidor devolve 409 e zera o trecho; o componente mostrava
+   o aviso e em seguida chamava `carregarFila()`, que começa com
+   `erro.set(null)`. O resultado seria o trecho voltando ao começo sem nada
+   explicando por quê. O aviso passou a ser posto **depois** da recarga.
+
+**Verificado em produção, com partida real do dono dos dados.** Card 760,
+janela dos lances 23–30, adversário de 1988 no Lichess. Os 8 lances jogados
+contra a API real, ~27s no total (~3,4s por lance: duas avaliações e uma escolha
+de lance, em profundidade 16). Nenhum campo de avaliação vazou nas 7 respostas
+intermediárias — verificado por asserção no roteiro, não por leitura. Veredito
+`BOM` com **−2,37%** de queda líquida contra os **84,7%** que o mesmo trecho
+custou na partida; SM-2 reagendou para o dia seguinte com `ultima_qualidade = 5`
+e `progresso_trecho` de volta a `null`. Confirmado também que `/responder` num
+card de erosão devolve 400 apontando para `/trecho` e vice-versa, e que o motor
+compartilhado continuou em força total depois do drill.
+
+**Testes:** 37 na aritmética do trecho, 13 no passo contra o motor (com Stockfish
+falso), 17 nos endpoints e na fila, 6 no componente — 861 backend, 268 frontend.
+
+---
+
 ---
 
 ## Decisões tomadas sobre o que NÃO fazer

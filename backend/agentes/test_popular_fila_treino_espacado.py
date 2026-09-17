@@ -6,6 +6,7 @@ from backend.agentes.popular_fila_treino_espacado import (
     TREINO_NOVOS_POR_DIA,
     _CACHE_CITACAO,
     buscar_diagnosticos_elegiveis,
+    distribuir_por_dia,
     lances_ja_na_fila,
     listar_usuarios_com_diagnostico,
     montar_linhas_novas,
@@ -34,12 +35,12 @@ class ListarUsuariosComDiagnosticoTest(unittest.TestCase):
 
 
 class BuscarDiagnosticosElegiveisTest(unittest.TestCase):
-    """O filtro precisa restringir a PICO, fen_antes_lance preenchido e o dono."""
+    """O filtro precisa restringir a fen_antes_lance preenchido e ao dono."""
 
     def test_filtros_aplicados_na_query(self) -> None:
         client = MagicMock()
         cadeia = (
-            client.table.return_value.select.return_value.eq.return_value.eq
+            client.table.return_value.select.return_value.eq
             .return_value.not_.is_.return_value.range.return_value.execute
         )
         cadeia.return_value.data = []
@@ -49,12 +50,18 @@ class BuscarDiagnosticosElegiveisTest(unittest.TestCase):
         select_arg = client.table.return_value.select.call_args[0][0]
         self.assertIn("lances_criticos!inner", select_arg)
         self.assertIn("partidas!inner", select_arg)
+        # O tipo_evento precisa VIR, para a cota de trechos do D-66 saber
+        # separar os candidatos.
+        self.assertIn("tipo_evento", select_arg)
 
-        # As duas chamadas .eq() encadeadas: dono e tipo_evento.
         primeira_eq = client.table.return_value.select.return_value.eq
         primeira_eq.assert_called_once_with("lances_criticos.partidas.user_id", "user-a")
-        segunda_eq = primeira_eq.return_value.eq
-        segunda_eq.assert_called_once_with("lances_criticos.tipo_evento", "PICO")
+        # Desde o D-66 não há mais filtro por tipo_evento: EROSAO também é
+        # elegível, e o que a separa de PICO é a cota diária, não a consulta.
+        primeira_eq.return_value.eq.assert_not_called()
+        primeira_eq.return_value.not_.is_.assert_called_once_with(
+            "lances_criticos.fen_antes_lance", "null"
+        )
 
 
 class LancesJaNaFilaTest(unittest.TestCase):
@@ -169,6 +176,76 @@ class MontarLinhasNovasTest(unittest.TestCase):
 
         self.assertIsNone(linhas[0]["livro_citado"])
         buscar_conceitos_mock.assert_not_called()
+
+
+class CotaDeTrechosTest(unittest.TestCase):
+    """D-66: um card de erosão são 8 lances, não 1 — ele tem cota própria.
+
+    Sem isso, dez erosões em sequência na ordem de chegada virariam um dia com
+    oito vezes o trabalho de outro: o mesmo erro do D-64 (medir a fila em
+    linhas em vez de em esforço), só que numa escala diferente.
+    """
+
+    def _candidatos(self, quantos_trechos: int, quantos_picos: int):
+        trechos = [(f"erosao-{i}", {}, True) for i in range(quantos_trechos)]
+        picos = [(f"pico-{i}", {}, False) for i in range(quantos_picos)]
+        return trechos + picos
+
+    def test_dia_leva_no_maximo_a_cota_de_trechos(self) -> None:
+        distribuicao = distribuir_por_dia(self._candidatos(6, 20), por_dia=10, trechos_por_dia=2)
+
+        do_dia_zero = [item for item in distribuicao if item[0] == 0]
+        self.assertEqual(len(do_dia_zero), 10)
+        trechos_no_dia_zero = [item for item in do_dia_zero if item[1].startswith("erosao")]
+        self.assertEqual(len(trechos_no_dia_zero), 2)
+
+    def test_trechos_em_sequencia_sao_espalhados_por_varios_dias(self) -> None:
+        distribuicao = distribuir_por_dia(self._candidatos(6, 0), por_dia=10, trechos_por_dia=2)
+
+        dias = sorted({item[0] for item in distribuicao})
+        self.assertEqual(dias, [0, 1, 2])
+        self.assertEqual(len(distribuicao), 6)
+
+    def test_sem_trecho_nenhum_o_escalonamento_e_o_de_sempre(self) -> None:
+        distribuicao = distribuir_por_dia(self._candidatos(0, 23), por_dia=10, trechos_por_dia=2)
+
+        self.assertEqual(len(distribuicao), 23)
+        self.assertEqual([item[0] for item in distribuicao[:10]], [0] * 10)
+        self.assertEqual(distribuicao[-1][0], 2)
+
+    def test_cota_zero_desliga_os_trechos_sem_travar(self) -> None:
+        """O desligador do recurso: os picos continuam entrando, os trechos não."""
+        distribuicao = distribuir_por_dia(self._candidatos(5, 3), por_dia=10, trechos_por_dia=0)
+
+        self.assertEqual(len(distribuicao), 3)
+        self.assertTrue(all(item[1].startswith("pico") for item in distribuicao))
+
+    def test_cota_maior_que_o_dia_nao_estoura_o_teto_diario(self) -> None:
+        distribuicao = distribuir_por_dia(self._candidatos(8, 0), por_dia=3, trechos_por_dia=10)
+
+        do_dia_zero = [item for item in distribuicao if item[0] == 0]
+        self.assertEqual(len(do_dia_zero), 3)
+
+    @patch("backend.agentes.popular_fila_treino_espacado.buscar_conceitos")
+    def test_montar_linhas_respeita_a_cota(self, buscar_mock: MagicMock) -> None:
+        buscar_mock.return_value = []
+        diagnosticos = [
+            {
+                "tags_falha": [],
+                "lances_criticos": {"id": f"erosao-{i}", "tipo_evento": "EROSAO"},
+            }
+            for i in range(5)
+        ]
+
+        linhas = montar_linhas_novas(
+            diagnosticos, set(), MagicMock(), "user-a", date(2026, 9, 17)
+        )
+
+        # 5 erosões, cota de 2/dia (default) -> três dias.
+        datas = [linha["proxima_revisao_data"] for linha in linhas]
+        self.assertEqual(
+            datas, ["2026-09-17", "2026-09-17", "2026-09-18", "2026-09-18", "2026-09-19"]
+        )
 
 
 class ValvulaDaFilaTest(unittest.TestCase):

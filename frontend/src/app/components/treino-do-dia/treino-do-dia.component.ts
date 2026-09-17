@@ -4,6 +4,7 @@ import {
   ItemFilaTreino,
   ROTULOS_CATEGORIA_HEXAGONO,
   ResultadoTreino,
+  ResultadoTrecho,
   TreinoService
 } from '../../services/treino.service';
 import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-preview.component';
@@ -44,6 +45,40 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
   readonly formularioValido = computed(
     () => this.lance().trim().length > 0 && !this.enviando()
   );
+
+  /**
+   * D-66: card de EROSAO, jogado lance a lance contra o motor.
+   *
+   * `trechoAtual` é o estado que veio da fila (ou o último devolvido pelo
+   * servidor); `ultimoPasso` guarda a resposta do lance anterior, que é onde
+   * mora a jogada do adversário. O veredito só existe em `resultadoTrecho`, e
+   * só depois que a janela fecha.
+   */
+  readonly passoTrecho = signal<ResultadoTrecho | null>(null);
+  readonly ehTrecho = computed(() => this.itemAtual()?.tipo_evento === 'EROSAO');
+  readonly resultadoTrecho = computed<ResultadoTrecho | null>(() => {
+    const passo = this.passoTrecho();
+    return passo?.concluido ? passo : null;
+  });
+  /** A posição a jogar agora: a do último lance, ou a que veio na fila. */
+  readonly fenDoTrecho = computed(
+    () => this.passoTrecho()?.fen ?? this.itemAtual()?.fen ?? ''
+  );
+  readonly lancesFeitos = computed(
+    () => this.passoTrecho()?.lances_feitos ?? this.itemAtual()?.trecho?.lances_feitos ?? 0
+  );
+  readonly totalDoTrecho = computed(
+    () => this.passoTrecho()?.total_lances ?? this.itemAtual()?.trecho?.total_lances ?? 0
+  );
+  readonly historicoDoTrecho = computed(
+    () => this.passoTrecho()?.historico ?? this.itemAtual()?.trecho?.historico ?? []
+  );
+  /** Resposta do adversário ao lance anterior, para a tela poder dizer o que
+   * aconteceu entre a posição de antes e a de agora. */
+  readonly respostaDoAdversario = computed(() => {
+    const passo = this.passoTrecho();
+    return passo && !passo.concluido ? passo.lance_oponente : null;
+  });
 
   private readonly treinoService = inject(TreinoService);
   private readonly route = inject(ActivatedRoute);
@@ -125,7 +160,55 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
     this.iniciarCronometro(this.itemAtual());
   }
 
+  /**
+   * Joga um lance do trecho (D-66). O servidor responde com a jogada do motor
+   * e a posição nova — e nada sobre quanto o lance custou, até a janela fechar.
+   */
+  async jogarLanceDoTrecho(): Promise<void> {
+    const item = this.itemAtual();
+    if (!item || !this.formularioValido() || this.enviando()) {
+      return;
+    }
+
+    this.enviando.set(true);
+    this.erro.set(null);
+
+    const resposta = await this.treinoService.jogarTrecho(item.fila_id, this.lance().trim());
+
+    if (resposta.sessaoExpirada) {
+      this.erro.set(resposta.error ?? 'Sessão expirada.');
+      this.enviando.set(false);
+      return;
+    }
+    if (resposta.trechoReiniciado) {
+      // O servidor zerou o progresso: recarregar é o único jeito de voltar a
+      // uma posição que os dois lados concordam qual é. O aviso é posto DEPOIS
+      // da recarga porque `carregarFila` limpa `erro` — senão o trecho voltaria
+      // ao começo sem nada na tela explicando por quê.
+      this.passoTrecho.set(null);
+      this.lance.set('');
+      this.enviando.set(false);
+      await this.carregarFila();
+      this.erro.set(resposta.error ?? 'O trecho foi reiniciado.');
+      return;
+    }
+    if (!resposta.success || !resposta.resultado) {
+      this.erro.set(resposta.error ?? 'Não foi possível avaliar o lance.');
+      this.enviando.set(false);
+      return;
+    }
+
+    this.passoTrecho.set(resposta.resultado);
+    this.lance.set('');
+    this.enviando.set(false);
+  }
+
   async responder(): Promise<void> {
+    if (this.ehTrecho()) {
+      await this.jogarLanceDoTrecho();
+      return;
+    }
+
     const item = this.itemAtual();
     if (!item || !this.formularioValido() || this.enviando()) {
       return;
@@ -165,6 +248,7 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
     this.feitasHoje.update((n) => n + 1);
     this.lance.set('');
     this.resultado.set(null);
+    this.passoTrecho.set(null);
     this.erro.set(null);
     this.iniciarCronometro(this.itemAtual());
   }
@@ -174,10 +258,24 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
     return (categoria && ROTULOS_CATEGORIA_HEXAGONO[categoria]) || 'Exercício de catálogo';
   }
 
+  /** "−4.2%" ou "+1.3%": queda positiva é perda, negativa é melhora. */
+  formatarQueda(queda: number): string {
+    const sinal = queda > 0 ? '−' : '+';
+    return `${sinal}${Math.abs(queda).toFixed(1)}%`;
+  }
+
+  /** "Lances 12 a 19" — a janela que escorregou, no selo do card de trecho. */
+  rotuloJanela(item: ItemFilaTreino): string {
+    if (item.numero_lance_fim && item.numero_lance) {
+      return `Lances ${item.numero_lance} a ${item.numero_lance_fim}`;
+    }
+    return 'Trecho da sua partida';
+  }
+
   /** O que este card é, para o selo de origem. */
   rotuloOrigem(item: ItemFilaTreino): string {
     if (item.origem === 'lance_critico') {
-      return 'Da sua partida';
+      return item.tipo_evento === 'EROSAO' ? 'Trecho da sua partida' : 'Da sua partida';
     }
     if (item.origem === 'exercicio_posicional') {
       return `Partida real · ${this.rotuloCategoria(item.categoria)}`;

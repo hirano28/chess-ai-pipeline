@@ -3,7 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { vi, describe, beforeEach, it, expect } from 'vitest';
 import { TreinoDoDiaComponent } from './treino-do-dia.component';
-import { FilaTreino, ResultadoTreino, TreinoService } from '../../services/treino.service';
+import { FilaTreino, ResultadoTrecho, ResultadoTreino, TreinoService } from '../../services/treino.service';
 
 describe('TreinoDoDiaComponent', () => {
   let component: TreinoDoDiaComponent;
@@ -14,6 +14,9 @@ describe('TreinoDoDiaComponent', () => {
     fila_id: 7,
     fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
     origem: 'lance_critico' as const,
+    tipo_evento: 'PICO' as const,
+    numero_lance_fim: null,
+    trecho: null,
     numero_lance: 14,
     cor_jogada: 'BRANCAS' as const,
     data_partida: '2026-09-10',
@@ -398,5 +401,192 @@ describe('TreinoDoDiaComponent com ?sessao= (D-56)', () => {
     // misteriosamente menos cards.
     expect(texto).toContain('sessão de treino focado');
     expect(texto).toContain('Ver a fila completa');
+  });
+});
+
+describe('TreinoDoDiaComponent — refazer o trecho (D-66)', () => {
+  let treinoService: TreinoService;
+
+  const cardDeTrecho = {
+    fila_id: 21,
+    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    origem: 'lance_critico' as const,
+    tipo_evento: 'EROSAO' as const,
+    numero_lance: 12,
+    numero_lance_fim: 19,
+    trecho: { total_lances: 8, lances_feitos: 0, historico: [] },
+    cor_jogada: 'BRANCAS',
+    data_partida: '2026-09-10',
+    plataforma: 'LICHESS',
+    categoria: null,
+    segundos_sugeridos: null,
+    repeticoes: 0,
+    total_revisoes: 0
+  };
+
+  function passo(extras: Partial<ResultadoTrecho> = {}): ResultadoTrecho {
+    return {
+      lance_interpretado: 'Cf3',
+      lance_oponente: 'Bc5',
+      fen: 'rnbqkbnr/pppp1ppp/8/4p3/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 2',
+      lances_feitos: 1,
+      total_lances: 8,
+      historico: ['Cf3', 'Bc5'],
+      concluido: false,
+      fim_de_partida: false,
+      qualidade_lance: null,
+      queda_liquida: null,
+      queda_original: null,
+      resumo: null,
+      curva: [],
+      raiz_conceitual_violada: null,
+      tags_falha: [],
+      livro_citado: null,
+      capitulo_citado: null,
+      pagina_citada: null,
+      proxima_revisao_data: null,
+      repeticoes: null,
+      ...extras
+    };
+  }
+
+  async function montar(): Promise<ComponentFixture<TreinoDoDiaComponent>> {
+    const fixture = TestBed.createComponent(TreinoDoDiaComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [TreinoDoDiaComponent],
+      providers: [provideHttpClient(), provideRouter([]), TreinoService]
+    }).compileComponents();
+    treinoService = TestBed.inject(TreinoService);
+    vi.spyOn(treinoService, 'getFila').mockResolvedValue({
+      success: true,
+      fila: {
+        itens: [cardDeTrecho],
+        feitas_hoje: 0,
+        total_hoje: 1,
+        vencidos_total: 1,
+        sessao_id: null
+      }
+    });
+  });
+
+  it('mostra a janela, o progresso e explica por que o formato é outro', async () => {
+    const fixture = await montar();
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+    expect(texto).toContain('Lances 12 a 19');
+    expect(texto).toContain('Lance 1 de 8');
+    expect(texto).toContain('escorregou');
+  });
+
+  it('não mostra avaliação nenhuma no meio do trecho', async () => {
+    // O ponto do formato: erosão é o que se perde sem perceber. Um "-4%" a
+    // cada lance viraria oito exercícios táticos com placar.
+    vi.spyOn(treinoService, 'jogarTrecho').mockResolvedValue({
+      success: true,
+      resultado: passo()
+    });
+    const fixture = await montar();
+    fixture.componentInstance.lance.set('Cf3');
+
+    await fixture.componentInstance.jogarLanceDoTrecho();
+    fixture.detectChanges();
+
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(texto).toContain('O adversário respondeu');
+    expect(texto).toContain('Bc5');
+    expect(texto).toContain('Lance 2 de 8');
+    expect(texto).not.toContain('Queda neste treino');
+    expect(texto).not.toContain('O que cada lance custou');
+  });
+
+  it('usa a rota de trecho, não a de lance único', async () => {
+    const jogarTrecho = vi.spyOn(treinoService, 'jogarTrecho').mockResolvedValue({
+      success: true,
+      resultado: passo()
+    });
+    const responder = vi.spyOn(treinoService, 'responder');
+    const fixture = await montar();
+    fixture.componentInstance.lance.set('Cf3');
+
+    await fixture.componentInstance.responder();
+
+    expect(jogarTrecho).toHaveBeenCalledWith(21, 'Cf3');
+    expect(responder).not.toHaveBeenCalled();
+  });
+
+  it('ao fechar a janela revela a curva e a comparação com a partida', async () => {
+    vi.spyOn(treinoService, 'jogarTrecho').mockResolvedValue({
+      success: true,
+      resultado: passo({
+        concluido: true,
+        lance_oponente: null,
+        qualidade_lance: 'BOM',
+        queda_liquida: 4.2,
+        queda_original: 42,
+        resumo: 'Você segurou o trecho: 4.2% de queda líquida ao longo da janela.',
+        curva: [
+          { numero: 1, lance: 'Cf3', win_antes: 61, win_depois: 59.5, queda: 1.5 },
+          { numero: 2, lance: 'e3', win_antes: 59.5, win_depois: 62, queda: -2.5 }
+        ],
+        raiz_conceitual_violada: 'Peça sem função.',
+        livro_citado: 'Meu Sistema',
+        proxima_revisao_data: '2026-09-18',
+        repeticoes: 1
+      })
+    });
+    const fixture = await montar();
+    fixture.componentInstance.lance.set('Cf3');
+
+    await fixture.componentInstance.jogarLanceDoTrecho();
+    fixture.detectChanges();
+
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(texto).toContain('Você segurou o trecho');
+    expect(texto).toContain('Queda neste treino');
+    expect(texto).toContain('4.2%');
+    expect(texto).toContain('42%');
+    // Queda negativa é melhora, e aparece com o sinal trocado.
+    expect(texto).toContain('−1.5%');
+    expect(texto).toContain('+2.5%');
+    expect(texto).toContain('Peça sem função.');
+    expect(texto).toContain('2026-09-18');
+  });
+
+  it('trecho reiniciado pelo servidor recarrega a fila sem culpar o usuário', async () => {
+    const getFila = vi.spyOn(treinoService, 'getFila');
+    vi.spyOn(treinoService, 'jogarTrecho').mockResolvedValue({
+      success: false,
+      error: 'O progresso deste trecho ficou inconsistente e foi reiniciado.',
+      trechoReiniciado: true
+    });
+    const fixture = await montar();
+    fixture.componentInstance.lance.set('Cf3');
+
+    await fixture.componentInstance.jogarLanceDoTrecho();
+
+    expect(fixture.componentInstance.passoTrecho()).toBeNull();
+    expect(fixture.componentInstance.erro()).toContain('reiniciado');
+    expect(getFila).toHaveBeenCalledTimes(2);
+  });
+
+  it('avançar para o próximo card descarta o trecho anterior', async () => {
+    vi.spyOn(treinoService, 'jogarTrecho').mockResolvedValue({
+      success: true,
+      resultado: passo()
+    });
+    const fixture = await montar();
+    fixture.componentInstance.lance.set('Cf3');
+    await fixture.componentInstance.jogarLanceDoTrecho();
+
+    fixture.componentInstance.proxima();
+
+    expect(fixture.componentInstance.passoTrecho()).toBeNull();
   });
 });

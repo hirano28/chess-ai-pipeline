@@ -38,6 +38,7 @@ python -m unittest \
   backend.agentes.test_medir_eficacia \
   backend.agentes.test_normalizar_aberturas \
   backend.agentes.test_popular_fila_treino_espacado \
+  backend.agentes.test_refazer_trecho \
   backend.agentes.test_revisar_exercicio_avulso \
   backend.agentes.test_revisar_pensamento \
   backend.analise_engine.test_analisar_partidas \
@@ -53,6 +54,7 @@ python -m unittest \
   backend.common.test_spaced_repetition \
   backend.common.test_syzygy_tablebase \
   backend.common.test_tenant \
+  backend.common.test_treino_trecho \
   backend.ingestao.test_backfill_pgn_lichess \
   backend.ingestao.test_backfill_tempos_chesscom \
   backend.ingestao.test_coletar_partidas \
@@ -195,12 +197,14 @@ commitados.
 `LIMITE_DIARIO_ANALISAR_PGN`, `LIMITE_DIARIO_EXPLICAR_POSICAO`,
 `LIMITE_DIARIO_REVISAR_AVULSO`, `LIMITE_DIARIO_RECONHECER_POSICAO`,
 `LIMITE_DIARIO_REPROCESSAR`, `LIMITE_DIARIO_TREINO_RESPONDER`,
+`LIMITE_DIARIO_TREINO_TRECHO`,
 `LIMITE_DIARIO_IMPORTAR_PARTIDAS`, `IMPORTACAO_MAX_PARTIDAS`,
 `LICHESS_OAUTH_CLIENT_ID`, `LICHESS_OAUTH_REDIRECT_URI`,
 `LICHESS_OAUTH_SCOPES`, `FRONTEND_URL`, `TREINO_NOVOS_POR_DIA`,
 `TREINO_FOCO_QTD_EXERCICIOS`, `EXERCICIO_RATING_MIN`, `EXERCICIO_RATING_MAX`,
 `EXERCICIO_POPULARIDADE_MIN`, `EXERCICIOS_POR_CATEGORIA`,
 `SESSAO_QTD_EXERCICIOS`, `TREINO_TETO_FILA`, `TREINO_HORIZONTE_DIAS`,
+`TREINO_TRECHOS_POR_DIA`,
 `PERGUNTA_VALIDADE_DIAS`, `POSICIONAL_MESES`,
 `POSICIONAL_EVAL_MAX_CP`, `POSICIONAL_QUEDA_MIN_CP`,
 `POSICIONAL_SEGUNDOS_PRESSAO`, `POSICIONAL_PECAS_FINAL`,
@@ -308,6 +312,21 @@ dia com o que já está atrasado), é o que impede a fila de crescer no ritmo da
 ingestão em vez do consumo. Material além do horizonte não se perde: volta a
 ser candidato na execução seguinte, quando a fila drenar. No log isso aparece
 como `fila cheia até <data>; material novo aguarda a fila drenar`.
+
+**Cota dos trechos (D-66).** `TREINO_TRECHOS_POR_DIA` (default 2) é quantos
+cards de EROSAO ("Refazer o trecho") cabem num mesmo dia da fila. Um card de
+PICO é uma decisão; um de erosão são 8 lances do jogador, cada um com a
+resposta do motor — umas oito vezes o trabalho. Sem cota própria, uma sequência
+de erosões na ordem de chegada faria um dia valer oito vezes outro. O resto do
+dia é completado com picos, até `TREINO_NOVOS_POR_DIA`. Em `0`, os eventos de
+erosão simplesmente não são enfileirados (é o desligador do recurso sem
+precisar de deploy) e continuam candidatos para quando a configuração mudar.
+
+`LIMITE_DIARIO_TREINO_TRECHO` (default 400) é o teto diário de
+`POST /treino/{id}/trecho`. Bem mais alto que o de `/responder` porque um único
+card de trecho gasta 8 requisições; contá-lo na mesma cota faria um trecho
+parecer 8 revisões. Continua sendo freio de abuso contra o `engine_lock` (R3),
+não do uso normal.
 
 **Validade das perguntas pendentes (D-64).** `PERGUNTA_VALIDADE_DIAS`
 (default 14) governa as duas pontas de `gerar_perguntas_pendentes.py`: não

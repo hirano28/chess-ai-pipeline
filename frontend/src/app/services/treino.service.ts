@@ -10,10 +10,28 @@ import { AuthService } from './auth.service';
  * tags_falha, causa raiz ou citação — isso só chega na resposta de
  * `responder()`, depois do usuário tentar o lance.
  */
+/**
+ * Estado do "Refazer o trecho" num card de EROSAO (D-66). Vem junto do card
+ * porque o trecho sobrevive a fechar o navegador — quem voltar no meio precisa
+ * ver a posição onde parou. Sem nenhuma avaliação: erosão é o que se perde sem
+ * perceber, e um "-4%" por lance viraria oito táticos com placar.
+ */
+export interface TrechoEmAndamento {
+  total_lances: number;
+  lances_feitos: number;
+  historico: string[];
+}
+
 export interface ItemFilaTreino {
   fila_id: number;
   fen: string;
   origem: 'lance_critico' | 'exercicio_tatico' | 'exercicio_posicional';
+  /** 'PICO' (um lance) ou 'EROSAO' (a janela inteira, refeita contra o motor).
+   * O que muda o formato do card é este campo, não `origem`: um trecho também
+   * é um lance crítico do próprio usuário. */
+  tipo_evento: 'PICO' | 'EROSAO' | null;
+  numero_lance_fim: number | null;
+  trecho: TrechoEmAndamento | null;
   numero_lance: number | null;
   cor_jogada: string | null;
   data_partida: string | null;
@@ -58,6 +76,57 @@ export interface ResultadoTreino {
   fora_do_tempo: boolean;
   proxima_revisao_data: string;
   repeticoes: number;
+}
+
+/** Quanto um lance do jogador custou, na revelação do fim do trecho (D-66). */
+export interface LanceDaCurva {
+  numero: number;
+  lance: string;
+  win_antes: number;
+  win_depois: number;
+  queda: number;
+}
+
+/**
+ * Resposta de um lance dentro do trecho (D-66).
+ *
+ * Enquanto a janela corre, só os campos de andamento vêm preenchidos. Os de
+ * veredito (`qualidade_lance` em diante) aparecem de uma vez quando
+ * `concluido` é true — inclusive a curva lance a lance, que é onde dá para ver
+ * em que ponto a posição começou a escorregar.
+ */
+export interface ResultadoTrecho {
+  lance_interpretado: string;
+  lance_oponente: string | null;
+  fen: string;
+  lances_feitos: number;
+  total_lances: number;
+  historico: string[];
+  concluido: boolean;
+  /** A partida acabou dentro do trecho (mate ou empate). */
+  fim_de_partida: boolean;
+  qualidade_lance: string | null;
+  queda_liquida: number | null;
+  /** Quanto o MESMO trecho custou na partida de verdade. */
+  queda_original: number | null;
+  resumo: string | null;
+  curva: LanceDaCurva[];
+  raiz_conceitual_violada: string | null;
+  tags_falha: string[];
+  livro_citado: string | null;
+  capitulo_citado: string | null;
+  pagina_citada: number | null;
+  proxima_revisao_data: string | null;
+  repeticoes: number | null;
+}
+
+export interface JogarTrechoResult {
+  success: boolean;
+  resultado?: ResultadoTrecho;
+  error?: string;
+  sessaoExpirada?: boolean;
+  /** 409: o progresso ficou inconsistente e o servidor reiniciou o trecho. */
+  trechoReiniciado?: boolean;
 }
 
 export interface FilaTreinoResult {
@@ -175,6 +244,38 @@ export class TreinoService {
     } catch (cause: unknown) {
       if (this.isUnauthorized(cause)) {
         return { success: false, error: MENSAGEM_SESSAO_EXPIRADA, sessaoExpirada: true };
+      }
+      return { success: false, error: this.mensagemDeErro(cause) };
+    }
+  }
+
+  /**
+   * Joga um lance dentro do trecho de um card de EROSAO (D-66).
+   *
+   * Não manda posição nenhuma: a do servidor vem do replay do histórico
+   * gravado, e é a única que vale. Cada chamada vale um lance do jogador mais
+   * a resposta do motor.
+   */
+  async jogarTrecho(filaId: number, lance: string): Promise<JogarTrechoResult> {
+    try {
+      const resultado = await firstValueFrom(
+        this.http.post<ResultadoTrecho>(
+          `${this.apiUrl}/treino/${filaId}/trecho`,
+          { lance },
+          { headers: await this.headersComSessao() }
+        )
+      );
+      return { success: true, resultado };
+    } catch (cause: unknown) {
+      if (this.isUnauthorized(cause)) {
+        return { success: false, error: MENSAGEM_SESSAO_EXPIRADA, sessaoExpirada: true };
+      }
+      if (cause instanceof HttpErrorResponse && cause.status === 409) {
+        return {
+          success: false,
+          error: this.mensagemDeErro(cause),
+          trechoReiniciado: true
+        };
       }
       return { success: false, error: this.mensagemDeErro(cause) };
     }

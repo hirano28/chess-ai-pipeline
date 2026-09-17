@@ -4,9 +4,10 @@
       <p class="sobrelinha">Repetição espaçada</p>
       <h1 class="titulo-pagina">Treino Diário</h1>
       <p class="subtitulo">
-        Posições onde você errou nas suas próprias partidas, mais exercícios de catálogo quando
-        você pede treino focado numa categoria — táticos de puzzle e posições de partidas reais
-        de torneio, onde o melhor lance é quieto. Revisadas até o padrão grudar. Diferente das
+        Posições onde você errou nas suas próprias partidas, trechos inteiros para refazer
+        quando a posição escorregou aos poucos, e exercícios de catálogo quando você pede treino
+        focado numa categoria — táticos de puzzle e posições de partidas reais de torneio, onde
+        o melhor lance é quieto. Revisadas até o padrão grudar. Diferente das
         <a routerLink="/" class="text-latao-500 underline hover:text-latao-400">sessões de treino</a>
         do Hexágono (essas são a prescrição semanal do Agente 3): aqui é a prática diária.
       </p>
@@ -71,7 +72,175 @@
       </div>
     } @else {
       <section class="cartao">
-        @if (!resultado()) {
+        <!--
+          D-66: card de EROSAO. Uma erosão não tem "lance certo" — é uma janela
+          de lances em que a posição escorregou sem nenhum erro isolado. Por
+          isso o formato aqui não é "qual o lance?", e sim refazer a janela
+          inteira contra o motor. Nada de avaliação no meio: erosão é o que se
+          perde sem perceber, e um "-4%" a cada lance viraria oito exercícios
+          táticos com placar.
+        -->
+        @if (ehTrecho()) {
+          @if (!resultadoTrecho()) {
+            <div class="mb-5 flex flex-wrap items-center justify-between gap-2">
+              <span class="selo selo-neutro">{{ rotuloJanela(itemAtual()!) }}</span>
+              <span class="selo selo-latao">
+                Lance {{ lancesFeitos() + 1 }} de {{ totalDoTrecho() }}
+              </span>
+            </div>
+
+            @if (lancesFeitos() === 0) {
+              <p class="legenda mb-4">
+                Aqui você não perdeu a partida num lance: ela escorregou ao longo destes
+                {{ totalDoTrecho() }} lances. Jogue o trecho de novo contra um motor limitado à
+                força do seu adversário daquele dia. Você não verá avaliação nenhuma até o fim —
+                é assim numa partida de verdade, e é exatamente isso que está sendo treinado.
+              </p>
+            }
+
+            @if (respostaDoAdversario()) {
+              <p class="aviso aviso-latao mb-4" role="status">
+                <span aria-hidden="true">↩</span>
+                <span>O adversário respondeu <strong>{{ respostaDoAdversario() }}</strong>.</span>
+              </p>
+            }
+
+            <app-tabuleiro-preview
+              class="mb-5 block"
+              [fen]="fenDoTrecho()"
+              [orientacao]="itemAtual()!.cor_jogada === 'PRETAS' ? 'PRETAS' : 'BRANCAS'"
+            />
+
+            @if (historicoDoTrecho().length > 0) {
+              <div class="painel mb-4">
+                <p class="metrica-rotulo mt-0">Lances do trecho até aqui</p>
+                <p class="mt-1.5 text-sm leading-6 text-bruma-200">
+                  {{ historicoDoTrecho().join(' · ') }}
+                </p>
+              </div>
+            }
+
+            <label class="rotulo" for="campo-lance-trecho">Qual é o seu lance?</label>
+            <input
+              id="campo-lance-trecho"
+              type="text"
+              class="campo"
+              placeholder="Ex.: Cxe5"
+              [value]="lance()"
+              [disabled]="enviando()"
+              (keydown.enter)="jogarLanceDoTrecho()"
+              (input)="lance.set($any($event.target).value)"
+            />
+
+            @if (erro()) {
+              <div class="aviso aviso-erro mt-3" role="alert">
+                <span aria-hidden="true">!</span>
+                <span>{{ erro() }}</span>
+              </div>
+            }
+
+            <button
+              type="button"
+              class="btn btn-primario btn-largo mt-4"
+              [disabled]="!formularioValido()"
+              (click)="jogarLanceDoTrecho()"
+            >
+              @if (enviando()) {
+                <span class="pulso" aria-hidden="true"></span>
+                <span>Jogando…</span>
+              } @else {
+                <span>Jogar lance</span>
+              }
+            </button>
+          } @else {
+            <!-- Fechou a janela: agora a curva inteira de uma vez, que é onde
+                 dá pra ver em que ponto a posição começou a escorregar. -->
+            <div class="mb-5 flex items-center justify-between">
+              <span class="selo" [class]="corBadgeQualidadeLance(resultadoTrecho()!.qualidade_lance!)">
+                {{ resultadoTrecho()!.qualidade_lance }}
+              </span>
+              <span class="legenda">
+                Próxima revisão: {{ resultadoTrecho()!.proxima_revisao_data }}
+              </span>
+            </div>
+
+            <app-tabuleiro-preview
+              class="mb-5 block"
+              [fen]="resultadoTrecho()!.fen"
+              [orientacao]="itemAtual()!.cor_jogada === 'PRETAS' ? 'PRETAS' : 'BRANCAS'"
+            />
+
+            <p class="mb-4 text-sm leading-6 text-bruma-200">{{ resultadoTrecho()!.resumo }}</p>
+
+            @if (resultadoTrecho()!.fim_de_partida) {
+              <p class="aviso aviso-latao mb-4">
+                <span aria-hidden="true">♚</span>
+                <span>
+                  A partida terminou dentro do trecho. O veredito saiu da posição real onde ela
+                  parou.
+                </span>
+              </p>
+            }
+
+            <div class="mb-4 grid gap-2 sm:grid-cols-2">
+              <div class="painel">
+                <p class="metrica-rotulo mt-0">Queda neste treino</p>
+                <p class="mt-1 font-semibold text-marfim">
+                  {{ resultadoTrecho()!.queda_liquida }}%
+                </p>
+              </div>
+              <div class="painel">
+                <p class="metrica-rotulo mt-0">Queda na partida</p>
+                <p class="mt-1 font-semibold text-marfim">
+                  {{ resultadoTrecho()!.queda_original ?? '—' }}{{ resultadoTrecho()!.queda_original === null ? '' : '%' }}
+                </p>
+              </div>
+            </div>
+
+            @if (resultadoTrecho()!.curva.length > 0) {
+              <div class="painel mb-4">
+                <p class="metrica-rotulo mt-0">O que cada lance custou</p>
+                <ul class="mt-2 space-y-1 text-sm text-bruma-200">
+                  @for (passo of resultadoTrecho()!.curva; track passo.numero) {
+                    <li class="flex items-center justify-between gap-3">
+                      <span class="tabular-nums">{{ passo.numero }}. {{ passo.lance }}</span>
+                      <span
+                        class="tabular-nums"
+                        [class]="passo.queda > 0 ? 'text-perigo' : 'text-sucesso'"
+                      >
+                        {{ formatarQueda(passo.queda) }}
+                      </span>
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+
+            @if (resultadoTrecho()!.raiz_conceitual_violada) {
+              <div class="painel mb-4">
+                <p class="metrica-rotulo mt-0">O que o diagnóstico disse sobre este trecho</p>
+                <p class="mt-1.5 text-sm leading-6 text-bruma-200">
+                  {{ resultadoTrecho()!.raiz_conceitual_violada }}
+                </p>
+              </div>
+            }
+
+            @if (resultadoTrecho()!.livro_citado) {
+              <p class="aviso aviso-latao mb-4">
+                <span aria-hidden="true">📖</span>
+                <span>
+                  {{ resultadoTrecho()!.livro_citado }}
+                  @if (resultadoTrecho()!.capitulo_citado) { <span> · cap. {{ resultadoTrecho()!.capitulo_citado }}</span> }
+                  @if (resultadoTrecho()!.pagina_citada) { <span> · pág. {{ resultadoTrecho()!.pagina_citada }}</span> }
+                </span>
+              </p>
+            }
+
+            <button type="button" class="btn btn-primario btn-largo" (click)="proxima()">
+              Próxima
+            </button>
+          }
+        } @else if (!resultado()) {
           <!-- Card de pergunta: sem nenhuma pista sobre o tipo de erro original. -->
           <div class="mb-5 flex flex-wrap items-center justify-between gap-2">
             @if (itemAtual()!.origem === 'lance_critico') {

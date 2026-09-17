@@ -119,16 +119,20 @@ antes de entregar e devolve `None` quando a pessoa precisa reconectar.
 
 | Tabela | Colunas relevantes | Papel |
 |---|---|---|
-| `fila_treino_espacado` | `user_id` (**FK real** para `auth.users(id)`), `lance_id` (**FK opcional** para `lances_criticos(id)`, `on delete cascade`), `exercicio_id` (**FK opcional** para `exercicios_taticos(id)`, `on delete restrict`, D-49), `posicional_id` (**FK opcional** para `exercicios_posicionais(id)`, `on delete restrict`, D-55), `origem` (`'lance_critico'` \| `'exercicio_tatico'` \| `'exercicio_posicional'`), `proxima_revisao_data`, `intervalo_dias`, `fator_facilidade`, `repeticoes`, `total_revisoes`, `ultima_qualidade`, `livro_citado`, `capitulo_citado`, `pagina_citada` — unique `(user_id, lance_id)`, `(user_id, exercicio_id)` e `(user_id, posicional_id)`, check `num_nonnulls(lance_id, exercicio_id, posicional_id) = 1` | agendamento SM-2 sobre os lances PICO já diagnosticados OU sobre exercícios de catálogo (táticos e posicionais), para a tela `/treino` |
+| `fila_treino_espacado` | `user_id` (**FK real** para `auth.users(id)`), `lance_id` (**FK opcional** para `lances_criticos(id)`, `on delete cascade`), `exercicio_id` (**FK opcional** para `exercicios_taticos(id)`, `on delete restrict`, D-49), `posicional_id` (**FK opcional** para `exercicios_posicionais(id)`, `on delete restrict`, D-55), `origem` (`'lance_critico'` \| `'exercicio_tatico'` \| `'exercicio_posicional'`), `proxima_revisao_data`, `intervalo_dias`, `fator_facilidade`, `repeticoes`, `total_revisoes`, `ultima_qualidade`, `livro_citado`, `capitulo_citado`, `pagina_citada`, `progresso_trecho` (jsonb, D-66) — unique `(user_id, lance_id)`, `(user_id, exercicio_id)` e `(user_id, posicional_id)`, check `num_nonnulls(lance_id, exercicio_id, posicional_id) = 1` | agendamento SM-2 sobre os lances críticos já diagnosticados (PICO e, desde o D-66, EROSAO) OU sobre exercícios de catálogo (táticos e posicionais), para a tela `/treino` |
 | `exercicios_taticos` | `puzzle_id_lichess` (unique), `fen`, `categoria_hexagono`, `temas_lichess[]`, `rating`, `popularidade` | catálogo de exercícios táticos (D-49), importado do dump público de puzzles do Lichess (CC0) e re-taggeado em `HEXAGON_CATEGORIES` — corpus compartilhado, sem `user_id` |
 | `exercicios_posicionais` | `jogo_url` + `ply` (unique), `numero_lance`, `fen`, `categoria_hexagono`, `severidade` (`Mistake` \| `Blunder`), `queda_centipeoes`, `segundos_restantes`, `brancas`, `pretas`, `evento`, `data_partida` | catálogo de exercícios **não táticos** (D-55), extraído dos broadcasts do Lichess (partidas OTB reais, **CC BY-SA 4.0** — licença diferente da dos puzzles). Corpus compartilhado, sem `user_id`. É o material que faltava a ESTRATEGIA e GESTAO_DE_TEMPO (P-15) |
 
 Populada em lote por `backend/agentes/popular_fila_treino_espacado.py`
 (loop por usuário, roda depois de `agente1_linter.py` no pipeline diário) —
-a API só lê e reagenda, nunca insere card novo pra este lado. `lance_id` só
-aceita `lances_criticos` do tipo `PICO` com `fen_antes_lance` preenchido:
-`EROSAO` é uma janela de vários lances sem um "lance certo" único, fora do
-escopo desta fila. `on delete cascade` em `lance_id`: quando uma partida é
+a API só lê e reagenda, nunca insere card novo pra este lado. `lance_id`
+aceita qualquer `lances_criticos` com `fen_antes_lance` preenchido. Do D-48 ao
+D-65 aceitava só `PICO`, porque `EROSAO` é uma janela de vários lances sem um
+"lance certo" único; o **D-66** deu a ela o formato que lhe cabe (refazer o
+trecho inteiro contra o motor) e os dois tipos passaram a entrar. O que os
+separa agora é a cota diária (`TREINO_TRECHOS_POR_DIA`), não a elegibilidade —
+um card de erosão custa umas oito vezes o trabalho de um de pico.
+`on delete cascade` em `lance_id`: quando uma partida é
 reprocessada (R6, apaga `lances_criticos` antigos antes de gerar novos), a
 linha da fila correspondente some junto, em vez de virar FK quebrada.
 
@@ -159,6 +163,22 @@ tinha (`segundos_restantes`). O XOR de duas colunas virou
 `num_nonnulls(lance_id, exercicio_id, posicional_id) = 1`. **Atenção à
 licença**: broadcasts são CC BY-SA 4.0, não CC0 — a procedência é gravada e
 exibida na tela depois da resposta, e isso é atribuição, não enfeite.
+
+**D-66** não acrescentou origem nenhuma — acrescentou um FORMATO. Um card de
+`EROSAO` continua sendo `origem = 'lance_critico'` com `lance_id` preenchido;
+o que muda o formato é `lances_criticos.tipo_evento`, que já existia desde o
+D-27. Duplicar esse fato numa quarta origem seria guardar em duas colunas algo
+que só uma delas conhece de verdade. A coluna nova é `progresso_trecho`
+(jsonb, nullable): os SAN já jogados na janela, alternando jogador e motor, e
+as leituras de win% antes e depois de cada lance do jogador. É sempre lido e
+escrito inteiro, nunca consultado por dentro — o mesmo critério que fez
+`sessoes_treino.progresso` ser jsonb no D-54. `null` significa as três coisas
+ao mesmo tempo (card de pico, exercício de catálogo e trecho não iniciado), e
+`normalizar_progresso` lê as três como "o trecho não começou". A posição
+corrente nunca é gravada nem recebida do cliente: é reconstruída pelo replay
+destes SAN sobre `fen_antes_lance`. Ao fechar a janela, a coluna volta a
+`null` — guardar a linha jogada faria a próxima repetição virar leitura do
+próprio gabarito.
 
 `livro_citado`/`capitulo_citado`/`pagina_citada` são resolvidos **uma vez**
 na população/inserção (via `buscar_conceitos()`, `agente3_prescritor.py` —

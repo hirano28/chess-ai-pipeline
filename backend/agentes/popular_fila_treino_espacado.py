@@ -1,5 +1,8 @@
-"""Popula a fila de repetição espaçada (D-48) com os lances críticos PICO já
+"""Popula a fila de repetição espaçada (D-48) com os lances críticos já
 diagnosticados de cada usuário, aguardando revisão.
+
+Desde o D-66 isso inclui os eventos EROSAO, que até então não tinham formato de
+treino e ficavam parados no banco — ver `backend/common/treino_trecho.py`.
 
 Roda no pipeline diário, DEPOIS do agente1_linter.py (depende de
 `diagnosticos` já existir). Sem chamada a LLM: a citação de livro é resolvida
@@ -56,6 +59,21 @@ TREINO_NOVOS_POR_DIA = int(os.getenv("TREINO_NOVOS_POR_DIA", "10"))
 # daqui a seis meses é ficção. Até lá o diagnóstico envelheceu, o jogador mudou
 # e a fila vira um número que só serve para intimidar.
 TREINO_HORIZONTE_DIAS = int(os.getenv("TREINO_HORIZONTE_DIAS", "60"))
+
+# Quantos cards de EROSAO ("Refazer o trecho", D-66) cabem num mesmo dia.
+#
+# Um card de PICO é uma decisão: uma posição, um lance, um veredito. Um card de
+# erosão são 8 lances do jogador, cada um com a resposta do motor — umas oito
+# vezes o trabalho. Enfileirar 10 deles num dia seria repetir, em outra escala,
+# o erro que o D-64 corrigiu: medir a fila em número de linhas em vez de em
+# esforço real.
+#
+# Por isso eles entram com cota própria e o resto do dia é completado com
+# picos, em vez de disputarem as mesmas 10 vagas por ordem de chegada. Em 0, os
+# eventos de erosão simplesmente não são enfileirados (o desligador do recurso
+# sem precisar de deploy); eles continuam no banco e voltam a ser candidatos
+# quando a configuração mudar.
+TREINO_TRECHOS_POR_DIA = int(os.getenv("TREINO_TRECHOS_POR_DIA", "2"))
 
 # tag_falha -> categoria do hexágono, invertendo HEXAGON_CATEGORIES.
 TAG_PARA_CATEGORIA: dict[str, str] = {
@@ -121,12 +139,16 @@ def listar_usuarios_com_diagnostico(client: Client) -> list[str]:
 def buscar_diagnosticos_elegiveis(
     client: Client, logger: logging.Logger, user_id: str
 ) -> list[dict[str, Any]]:
-    """Busca diagnósticos de lances PICO com posição registrada, de 1 usuário.
+    """Busca diagnósticos de lances críticos com posição registrada, de 1 usuário.
 
-    Filtra `tipo_evento='PICO'` - EROSAO é uma janela de vários lances, sem um
-    único "lance certo" bem definido pro formato de drill, fica fora do v1 -
-    e `fen_antes_lance` não nulo - a coluna existe desde D-27, linhas mais
+    Exige `fen_antes_lance` não nulo - a coluna existe desde D-27, linhas mais
     antigas podem não ter sido reprocessadas e ficam sem posição pra mostrar.
+
+    Até o D-65 filtrava também `tipo_evento='PICO'`, porque EROSAO é uma janela
+    de vários lances e não tem um único "lance certo" pra pedir. O D-66 deu a
+    ela o formato que lhe cabe (refazer o trecho inteiro contra o motor), então
+    os dois tipos entram - o que os separa agora é a cota diária de
+    `montar_linhas_novas`, não a elegibilidade.
     """
 
     rows: list[dict[str, Any]] = []
@@ -141,7 +163,6 @@ def buscar_diagnosticos_elegiveis(
             client.table("diagnosticos")
             .select(select)
             .eq("lances_criticos.partidas.user_id", user_id)
-            .eq("lances_criticos.tipo_evento", "PICO")
             .not_.is_("lances_criticos.fen_antes_lance", "null")
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
@@ -152,7 +173,7 @@ def buscar_diagnosticos_elegiveis(
             break
         offset += PAGE_SIZE
     logger.info(
-        "Usuário %s: %d diagnóstico(s) elegível(is) (PICO, com posição).",
+        "Usuário %s: %d diagnóstico(s) elegível(is) (com posição registrada).",
         user_id,
         len(rows),
     )
@@ -221,6 +242,54 @@ def primeiro_dia_livre(client: Client, user_id: str, hoje: date) -> date:
     return max(hoje, ultima + timedelta(days=1))
 
 
+def _lance_do_diagnostico(diagnostico: dict[str, Any]) -> dict[str, Any]:
+    """Desembrulha o embed `lances_criticos`, que vem objeto ou lista de um."""
+
+    lance = diagnostico.get("lances_criticos") or {}
+    if isinstance(lance, list):
+        lance = lance[0] if lance else {}
+    return lance if isinstance(lance, dict) else {}
+
+
+def distribuir_por_dia(
+    candidatos: list[tuple[str, dict[str, Any], bool]],
+    por_dia: int,
+    trechos_por_dia: int,
+) -> list[tuple[int, str, dict[str, Any]]]:
+    """Reparte os candidatos em dias, com cota separada para os trechos (D-66).
+
+    Devolve `(deslocamento_em_dias, lance_id, diagnostico)`. Cada dia leva até
+    `trechos_por_dia` cards de erosão e completa o resto com picos, até
+    `por_dia` no total - assim um dia nunca vira oito vezes o trabalho de outro
+    só porque a ordem de chegada calhou de trazer erosões em sequência.
+
+    Com `trechos_por_dia = 0` os trechos não são distribuídos: o laço para
+    quando só sobram eles, e eles continuam no banco como candidatos da próxima
+    execução (mesma mecânica do que estoura o horizonte).
+    """
+
+    trechos = [item for item in candidatos if item[2]]
+    picos = [item for item in candidatos if not item[2]]
+
+    distribuicao: list[tuple[int, str, dict[str, Any]]] = []
+    dia = 0
+    while trechos or picos:
+        do_dia: list[tuple[str, dict[str, Any], bool]] = []
+        cota_trechos = min(max(0, trechos_por_dia), por_dia)
+        while trechos and len(do_dia) < cota_trechos:
+            do_dia.append(trechos.pop(0))
+        while picos and len(do_dia) < por_dia:
+            do_dia.append(picos.pop(0))
+        if not do_dia:
+            # Só restam trechos e a cota deles é zero: sair é o certo, insistir
+            # seria laço infinito.
+            break
+        for lance_id, diagnostico, _ in do_dia:
+            distribuicao.append((dia, lance_id, diagnostico))
+        dia += 1
+    return distribuicao
+
+
 def montar_linhas_novas(
     diagnosticos: list[dict[str, Any]],
     ja_na_fila: set[str],
@@ -241,25 +310,29 @@ def montar_linhas_novas(
     O que passa do horizonte é deixado de fora **de propósito**: os
     diagnósticos continuam no banco e voltam a ser candidatos na próxima
     execução, quando a fila tiver drenado.
+
+    Dentro de cada dia, os cards de erosão (D-66) têm cota própria e o resto é
+    completado com picos - ver `distribuir_por_dia`.
     """
 
-    candidatos: list[tuple[str, dict[str, Any]]] = []
+    candidatos: list[tuple[str, dict[str, Any], bool]] = []
     for diagnostico in diagnosticos:
-        lance = diagnostico.get("lances_criticos") or {}
-        if isinstance(lance, list):
-            lance = lance[0] if lance else {}
+        lance = _lance_do_diagnostico(diagnostico)
         lance_id = lance.get("id")
         if not lance_id or lance_id in ja_na_fila:
             continue
-        candidatos.append((lance_id, diagnostico))
+        eh_trecho = str(lance.get("tipo_evento") or "PICO").upper() == "EROSAO"
+        candidatos.append((lance_id, diagnostico, eh_trecho))
 
     inicio = primeiro_dia or hoje
     ultimo_dia_permitido = hoje + timedelta(days=horizonte_dias)
     por_dia = max(1, TREINO_NOVOS_POR_DIA)
 
     linhas: list[dict[str, Any]] = []
-    for indice, (lance_id, diagnostico) in enumerate(candidatos):
-        dia = inicio + timedelta(days=indice // por_dia)
+    for deslocamento, lance_id, diagnostico in distribuir_por_dia(
+        candidatos, por_dia, TREINO_TRECHOS_POR_DIA
+    ):
+        dia = inicio + timedelta(days=deslocamento)
         if dia > ultimo_dia_permitido:
             break
         tags = diagnostico.get("tags_falha") or []

@@ -48,6 +48,7 @@ _LIMITES_DIARIOS_DEPENDENCIES = (
     api_server.verificar_limite_reconhecer_posicao,
     api_server.verificar_limite_reprocessar,
     api_server.verificar_limite_treino_responder,
+    api_server.verificar_limite_treino_trecho,
 )
 
 
@@ -2679,6 +2680,100 @@ class ObterFilaTreinoTest(unittest.TestCase):
         self.assertNotIn("raiz_conceitual_violada", item)
         self.assertNotIn("livro_citado", item)
 
+    def test_card_de_erosao_traz_o_trecho_e_a_posicao_onde_parou(self) -> None:
+        """D-66: num card de trecho a tela mostra onde o jogador PAROU, e essa
+        posição não está guardada em lugar nenhum — é o replay do histórico."""
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": 21,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "progresso_trecho": {
+                    "lances": ["e4", "e5"],
+                    "win_antes": [61.0],
+                    "win_depois": [58.0],
+                },
+                "lances_criticos": {
+                    "numero_lance": 12,
+                    "numero_lance_fim": 19,
+                    "tipo_evento": "EROSAO",
+                    "fen_antes_lance": chess_fen_inicial(),
+                    "partidas": {"cor_jogada": "BRANCAS"},
+                },
+            }
+        ]
+        base.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        item = self.client.get("/treino/fila", headers=HEADERS_SESSAO).json()["itens"][0]
+
+        self.assertEqual(item["tipo_evento"], "EROSAO")
+        self.assertEqual(item["trecho"]["total_lances"], 8)
+        self.assertEqual(item["trecho"]["lances_feitos"], 1)
+        self.assertEqual(item["trecho"]["historico"], ["e4", "e5"])
+        # A posição já avançou os dois lances; não é mais a do início da janela.
+        self.assertNotEqual(item["fen"], chess_fen_inicial())
+        self.assertIn("2", item["fen"].split()[-1])
+        # Nem aqui a avaliação vaza: o jogador não vê quanto já perdeu.
+        self.assertNotIn("win_antes", item["trecho"])
+        self.assertNotIn("queda", str(item))
+
+    def test_progresso_ilegivel_devolve_o_trecho_do_comeco(self) -> None:
+        """O pior caso aceitável é refazer a janela inteira — nunca o card
+        sumir da fila por causa de um jsonb quebrado."""
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": 21,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "progresso_trecho": {
+                    "lances": ["Qxh8", "e5"],
+                    "win_antes": [61.0],
+                    "win_depois": [58.0],
+                },
+                "lances_criticos": {
+                    "numero_lance": 12,
+                    "numero_lance_fim": 19,
+                    "tipo_evento": "EROSAO",
+                    "fen_antes_lance": chess_fen_inicial(),
+                    "partidas": {},
+                },
+            }
+        ]
+        base.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        item = self.client.get("/treino/fila", headers=HEADERS_SESSAO).json()["itens"][0]
+
+        self.assertEqual(item["fen"], chess_fen_inicial())
+        self.assertEqual(item["trecho"]["lances_feitos"], 0)
+        self.assertEqual(item["trecho"]["historico"], [])
+
+    def test_card_de_pico_nao_ganha_trecho(self) -> None:
+        mock_client = self._mockar_client()
+        base = mock_client.table.return_value.select.return_value.eq.return_value
+        base.lte.return_value.order.return_value.execute.return_value.data = [
+            {
+                "id": 7,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "lances_criticos": {
+                    "numero_lance": 14,
+                    "tipo_evento": "PICO",
+                    "fen_antes_lance": chess_fen_inicial(),
+                    "partidas": {},
+                },
+            }
+        ]
+        base.gt.return_value.gte.return_value.execute.return_value.data = []
+
+        item = self.client.get("/treino/fila", headers=HEADERS_SESSAO).json()["itens"][0]
+
+        self.assertEqual(item["tipo_evento"], "PICO")
+        self.assertIsNone(item["trecho"])
+
     def test_pula_item_sem_fen_registrada(self) -> None:
         mock_client = self._mockar_client()
         base = mock_client.table.return_value.select.return_value.eq.return_value
@@ -2974,6 +3069,35 @@ class ResponderTreinoTest(unittest.TestCase):
         )
 
         self.assertEqual(resposta.status_code, 404)
+
+    def test_card_de_erosao_recusa_o_formato_de_lance_unico(self) -> None:
+        """D-66: responder "o lance certo" numa janela de 8 lances produziria
+        um veredito sobre uma decisão que não é a que o evento mede."""
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(
+            mock_client,
+            {
+                "id": 21,
+                "lance_id": "lance-erosao",
+                "origem": "lance_critico",
+                "intervalo_dias": 0,
+                "fator_facilidade": 2.5,
+                "repeticoes": 0,
+                "total_revisoes": 0,
+                "lances_criticos": {
+                    "fen_antes_lance": chess_fen_inicial(),
+                    "tipo_evento": "EROSAO",
+                },
+            },
+        )
+
+        resposta = self.client.post(
+            "/treino/21/responder", json={"lance": "e4"}, headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 400)
+        self.assertIn("trecho", resposta.json()["detail"])
 
     def test_exercicio_posicional_revela_a_partida_depois_de_responder(self) -> None:
         """D-55: é isto que transforma a posição de volta em partida real — e é
@@ -3339,6 +3463,269 @@ class ResponderTreinoTest(unittest.TestCase):
         self.assertEqual(corpo["livro_citado"], "Livro X")
         nomes_tabelas = [chamada.args[0] for chamada in mock_client.table.call_args_list]
         self.assertNotIn("diagnosticos", nomes_tabelas)
+
+
+class JogarTrechoTest(unittest.TestCase):
+    """POST /treino/{fila_id}/trecho (D-66): refaz a janela de uma EROSAO.
+
+    Uma erosão não tem "lance certo" — é uma janela de 8 lances em que a
+    posição escorregou sem nenhum erro isolado. O drill é jogá-la de novo
+    contra o motor e medir no fim a mesma queda líquida que detectou o evento.
+    """
+
+    def setUp(self) -> None:
+        api_server._state.clear()
+        api_server._state["engine"] = MagicMock()
+        api_server._state["engine_lock"] = threading.Lock()
+        api_server._state["settings"] = _fake_settings()
+        self.client = TestClient(api_server.app)
+
+    def tearDown(self) -> None:
+        api_server._state.clear()
+
+    def _linha_de_erosao(self, **extras: Any) -> dict[str, Any]:
+        linha = {
+            "id": 21,
+            "lance_id": "lance-erosao",
+            "origem": "lance_critico",
+            "progresso_trecho": None,
+            "intervalo_dias": 0,
+            "fator_facilidade": 2.5,
+            "repeticoes": 0,
+            "total_revisoes": 0,
+            "livro_citado": "Meu Sistema",
+            "capitulo_citado": "4",
+            "pagina_citada": 88,
+            "lances_criticos": {
+                "numero_lance": 12,
+                "numero_lance_fim": 19,
+                "tipo_evento": "EROSAO",
+                "fen_antes_lance": chess_fen_inicial(),
+                "queda_win_percent": 42.0,
+                "partidas": {"rating_oponente": 1769, "rating_proprio": 1810},
+            },
+        }
+        linha.update(extras)
+        return linha
+
+    def _mockar_fila(self, mock_client: MagicMock, linha: dict[str, Any] | None) -> None:
+        cadeia = (
+            mock_client.table.return_value.select.return_value.eq.return_value.eq
+            .return_value.execute
+        )
+        cadeia.return_value.data = [linha] if linha else []
+
+    def _passo(self, **extras: Any) -> Any:
+        from backend.agentes.refazer_trecho import PassoDoTrecho
+
+        padrao = {
+            "progresso": {
+                "fen_inicial": chess_fen_inicial(),
+                "total_lances": 8,
+                "lances": ["e4", "e5"],
+                "win_antes": [61.0],
+                "win_depois": [58.0],
+            },
+            "lance_interpretado": "e4",
+            "lance_oponente": "e5",
+            "fen": chess_fen_inicial(),
+            "concluido": False,
+            "fim_por_fim_de_jogo": False,
+        }
+        padrao.update(extras)
+        return PassoDoTrecho(**padrao)
+
+    def test_card_de_outro_dono_devolve_404(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(mock_client, None)
+
+        resposta = self.client.post(
+            "/treino/999/trecho", json={"lance": "e4"}, headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 404)
+
+    def test_card_de_pico_recusa_o_formato_de_trecho(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        linha = self._linha_de_erosao()
+        linha["lances_criticos"]["tipo_evento"] = "PICO"
+        self._mockar_fila(mock_client, linha)
+
+        resposta = self.client.post(
+            "/treino/21/trecho", json={"lance": "e4"}, headers=HEADERS_SESSAO
+        )
+
+        self.assertEqual(resposta.status_code, 400)
+        self.assertIn("responder", resposta.json()["detail"])
+
+    def test_passo_intermediario_nao_revela_nada_da_avaliacao(self) -> None:
+        """O ponto do formato: erosão é o que se perde sem perceber. Um '-3%'
+        a cada lance viraria oito táticos com placar."""
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(mock_client, self._linha_de_erosao())
+
+        with patch.object(api_server, "jogar_passo_do_trecho", return_value=self._passo()):
+            corpo = self.client.post(
+                "/treino/21/trecho", json={"lance": "e4"}, headers=HEADERS_SESSAO
+            ).json()
+
+        self.assertFalse(corpo["concluido"])
+        self.assertEqual(corpo["lance_oponente"], "e5")
+        self.assertEqual(corpo["lances_feitos"], 1)
+        self.assertEqual(corpo["total_lances"], 8)
+        self.assertIsNone(corpo["queda_liquida"])
+        self.assertIsNone(corpo["qualidade_lance"])
+        self.assertEqual(corpo["curva"], [])
+        self.assertIsNone(corpo["livro_citado"])
+
+    def test_passo_intermediario_grava_o_progresso(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(mock_client, self._linha_de_erosao())
+
+        with patch.object(api_server, "jogar_passo_do_trecho", return_value=self._passo()):
+            self.client.post(
+                "/treino/21/trecho", json={"lance": "e4"}, headers=HEADERS_SESSAO
+            )
+
+        (gravado,), _ = mock_client.table.return_value.update.call_args
+        self.assertEqual(gravado["progresso_trecho"]["lances"], ["e4", "e5"])
+        # Nada de SM-2 no meio do trecho: a janela ainda não fechou.
+        self.assertNotIn("proxima_revisao_data", gravado)
+
+    def _fechar_trecho(self, queda_liquida_alvo: float, **linha_extras: Any):
+        """Fecha a janela com uma queda líquida escolhida (win_antes − win_depois)."""
+
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(mock_client, self._linha_de_erosao(**linha_extras))
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value.data = [
+            {"raiz_conceitual_violada": "Peça sem função", "tags_falha": ["plano_ausente"]}
+        ]
+        passo = self._passo(
+            progresso={
+                "fen_inicial": chess_fen_inicial(),
+                "total_lances": 2,
+                "lances": ["e4", "e5", "Nf3"],
+                "win_antes": [61.0, 59.0],
+                "win_depois": [60.0, 61.0 - queda_liquida_alvo],
+            },
+            lance_oponente=None,
+            concluido=True,
+        )
+        with patch.object(api_server, "jogar_passo_do_trecho", return_value=passo):
+            corpo = self.client.post(
+                "/treino/21/trecho", json={"lance": "Nf3"}, headers=HEADERS_SESSAO
+            ).json()
+        (gravado,), _ = mock_client.table.return_value.update.call_args
+        return corpo, gravado
+
+    def test_segurar_a_janela_abaixo_do_limiar_e_bom(self) -> None:
+        """O alvo é o mesmo EROSAO_THRESHOLD_PERCENT que criou o evento: abaixo
+        dele, pelo instrumento que gerou o card, não houve erosão desta vez."""
+        corpo, _ = self._fechar_trecho(queda_liquida_alvo=4.0)
+
+        self.assertTrue(corpo["concluido"])
+        self.assertEqual(corpo["qualidade_lance"], "BOM")
+        self.assertEqual(corpo["queda_liquida"], 4.0)
+        self.assertEqual(corpo["queda_original"], 42.0)
+        self.assertIn("segurou", corpo["resumo"])
+
+    def test_errar_menos_que_na_partida_e_subotimo(self) -> None:
+        corpo, _ = self._fechar_trecho(queda_liquida_alvo=30.0)
+        self.assertEqual(corpo["qualidade_lance"], "SUBOTIMO")
+
+    def test_repetir_a_queda_da_partida_e_ruim(self) -> None:
+        corpo, _ = self._fechar_trecho(queda_liquida_alvo=45.0)
+        self.assertEqual(corpo["qualidade_lance"], "RUIM")
+
+    def test_ao_fechar_revela_curva_causa_raiz_e_citacao(self) -> None:
+        corpo, _ = self._fechar_trecho(queda_liquida_alvo=4.0)
+
+        self.assertEqual([item["lance"] for item in corpo["curva"]], ["e4", "Nf3"])
+        self.assertEqual(corpo["raiz_conceitual_violada"], "Peça sem função")
+        self.assertEqual(corpo["tags_falha"], ["plano_ausente"])
+        self.assertEqual(corpo["livro_citado"], "Meu Sistema")
+        self.assertEqual(corpo["pagina_citada"], 88)
+
+    def test_ao_fechar_reagenda_e_apaga_o_progresso(self) -> None:
+        """A próxima repetição tem que começar da posição original: guardar a
+        linha jogada faria a revisão seguinte virar leitura do gabarito."""
+        _, gravado = self._fechar_trecho(queda_liquida_alvo=4.0)
+
+        self.assertIsNone(gravado["progresso_trecho"])
+        self.assertEqual(gravado["total_revisoes"], 1)
+        self.assertEqual(gravado["ultima_qualidade"], 5)
+        self.assertIn("proxima_revisao_data", gravado)
+
+    def test_sem_queda_original_o_limiar_absoluto_ainda_decide(self) -> None:
+        linha = self._linha_de_erosao()
+        linha["lances_criticos"]["queda_win_percent"] = None
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(mock_client, linha)
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
+        passo = self._passo(
+            progresso={
+                "fen_inicial": chess_fen_inicial(),
+                "total_lances": 1,
+                "lances": ["e4"],
+                "win_antes": [61.0],
+                "win_depois": [58.0],
+            },
+            lance_oponente=None,
+            concluido=True,
+        )
+
+        with patch.object(api_server, "jogar_passo_do_trecho", return_value=passo):
+            corpo = self.client.post(
+                "/treino/21/trecho", json={"lance": "e4"}, headers=HEADERS_SESSAO
+            ).json()
+
+        self.assertIsNone(corpo["queda_original"])
+        self.assertEqual(corpo["qualidade_lance"], "BOM")
+        self.assertNotIn("Na partida", corpo["resumo"])
+
+    def test_lance_invalido_do_usuario_devolve_400(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(mock_client, self._linha_de_erosao())
+
+        with patch.object(
+            api_server, "jogar_passo_do_trecho", side_effect=ValueError("Lance ilegal")
+        ):
+            resposta = self.client.post(
+                "/treino/21/trecho", json={"lance": "Txz9"}, headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 400)
+
+    def test_progresso_corrompido_reinicia_o_trecho_sem_culpar_o_usuario(self) -> None:
+        mock_client = MagicMock()
+        api_server._state["supabase_client"] = mock_client
+        self._mockar_fila(mock_client, self._linha_de_erosao())
+
+        with patch.object(
+            api_server,
+            "jogar_passo_do_trecho",
+            side_effect=api_server.ProgressoCorrompidoError("histórico ilegível"),
+        ):
+            resposta = self.client.post(
+                "/treino/21/trecho", json={"lance": "e4"}, headers=HEADERS_SESSAO
+            )
+
+        self.assertEqual(resposta.status_code, 409)
+        (gravado,), _ = mock_client.table.return_value.update.call_args
+        self.assertIsNone(gravado["progresso_trecho"])
+
+    def test_sem_sessao_nao_passa(self) -> None:
+        with gate_de_sessao_real():
+            resposta = self.client.post("/treino/21/trecho", json={"lance": "e4"})
+
+        self.assertIn(resposta.status_code, (401, 403))
 
 
 class FocarCategoriaTreinoTest(unittest.TestCase):
