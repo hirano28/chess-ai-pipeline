@@ -1,16 +1,35 @@
 ---
 doc: ESTADO.md
 escopo: ÚNICO lugar do repositório onde mora estado factual (contagens, status, pendências)
-verificado_em: 2026-09-16
+verificado_em: 2026-09-17
 como_reverificar: rode as queries da seção 6 e os comandos da seção 1
 aviso: número sem data de verificação em qualquer outro documento deve ser tratado como suspeito
 ---
 
-# Estado verificado — 2026-09-16
+# Estado verificado — 2026-09-17
 
 Tudo nesta página foi conferido nesta data contra o banco real
 (`pmzmershonrqzwbmhaco`), o código e os workflows. Ao mudar qualquer fato aqui,
 atualize também a data no cabeçalho.
+
+## 0. Saúde da automação — confira ANTES de confiar em qualquer número abaixo
+
+`verificado_em: 17/09/2026.` Os três workflows estão verdes, o backend de
+produção serve o commit mais recente e a coleta voltou a rodar.
+
+Entre 15/09 e 17/09 nada disso era verdade, e **nenhum documento teria
+denunciado**: os testes locais passavam, a suíte estava verde e o `/health`
+respondia 200 — enquanto o CI falhava, o backend congelava no D-49 e a coleta
+parava. Ver D-61 em `DECISOES.md`.
+
+```bash
+gh run list --limit 5                                  # os 3 workflows verdes?
+gh issue list --label falha-automacao --state open     # tem que voltar vazio
+```
+
+A segunda linha é o canário desde o D-61: qualquer falha ou cancelamento de
+workflow abre uma issue com esse rótulo. Issue aberta = automação quebrada,
+independentemente do que as seções seguintes digam.
 
 ## 1. Testes e build
 
@@ -47,9 +66,9 @@ pendência P-11 abaixo).
 
 | Tabela | Linhas |
 |---|---|
-| `partidas` | 240 (02/07/2026 a 15/09/2026); todas com status `concluido`, 230 com `abertura_normalizada` e **todas as 240 com `cadencia`** preenchida (D-57) |
-| `lances_criticos` | 718 |
-| `diagnosticos` | 718 |
+| `partidas` | **269** (02/07/2026 a 16/09/2026); 268 `concluido` e **1 `falhou`** (`F031uGaP`, Lichess, mar/2026), 230 com `abertura_normalizada`, todas com `cadencia` preenchida (D-57). As 29 mais recentes entraram na recuperação de 17/09 depois do D-61 — a coleta estava parada desde 15/09 |
+| `lances_criticos` | **802** (635 `PICO` + 83 `EROSAO` antes da recuperação; os 84 novos vieram dela) |
+| `diagnosticos` | **802** — paridade total com `lances_criticos`, nenhum lance sem diagnóstico |
 | `perfis_usuario` | 2 (o dono do acervo + uma conta sem partida ingerida). É a tabela que prova que o multi-tenant do D-28 não é hipótese |
 | `puzzle_atividade` | 660, em 41 dias distintos |
 | `tempos_lance` | 16.161, cobrindo 228 partidas (4.847 do Lichess + 11.314 do Chess.com via backfill D-43) |
@@ -62,8 +81,8 @@ pendência P-11 abaixo).
 | `metricas_lichess_partida` | 18, para 67 partidas do Lichess; 14 já têm `precisao_abertura`/`precisao_meiojogo` preenchidas e 12 têm `precisao_final` — colunas novas (ver `BANCO.md`) sendo preenchidas prospectivamente pelo pipeline automatizado (D-37), sem reprocessamento retroativo das linhas mais antigas |
 | `analises_hexagono` | 5 |
 | `sessoes_treino` | 5 prescritas, **0 concluídas**, 0 com eficácia medida. A validação do D-54 concluiu uma sessão de verdade (5/0/0 → 5/1/0, a primeira da história do produto) e **foi revertida de propósito**: aquele treino não aconteceu — os 12 exercícios foram respondidos por script, com lances quaisquer. Deixar a marca produziria a primeira medição de eficácia do produto em cima de um treino inexistente. O caminho está validado; o número volta a subir quando houver sessão real |
-| `resumo_partida` | 136 |
-| `fila_treino_espacado` | 632, todas `lance_critico` (D-48), escalonadas a 10 novas/dia até 17/11/2026 — nenhuma de catálogo, porque os cards das validações do D-54/D-55 saíram junto com a reversão da sessão. **19 vencidos e 9 atrasados** em 16/09/2026 — número que muda todo dia, então rode a query da seção 6 em vez de confiar neste. Meça no fuso de Brasília, não em `current_date`: a API decide o "hoje" da fila em `America/Sao_Paulo` e à noite o UTC já virou. A fila cresce 10/dia venha alguém respondê-la ou não, e é esse crescimento que o teto do D-56 contém na exibição — sem nunca escondê-lo, porque `vencidos_total` continua dizendo o tamanho real |
+| `resumo_partida` | **258** |
+| `fila_treino_espacado` | **697**, todas `lance_critico` (D-48) — cresceu 65 na recuperação de 17/09. Nenhuma de catálogo: os cards das validações do D-54/D-55 saíram junto com a reversão da sessão. **49 vencidos** em 17/09/2026 — número que muda todo dia, então rode a query da seção 6 em vez de confiar neste, e meça no fuso de Brasília, não em `current_date` (a API decide o "hoje" da fila em `America/Sao_Paulo` e à noite o UTC já virou). A fila cresce ~10/dia venha alguém respondê-la ou não, e é esse crescimento que o teto do D-56 contém na exibição — sem nunca escondê-lo, porque `vencidos_total` continua dizendo o tamanho real |
 | `exercicios_taticos` | 1.200 (D-49); 300 por categoria em `TATICA`/`CALCULO`/`FINAIS`/`ESTRUTURA_DE_PEOES` — `ESTRATEGIA`/`GESTAO_DE_TEMPO` seguem sem cobertura AQUI, e é esperado: não existe tema de puzzle equivalente |
 | `exercicios_posicionais` | **2.381** (tabela nova, D-55), de **1.764 partidas OTB em 510 torneios** distintos (broadcasts do Lichess, maio a agosto/2026), 451 delas com um GM; ~594 em cada uma de `ESTRATEGIA`/`GESTAO_DE_TEMPO`/`FINAIS`/`ESTRUTURA_DE_PEOES`. A primeira leva do D-55 tinha 1.200 exercícios de só **69 torneios**, quase todos do mesmo dia — a amostragem por reservatório do D-58 é o que multiplicou a variedade por 7 |
 | **Catálogo somado, por categoria** | `TATICA` 300, `CALCULO` 300, `ESTRATEGIA` 593, `GESTAO_DE_TEMPO` 600, `FINAIS` 894, `ESTRUTURA_DE_PEOES` 894 — **as 6 categorias do Hexágono têm material pela primeira vez** (fecha o P-15) |
