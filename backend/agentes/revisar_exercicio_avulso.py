@@ -148,6 +148,30 @@ def resolver_lance_usuario(board: chess.Board, lance_texto: str) -> LanceResolvi
     )
 
 
+def resolver_lance_uci(board: chess.Board, lance_uci: str) -> LanceResolvido:
+    """Resolve um lance em UCI (`e2e4`, `e7e8q`), sem passar por notação (D-82).
+
+    Existe para o lance vindo de um CLIQUE no tabuleiro, não de texto digitado.
+    Clicar já produz origem e destino exatos, e mandá-los como SAN passaria pela
+    heurística PT→EN de `resolver_lance_usuario()`, que tem uma ambiguidade real:
+    'R' é Torre em inglês e Rei em português, e o PT ganha quando as duas
+    leituras são legais. Numa posição em que torre e rei alcançam a mesma casa,
+    o clique na torre viraria um lance de rei — resposta errada, e com o SM-2
+    reagendando em cima dela. Em UCI não há o que interpretar.
+    """
+
+    move = chess.Move.from_uci(lance_uci.strip().lower())
+    if move not in board.legal_moves:
+        raise ValueError(f"Lance ilegal nessa posição: {lance_uci}")
+    san = board.san(move)
+    return LanceResolvido(
+        move=move,
+        san=san,
+        interpretacao="UCI",
+        lance_interpretado=traduzir_san_para_lance_pt(san),
+    )
+
+
 def resolver_sequencia_usuario(
     board: chess.Board, lances_texto: list[str]
 ) -> list[LanceResolvido]:

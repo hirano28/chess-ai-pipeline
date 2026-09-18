@@ -32,6 +32,7 @@ describe('TreinoService', () => {
     feitas_hoje: 2,
     total_hoje: 3,
     vencidos_total: 1,
+    meta_diaria: 5,
     sessao_id: null
   };
 
@@ -111,7 +112,19 @@ describe('TreinoService', () => {
     expect(resultado.resultado).toEqual(mockResultado);
     const callArgs = postSpy.mock.calls[0];
     expect(callArgs[0]).toContain('/treino/7/responder');
-    expect(callArgs[1]).toEqual({ lance: 'e4', segundos_gastos: null });
+    expect(callArgs[1]).toEqual({ lance: 'e4', segundos_gastos: null, lance_uci: null });
+  });
+
+  it('responder() manda lance_uci quando o lance veio de um clique (D-82)', async () => {
+    const postSpy = vi.spyOn(http, 'post').mockReturnValue(of(mockResultado));
+
+    await service.responder(7, 'Rd2', null, 'd1d2');
+
+    expect(postSpy.mock.calls[0][1]).toEqual({
+      lance: 'Rd2',
+      segundos_gastos: null,
+      lance_uci: 'd1d2'
+    });
   });
 
   it('responder() retorna a mensagem de detail do backend em erro 400', async () => {

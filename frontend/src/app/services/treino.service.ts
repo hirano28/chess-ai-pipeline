@@ -49,9 +49,13 @@ export interface FilaTreino {
   itens: ItemFilaTreino[];
   feitas_hoje: number;
   total_hoje: number;
-  /** Quantos cards de fato venceram. `itens` vem limitado por um teto (D-56);
-   * este número preserva a verdade sobre o tamanho do atraso. */
+  /** Quantos cards de fato venceram. `itens` vem limitado por um teto (D-56).
+   * Desde o D-82 a tela do Treino Diário NÃO mostra mais este número: abrir
+   * com o tamanho do atraso era o que fazia desistir. Continua no contrato
+   * porque o dado é real e a sessão de treino ainda o usa. */
   vencidos_total: number;
+  /** Meta do dia (D-82): pequena, fixa e sempre alcançável. */
+  meta_diaria: number;
   /** Preenchido quando a fila veio filtrada por uma sessão de treino. */
   sessao_id: string | null;
 }
@@ -227,16 +231,23 @@ export class TreinoService {
     }
   }
 
+  /**
+   * `lanceUci` vem preenchido quando o lance saiu de um CLIQUE no tabuleiro
+   * (D-82). O backend lhe dá precedência sobre `lance`, porque origem+destino
+   * não têm ambiguidade de notação — 'R' é Torre em inglês e Rei em português,
+   * e a leitura por texto tem que escolher uma.
+   */
   async responder(
     filaId: number,
     lance: string,
-    segundosGastos?: number | null
+    segundosGastos?: number | null,
+    lanceUci?: string | null
   ): Promise<ResponderTreinoResult> {
     try {
       const resultado = await firstValueFrom(
         this.http.post<ResultadoTreino>(
           `${this.apiUrl}/treino/${filaId}/responder`,
-          { lance, segundos_gastos: segundosGastos ?? null },
+          { lance, segundos_gastos: segundosGastos ?? null, lance_uci: lanceUci ?? null },
           { headers: await this.headersComSessao() }
         )
       );
@@ -256,12 +267,16 @@ export class TreinoService {
    * gravado, e é a única que vale. Cada chamada vale um lance do jogador mais
    * a resposta do motor.
    */
-  async jogarTrecho(filaId: number, lance: string): Promise<JogarTrechoResult> {
+  async jogarTrecho(
+    filaId: number,
+    lance: string,
+    lanceUci?: string | null
+  ): Promise<JogarTrechoResult> {
     try {
       const resultado = await firstValueFrom(
         this.http.post<ResultadoTrecho>(
           `${this.apiUrl}/treino/${filaId}/trecho`,
-          { lance },
+          { lance, lance_uci: lanceUci ?? null },
           { headers: await this.headersComSessao() }
         )
       );

@@ -29,27 +29,67 @@
       </div>
     }
 
-    @if (!carregando() && totalHoje() > 0) {
+    <!--
+      D-82: a tela mostra a META do dia, não o tamanho da fila.
+
+      Até aqui ela abria com "feitas hoje / total hoje" mais um parágrafo
+      dizendo quantos cards estavam vencidos — que, com 700+ agendados, é a
+      conta do atraso cobrada na abertura. O agendamento não mudou; mudou o
+      número que se encara ao chegar. Numa sessão de treino focado o conjunto
+      é fechado e intencional, então lá o contador honesto continua.
+    -->
+    @if (!carregando() && sessaoId() && totalHoje() > 0) {
       <div class="grid grid-cols-2 gap-2">
         <div class="metrica text-center">
           <span class="metrica-valor text-xl text-sucesso">{{ feitasHoje() }}</span>
-          <span class="metrica-rotulo">{{ sessaoId() ? 'Feitos' : 'Feitas hoje' }}</span>
+          <span class="metrica-rotulo">Feitos</span>
         </div>
         <div class="metrica text-center">
           <span class="metrica-valor text-xl">{{ totalHoje() }}</span>
-          <span class="metrica-rotulo">{{ sessaoId() ? 'Nesta sessão' : 'Total hoje' }}</span>
+          <span class="metrica-rotulo">Nesta sessão</span>
         </div>
       </div>
-    }
+    } @else if (!carregando()) {
+      <section class="cartao" aria-labelledby="meta-heading">
+        <div class="flex items-end justify-between gap-4">
+          <div>
+            <p class="metrica-rotulo mt-0" id="meta-heading">Meta de hoje</p>
+            <p class="font-display text-3xl font-semibold text-marfim">
+              <span [class.text-sucesso]="metaBatida()">{{ feitasHoje() }}</span>
+              <span class="text-bruma-600">&ngsp;/&ngsp;{{ metaDiaria() }}</span>
+            </p>
+          </div>
+          @if (metaBatida()) {
+            <span class="selo selo-sucesso">Meta batida</span>
+          }
+        </div>
 
-    <!-- O teto corta o que a tela mostra, nunca o que o SM-2 agendou. Dizer
-         quantos ficaram de fora é o que impede o corte de virar omissão. -->
-    @if (!carregando() && ocultosPeloTeto() > 0) {
-      <p class="legenda">
-        Mostrando {{ fila().length }} de {{ vencidosTotal() }} cards vencidos. Os outros
-        {{ ocultosPeloTeto() }} continuam agendados e aparecem conforme você avança — a fila
-        cresce sozinha todo dia, e despejar tudo de uma vez não ajudaria ninguém.
-      </p>
+        <div
+          class="mt-4 h-2 w-full overflow-hidden rounded-full bg-ardosia-700"
+          role="progressbar"
+          [attr.aria-valuenow]="feitasHoje()"
+          aria-valuemin="0"
+          [attr.aria-valuemax]="metaDiaria()"
+          aria-label="Progresso da meta de hoje"
+        >
+          <div
+            class="h-full rounded-full transition-all duration-500"
+            [class]="metaBatida() ? 'bg-sucesso' : 'bg-latao-500'"
+            [style.width.%]="progressoMeta()"
+          ></div>
+        </div>
+
+        <p class="legenda mt-3">
+          @if (metaBatida()) {
+            Meta do dia cumprida. Pode parar aqui sem dívida nenhuma — ou seguir, se estiver
+            embalado.
+          } @else {
+            {{ faltamParaMeta() }}
+            @if (faltamParaMeta() === 1) { revisão } @else { revisões }
+            para fechar o dia. O resto continua agendado e aparece nos próximos dias.
+          }
+        </p>
+      </section>
     }
 
     @if (carregando()) {
@@ -102,10 +142,26 @@
               </p>
             }
 
-            <app-tabuleiro-preview
+            <p class="mb-2 flex items-center gap-2 text-sm text-bruma-300">
+              <span
+                class="inline-block h-2.5 w-2.5 rounded-full border border-linha-forte"
+                [class]="itemAtual()!.cor_jogada === 'PRETAS' ? 'bg-tinta' : 'bg-giz'"
+                aria-hidden="true"
+              ></span>
+              <span>
+                Você joga de
+                <strong class="text-marfim">{{
+                  itemAtual()!.cor_jogada === 'PRETAS' ? 'pretas' : 'brancas'
+                }}</strong>
+              </span>
+            </p>
+
+            <app-tabuleiro-interativo
               class="mb-5 block"
               [fen]="fenDoTrecho()"
               [orientacao]="itemAtual()!.cor_jogada === 'PRETAS' ? 'PRETAS' : 'BRANCAS'"
+              [bloqueado]="enviando()"
+              (lanceJogado)="responderDoTabuleiro($event)"
             />
 
             @if (historicoDoTrecho().length > 0) {
@@ -117,7 +173,7 @@
               </div>
             }
 
-            <label class="rotulo" for="campo-lance-trecho">Qual é o seu lance?</label>
+            <label class="rotulo" for="campo-lance-trecho">Ou digite o lance</label>
             <input
               id="campo-lance-trecho"
               type="text"
@@ -280,13 +336,38 @@
             }
           }
 
-          <app-tabuleiro-preview
+          <!--
+            D-82: clicar responde. O campo de texto continua logo abaixo para
+            quem prefere digitar (e aceita notação PT e EN).
+
+            A linha de cor é obrigatória aqui: o `tabuleiro-preview` trazia
+            "Vez das pretas" embutido e o interativo não traz. Sem ela o card
+            largaria a pessoa numa posição arbitrária sem dizer de que lado
+            ela está jogando.
+          -->
+          <p class="mb-2 flex items-center gap-2 text-sm text-bruma-300">
+            <span
+              class="inline-block h-2.5 w-2.5 rounded-full border border-linha-forte"
+              [class]="itemAtual()!.cor_jogada === 'PRETAS' ? 'bg-tinta' : 'bg-giz'"
+              aria-hidden="true"
+            ></span>
+            <span>
+              Você joga de
+              <strong class="text-marfim">{{
+                itemAtual()!.cor_jogada === 'PRETAS' ? 'pretas' : 'brancas'
+              }}</strong>
+            </span>
+          </p>
+
+          <app-tabuleiro-interativo
             class="mb-5 block"
             [fen]="itemAtual()!.fen"
             [orientacao]="itemAtual()!.cor_jogada === 'PRETAS' ? 'PRETAS' : 'BRANCAS'"
+            [bloqueado]="enviando()"
+            (lanceJogado)="responderDoTabuleiro($event)"
           />
 
-          <label class="rotulo" for="campo-lance-treino">Qual é o seu lance?</label>
+          <label class="rotulo" for="campo-lance-treino">Ou digite o lance</label>
           <input
             id="campo-lance-treino"
             type="text"

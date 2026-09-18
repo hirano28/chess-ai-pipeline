@@ -91,6 +91,7 @@ from backend.agentes.revisar_exercicio_avulso import (  # noqa: E402
     configure_console_logger,
     normalizar_lances,
     processar_revisao_sequencia,
+    resolver_lance_uci,
     resolver_lance_usuario,
     resolver_posicao,
     salvar_exercicio,
@@ -231,6 +232,15 @@ SESSAO_QTD_EXERCICIOS = int(os.getenv("SESSAO_QTD_EXERCICIOS", "12"))
 # centenas de cards, que é a forma mais eficiente de fazer alguém desistir.
 # O contador `vencidos_total` continua dizendo a verdade sobre o tamanho real.
 TREINO_TETO_FILA = int(os.getenv("TREINO_TETO_FILA", "20"))
+
+# D-82: meta do dia, pequena e sempre alcançável. Substitui o par
+# "feitas hoje / total hoje" como o número que a tela mostra. O motivo é
+# medido, não estético: com 716 cards na fila, 712 nunca tinham sido
+# respondidos — abrir a tela com o tamanho da dívida é a causa nº1 de
+# abandono documentada em repetição espaçada. O agendamento do SM-2 não muda
+# nada; muda só qual número a pessoa encara ao abrir. Continuar depois de
+# bater a meta é permitido e incentivado — o que some é a cobrança.
+TREINO_META_DIARIA = int(os.getenv("TREINO_META_DIARIA", "5"))
 
 # Rótulos legíveis das chaves de HEXAGON_CATEGORIES. O frontend tem a mesma
 # tabela (ROTULOS_CATEGORIA_HEXAGONO em treino.service.ts) para os seus
@@ -425,9 +435,15 @@ class FilaTreinoResponse(BaseModel):
     feitas_hoje: int
     total_hoje: int
     # D-56: `itens` é limitado por TREINO_TETO_FILA; `vencidos_total` é quantos
-    # de fato venceram. Sem os dois números a tela mentiria por omissão — ou
-    # despejaria centenas de cards, ou esconderia o tamanho do atraso.
+    # de fato venceram. D-82 mantém o campo (a sessão de treino e qualquer
+    # diagnóstico futuro ainda querem o número real) mas REVERTE a conclusão de
+    # produto: mostrar o tamanho do atraso na tela não era transparência útil,
+    # era a própria causa do abandono. Quem consome decide se exibe.
     vencidos_total: int = 0
+    # D-82: a meta do dia. `vencidos_total` continua no contrato (o dado é
+    # real e a sessão de treino ainda o usa), mas deixou de ser o que a tela
+    # do Treino Diário mostra — ver TREINO_META_DIARIA.
+    meta_diaria: int = TREINO_META_DIARIA
     # Preenchido quando a fila veio filtrada por uma sessão de treino (D-56).
     sessao_id: str | None = None
 
@@ -442,6 +458,9 @@ class ResponderTreinoRequest(BaseModel):
 
     lance: str
     segundos_gastos: int | None = None
+    # D-82: preenchido quando o lance veio de um clique no tabuleiro. Tem
+    # precedência sobre `lance`, que nesse caso chega só para o log/eco.
+    lance_uci: str | None = None
 
 
 class ResponderTreinoResponse(BaseModel):
@@ -486,6 +505,9 @@ class TrechoRequest(BaseModel):
     """
 
     lance: str
+    # D-82: mesmo contrato de ResponderTreinoRequest — clique no tabuleiro
+    # manda o lance exato, sem passar pela leitura PT/EN.
+    lance_uci: str | None = None
 
 
 class LanceDaCurvaResponse(BaseModel):
@@ -1659,7 +1681,11 @@ def responder_treino(
 
     try:
         board = chess.Board(fen)
-        resolvido = resolver_lance_usuario(board, payload.lance)
+        resolvido = (
+            resolver_lance_uci(board, payload.lance_uci)
+            if payload.lance_uci
+            else resolver_lance_usuario(board, payload.lance)
+        )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -1871,6 +1897,7 @@ def jogar_trecho(
             elo_do_oponente(
                 partida.get("rating_oponente"), partida.get("rating_proprio")
             ),
+            lance_uci=payload.lance_uci,
         )
     except EngineIndisponivelError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error

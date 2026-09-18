@@ -1,5 +1,6 @@
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Chess } from 'chess.js';
 import {
   ItemFilaTreino,
   ROTULOS_CATEGORIA_HEXAGONO,
@@ -7,12 +8,19 @@ import {
   ResultadoTrecho,
   TreinoService
 } from '../../services/treino.service';
+import {
+  LanceTabuleiro,
+  TabuleiroInterativoComponent
+} from '../tabuleiro-interativo/tabuleiro-interativo.component';
 import { TabuleiroPreviewComponent } from '../tabuleiro-preview/tabuleiro-preview.component';
+
+/** Meta usada até a fila responder com a do servidor (`TREINO_META_DIARIA`). */
+export const META_DIARIA_PADRAO = 5;
 
 @Component({
   selector: 'app-treino-do-dia',
   standalone: true,
-  imports: [RouterLink, TabuleiroPreviewComponent],
+  imports: [RouterLink, TabuleiroInterativoComponent, TabuleiroPreviewComponent],
   templateUrl: './treino-do-dia.component.html'
 })
 export class TreinoDoDiaComponent implements OnInit, OnDestroy {
@@ -20,13 +28,44 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
   readonly feitasHoje = signal(0);
   readonly totalHoje = signal(0);
   readonly vencidosTotal = signal(0);
+  /**
+   * D-82: a meta do dia é o único número que o Treino Diário mostra.
+   *
+   * Antes a tela abria com "feitas hoje / total hoje" e um parágrafo dizendo
+   * quantos cards estavam vencidos. Com 716 cards agendados e 712 nunca
+   * respondidos, esse número não era transparência: era a conta do atraso,
+   * cobrada logo na abertura. O SM-2 continua agendando tudo igual — o que
+   * muda é que a fila deixou de ser exibida como dívida.
+   */
+  readonly metaDiaria = signal(META_DIARIA_PADRAO);
   /** Quando preenchido, a fila está filtrada pelo bloco de prática de uma
    * sessão de treino focado (D-56) e a tela diz isso em vez de parecer o
    * Treino Diário normal com menos cards. */
   readonly sessaoId = signal<string | null>(null);
-  /** Quantos cards venceram além dos que cabem na tela. */
+  /** Quantos cards venceram além dos que cabem na tela. Não vai mais para a
+   * tela do Treino Diário (D-82); segue calculado porque continua sendo
+   * verdade e é o que permitiria um modo "ver a fila inteira" no futuro. */
   readonly ocultosPeloTeto = computed(() =>
     Math.max(0, this.vencidosTotal() - this.fila().length)
+  );
+
+  /** Progresso rumo à meta, de 0 a 100. */
+  readonly progressoMeta = computed(() => {
+    const meta = this.metaDiaria();
+    if (meta <= 0) {
+      return 100;
+    }
+    return Math.min(100, Math.round((this.feitasHoje() / meta) * 100));
+  });
+
+  /** Meta do dia cumprida. Não trava nada: seguir em frente é bem-vindo. */
+  readonly metaBatida = computed(
+    () => !this.sessaoId() && this.feitasHoje() >= this.metaDiaria()
+  );
+
+  /** Quantas ainda faltam para a meta (0 quando já bateu). */
+  readonly faltamParaMeta = computed(() =>
+    Math.max(0, this.metaDiaria() - this.feitasHoje())
   );
 
   readonly carregando = signal(true);
@@ -156,6 +195,7 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
     this.feitasHoje.set(resposta.fila.feitas_hoje);
     this.totalHoje.set(resposta.fila.total_hoje);
     this.vencidosTotal.set(resposta.fila.vencidos_total ?? resposta.fila.itens.length);
+    this.metaDiaria.set(resposta.fila.meta_diaria ?? META_DIARIA_PADRAO);
     this.carregando.set(false);
     this.iniciarCronometro(this.itemAtual());
   }
@@ -164,7 +204,7 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
    * Joga um lance do trecho (D-66). O servidor responde com a jogada do motor
    * e a posição nova — e nada sobre quanto o lance custou, até a janela fechar.
    */
-  async jogarLanceDoTrecho(): Promise<void> {
+  async jogarLanceDoTrecho(lanceUci?: string): Promise<void> {
     const item = this.itemAtual();
     if (!item || !this.formularioValido() || this.enviando()) {
       return;
@@ -173,7 +213,11 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
     this.enviando.set(true);
     this.erro.set(null);
 
-    const resposta = await this.treinoService.jogarTrecho(item.fila_id, this.lance().trim());
+    const resposta = await this.treinoService.jogarTrecho(
+      item.fila_id,
+      this.lance().trim(),
+      lanceUci
+    );
 
     if (resposta.sessaoExpirada) {
       this.erro.set(resposta.error ?? 'Sessão expirada.');
@@ -203,9 +247,56 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
     this.enviando.set(false);
   }
 
-  async responder(): Promise<void> {
+  /**
+   * D-82: clicar no tabuleiro responde direto — sem digitar e sem confirmar.
+   *
+   * O clique é o caminho de menor atrito (era: ler a posição, achar o lance,
+   * traduzir para notação, digitar sem errar) e é o mesmo gesto de qualquer
+   * site de xadrez. Manda o lance em UCI: origem e destino não passam pela
+   * leitura PT/EN, em que 'R' é Torre em inglês e Rei em português.
+   *
+   * O SAN vai junto só para a tela ecoar o que foi jogado; quem decide é o UCI.
+   */
+  async responderDoTabuleiro(escolha: LanceTabuleiro): Promise<void> {
+    if (this.enviando()) {
+      return;
+    }
+    const fen = this.ehTrecho() ? this.fenDoTrecho() : (this.itemAtual()?.fen ?? '');
+    const san = this.sanDoClique(fen, escolha);
+    if (!san) {
+      this.erro.set('Lance ilegal nessa posição.');
+      return;
+    }
+
+    this.lance.set(san);
+    const uci = `${escolha.from}${escolha.to}${escolha.promotion ?? ''}`;
     if (this.ehTrecho()) {
-      await this.jogarLanceDoTrecho();
+      await this.jogarLanceDoTrecho(uci);
+      return;
+    }
+    await this.responder(uci);
+  }
+
+  /** SAN do lance clicado, ou null se ele não for legal na posição. */
+  private sanDoClique(fen: string, escolha: LanceTabuleiro): string | null {
+    if (!fen) {
+      return null;
+    }
+    try {
+      const copia = new Chess(fen);
+      return copia.move({
+        from: escolha.from,
+        to: escolha.to,
+        promotion: escolha.promotion
+      }).san;
+    } catch {
+      return null;
+    }
+  }
+
+  async responder(lanceUci?: string): Promise<void> {
+    if (this.ehTrecho()) {
+      await this.jogarLanceDoTrecho(lanceUci);
       return;
     }
 
@@ -224,7 +315,8 @@ export class TreinoDoDiaComponent implements OnInit, OnDestroy {
     const resposta = await this.treinoService.responder(
       item.fila_id,
       this.lance().trim(),
-      segundosGastos
+      segundosGastos,
+      lanceUci
     );
 
     if (resposta.sessaoExpirada) {

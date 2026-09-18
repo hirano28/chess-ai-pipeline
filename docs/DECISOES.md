@@ -4582,6 +4582,81 @@ em `docs/OPERACAO.md` no D-80 mas **não** no `deploy-backend.yml` — a R8
 acontecendo de novo, exatamente como ela avisa. As duas listas foram
 comparadas por diff e estão idênticas agora.
 
+### D-82 — Treino Diário mostra meta, não dívida; e o tabuleiro responde no clique
+
+**Contexto.** Pedido do usuário foi "deixar o visual mais chamativo, mais
+apelativo, que vicie mais". Antes de mexer em estética, medi o uso real:
+
+| Recurso | Criados | Usados |
+|---|---|---|
+| `fila_treino_espacado` | 716 | **4** (0,6%) |
+| `sessoes_treino` | 6 | **0** concluídas |
+| `perguntas_pendentes` | 6 | **0** respondidas |
+| `explicacoes_posicao` | 8 | 8 (100%) |
+| `revisao_exercicio_avulso` | 17 | 17 (100%) |
+
+O padrão é o oposto de "falta cor": **tudo que se abre por vontade própria é
+usado; tudo que exige voltar é ignorado.** Duas decisões de interface estavam
+empurrando nessa direção, e as duas são corrigíveis sem linguagem visual nova.
+
+**Decisão 1 — a tela mostra a META do dia; a fila some de vista.** Ela abria
+com "2 feitas hoje / 40 total hoje" mais um parágrafo dizendo quantos cards
+estavam vencidos. Com 700+ agendados, isso não é transparência: é a conta do
+atraso cobrada na abertura, e é a causa nº1 de abandono documentada em
+repetição espaçada (a fila cresce → o app parece punitivo → pula mais →
+a fila cresce). Agora: `TREINO_META_DIARIA` (default 5), barra de progresso,
+e "meta batida" que **não trava nada** — seguir além é bem-vindo, o que sumiu
+foi a cobrança. O SM-2 não mudou uma linha; mudou o número que se encara.
+
+**Isto REVERTE a decisão de exibição do D-56**, que concluiu que omitir o
+tamanho do atraso seria "mentir por omissão". O campo `vencidos_total`
+continua no contrato da API e `ocultosPeloTeto()` continua calculado — o dado
+é verdade e a sessão de treino ainda o usa. O que caiu foi a conclusão de
+produto: aquele número não estava informando, estava afastando. Na **sessão
+de treino focado** o contador do conjunto permanece, porque lá o conjunto é
+fechado e escolhido — "12 de 12" é informação, não dívida acumulada.
+
+**Decisão 2 — clicar no tabuleiro responde.** O `/treino` usava
+`tabuleiro-preview` (estático) e pedia o lance digitado, enquanto o
+`tabuleiro-interativo` — clique peça, clique casa, legalidade por `chess.js` —
+já existia e já estava em produção na Consulta ao Vivo desde o D-67. A ação
+mais repetida do app usava o input de maior atrito tendo o de menor atrito
+pronto ao lado. O clique responde direto, sem confirmar, como em qualquer
+site de xadrez. O campo de texto continua abaixo ("Ou digite o lance") e
+segue aceitando PT e EN.
+
+**O clique manda UCI, não SAN — e isso não é preciosismo.**
+`resolver_lance_usuario()` tenta português primeiro, e 'R' é Torre em inglês
+e Rei em português. Num card **real da fila** (id 4, FEN
+`1r2r1k1/2Nn1ppp/Q5b1/6q1/3p2P1/7P/PPP2P2/1K1R1B1R b - - 1 19`) a torre de e8
+e o rei de g8 alcançam f8: mandar o SAN inglês "Rf8" faria o backend registrar
+**Kf8**, um lance que a pessoa não jogou, com o SM-2 reagendando em cima
+disso. Daí `resolver_lance_uci()` e o campo `lance_uci` em
+`ResponderTreinoRequest`/`TrechoRequest`, com precedência sobre `lance`.
+
+**Regressão pega na verificação visual:** `tabuleiro-preview` trazia "Vez das
+pretas" embutido e o interativo não traz. A troca crua largaria a pessoa numa
+posição arbitrária sem dizer de que lado ela joga. Reposto como "Você joga de
+pretas/brancas", que é mais direto que o original.
+
+**Verificação real.** Card 4 respondido de verdade pela API com
+`lance_uci: "e8f8"` → backend devolveu `lance_interpretado: "Tf8"` (torre),
+não Rei. O estado de SM-2 do card foi **restaurado exatamente** depois
+(`intervalo_dias 0`, `fator_facilidade 2.5`, `repeticoes 0`,
+`total_revisoes 0`, `proxima_revisao_data 2026-09-15`, `ultima_qualidade
+null`): aquela revisão não aconteceu, e deixar a marca produziria dado de
+treino falso — mesmo princípio da reversão feita no D-54. Fila real devolvendo
+`meta_diaria: 5`. 992 testes de backend e 343 de frontend, `ng build` limpo,
+telas conferidas em desktop e celular.
+
+**O que ficou de fora, de propósito.** Streak, animação de recompensa e
+leaderboard. Os dois primeiros entram depois, quando der para medir se estes
+dois passos sozinhos moveram o número; o terceiro não entra: prova social sem
+par para comparar é decoração, e o produto tem um usuário real. A literatura
+de gamificação também avisa que quase todo ganho publicado é medido em 1–3
+meses, antes da novidade passar — a métrica honesta é a retenção **depois** de
+pausar o mecanismo.
+
 ---
 
 ## Decisões tomadas sobre o que NÃO fazer

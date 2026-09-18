@@ -211,7 +211,8 @@ commitados.
 `LICHESS_OAUTH_SCOPES`, `FRONTEND_URL`, `TREINO_NOVOS_POR_DIA`,
 `TREINO_FOCO_QTD_EXERCICIOS`, `EXERCICIO_RATING_MIN`, `EXERCICIO_RATING_MAX`,
 `EXERCICIO_POPULARIDADE_MIN`, `EXERCICIOS_POR_CATEGORIA`,
-`SESSAO_QTD_EXERCICIOS`, `TREINO_TETO_FILA`, `TREINO_HORIZONTE_DIAS`,
+`SESSAO_QTD_EXERCICIOS`, `TREINO_TETO_FILA`, `TREINO_META_DIARIA`,
+`TREINO_HORIZONTE_DIAS`,
 `TREINO_TRECHOS_POR_DIA`,
 `PERGUNTA_VALIDADE_DIAS`, `POSICIONAL_MESES`,
 `POSICIONAL_EVAL_MAX_CP`, `POSICIONAL_QUEDA_MIN_CP`,
@@ -361,6 +362,13 @@ mostra de uma vez. O teto corta a EXIBIÇÃO, nunca o agendamento: os cortados
 continuam vencidos e aparecem conforme os outros são respondidos, e o campo
 `vencidos_total` da resposta continua dizendo o tamanho real do atraso.
 `0` desliga o teto.
+
+`TREINO_META_DIARIA` (default 5, D-82) é a meta do dia — o único número que a
+tela do Treino Diário mostra. Não limita nada: a fila inteira continua
+disponível e responder além da meta é bem-vindo. O que ela substitui é a
+exibição do tamanho do atraso, que era o que fazia desistir (ver D-82 para os
+números de uso que motivaram a troca). A tela de uma **sessão** de treino
+focado ignora a meta e segue com o contador do conjunto.
 
 `API_SECRET_KEYS`/`API_SECRET_KEY` (o antigo esquema de header `X-API-Key`,
 aposentado como gate de acesso desde D-25) foram **removidas de vez** numa

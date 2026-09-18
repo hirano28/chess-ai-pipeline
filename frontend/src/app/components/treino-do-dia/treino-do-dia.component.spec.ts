@@ -29,7 +29,7 @@ describe('TreinoDoDiaComponent', () => {
 
   const item2 = { ...item1, fila_id: 8, numero_lance: 20 };
 
-  const mockFila: FilaTreino = { itens: [item1, item2], feitas_hoje: 1, total_hoje: 3, vencidos_total: 1, sessao_id: null };
+  const mockFila: FilaTreino = { itens: [item1, item2], feitas_hoje: 1, total_hoje: 3, vencidos_total: 1, meta_diaria: 5, sessao_id: null };
 
   const mockResultado: ResultadoTreino = {
     qualidade_lance: 'BOM',
@@ -85,7 +85,7 @@ describe('TreinoDoDiaComponent', () => {
   it('deve exibir o estado vazio quando não há nada pendente', async () => {
     vi.spyOn(treinoService, 'getFila').mockResolvedValue({
       success: true,
-      fila: { itens: [], feitas_hoje: 3, total_hoje: 3, vencidos_total: 1, sessao_id: null }
+      fila: { itens: [], feitas_hoje: 3, total_hoje: 3, vencidos_total: 1, meta_diaria: 5, sessao_id: null }
     });
     await criarComponente();
 
@@ -177,7 +177,7 @@ describe('TreinoDoDiaComponent', () => {
     };
     vi.spyOn(treinoService, 'getFila').mockResolvedValue({
       success: true,
-      fila: { itens: [itemExercicio], feitas_hoje: 0, total_hoje: 1, vencidos_total: 1, sessao_id: null }
+      fila: { itens: [itemExercicio], feitas_hoje: 0, total_hoje: 1, vencidos_total: 1, meta_diaria: 5, sessao_id: null }
     });
     await criarComponente();
 
@@ -193,10 +193,95 @@ describe('TreinoDoDiaComponent', () => {
     expect(component.rotuloCategoria(null)).toBe('Exercício de catálogo');
   });
 
+  describe('meta do dia (D-82)', () => {
+    async function comMeta(feitasHoje: number, meta: number): Promise<void> {
+      vi.spyOn(treinoService, 'getFila').mockResolvedValue({
+        success: true,
+        fila: {
+          itens: [item1, item2],
+          feitas_hoje: feitasHoje,
+          total_hoje: 40,
+          vencidos_total: 38,
+          meta_diaria: meta,
+          sessao_id: null
+        }
+      });
+      await criarComponente();
+    }
+
+    it('mede o progresso contra a meta, não contra a fila', async () => {
+      await comMeta(2, 5);
+
+      expect(component.progressoMeta()).toBe(40);
+      expect(component.faltamParaMeta()).toBe(3);
+      expect(component.metaBatida()).toBe(false);
+    });
+
+    it('marca a meta como batida e não trava o resto', async () => {
+      await comMeta(5, 5);
+
+      expect(component.metaBatida()).toBe(true);
+      expect(component.faltamParaMeta()).toBe(0);
+      expect(component.progressoMeta()).toBe(100);
+      // A fila segue disponível: bater a meta não fecha a porta.
+      expect(component.itemAtual()).not.toBeNull();
+    });
+
+    it('não passa de 100% quando se faz mais que a meta', async () => {
+      await comMeta(12, 5);
+
+      expect(component.progressoMeta()).toBe(100);
+      expect(component.faltamParaMeta()).toBe(0);
+    });
+
+  });
+
+  describe('responder clicando no tabuleiro (D-82)', () => {
+    it('manda o UCI do clique junto com o SAN', async () => {
+      vi.spyOn(treinoService, 'getFila').mockResolvedValue({ success: true, fila: mockFila });
+      await criarComponente();
+      const responder = vi
+        .spyOn(treinoService, 'responder')
+        .mockResolvedValue({ success: true, resultado: mockResultado });
+
+      // Posição inicial: e2-e4 é legal.
+      await component.responderDoTabuleiro({ from: 'e2', to: 'e4' });
+
+      expect(responder).toHaveBeenCalledWith(7, 'e4', null, 'e2e4');
+      expect(component.resultado()).toEqual(mockResultado);
+    });
+
+    it('clique ilegal não vira requisição', async () => {
+      vi.spyOn(treinoService, 'getFila').mockResolvedValue({ success: true, fila: mockFila });
+      await criarComponente();
+      const responder = vi.spyOn(treinoService, 'responder');
+
+      await component.responderDoTabuleiro({ from: 'e2', to: 'e5' });
+
+      expect(responder).not.toHaveBeenCalled();
+      expect(component.erro()).toBe('Lance ilegal nessa posição.');
+    });
+
+    it('não responde duas vezes se o clique chegar durante o envio', async () => {
+      vi.spyOn(treinoService, 'getFila').mockResolvedValue({ success: true, fila: mockFila });
+      await criarComponente();
+      const responder = vi.spyOn(treinoService, 'responder');
+      component.enviando.set(true);
+
+      await component.responderDoTabuleiro({ from: 'e2', to: 'e4' });
+
+      expect(responder).not.toHaveBeenCalled();
+    });
+  });
+
   describe('fila com teto e filtro de sessão (D-56)', () => {
-    it('diz quantos cards ficaram de fora do teto', async () => {
-      /** O teto corta o que a tela mostra, nunca o que o SM-2 agendou —
-       * omitir o tamanho do atraso seria mentir por omissão. */
+    it('sabe o tamanho do atraso, mas não o joga na cara de quem abriu', async () => {
+      /**
+       * D-82 reverte a exibição decidida no D-56. O número continua correto e
+       * disponível (`ocultosPeloTeto`), porque é verdade — o que mudou é que
+       * abrir a tela com "47 vencidos" era a própria causa do abandono: 712
+       * dos 716 cards agendados nunca tinham sido respondidos.
+       */
       vi.spyOn(treinoService, 'getFila').mockResolvedValue({
         success: true,
         fila: {
@@ -204,6 +289,7 @@ describe('TreinoDoDiaComponent', () => {
           feitas_hoje: 0,
           total_hoje: 47,
           vencidos_total: 47,
+          meta_diaria: 5,
           sessao_id: null
         }
       });
@@ -211,7 +297,9 @@ describe('TreinoDoDiaComponent', () => {
 
       expect(component.ocultosPeloTeto()).toBe(45);
       const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
-      expect(texto).toContain('Mostrando 2 de 47');
+      expect(texto).not.toContain('Mostrando 2 de 47');
+      expect(texto).not.toContain('47');
+      expect(texto).toContain('Meta de hoje');
     });
 
     it('não incomoda com o aviso de teto quando tudo cabe', async () => {
@@ -222,6 +310,7 @@ describe('TreinoDoDiaComponent', () => {
           feitas_hoje: 0,
           total_hoje: 2,
           vencidos_total: 2,
+          meta_diaria: 5,
           sessao_id: null
         }
       });
@@ -257,7 +346,7 @@ describe('TreinoDoDiaComponent', () => {
     async function comCardCronometrado(): Promise<void> {
       vi.spyOn(treinoService, 'getFila').mockResolvedValue({
         success: true,
-        fila: { itens: [itemCronometrado], feitas_hoje: 0, total_hoje: 1, vencidos_total: 1, sessao_id: null }
+        fila: { itens: [itemCronometrado], feitas_hoje: 0, total_hoje: 1, vencidos_total: 1, meta_diaria: 5, sessao_id: null }
       });
       await criarComponente();
     }
@@ -292,7 +381,7 @@ describe('TreinoDoDiaComponent', () => {
       component.lance.set('Rd7');
       await component.responder();
 
-      expect(responder).toHaveBeenCalledWith(42, 'Rd7', expect.any(Number));
+      expect(responder).toHaveBeenCalledWith(42, 'Rd7', expect.any(Number), undefined);
     });
 
     it('card sem relógio envia null em vez de um número inventado', async () => {
@@ -305,7 +394,7 @@ describe('TreinoDoDiaComponent', () => {
       component.lance.set('e4');
       await component.responder();
 
-      expect(responder).toHaveBeenCalledWith(7, 'e4', null);
+      expect(responder).toHaveBeenCalledWith(7, 'e4', null, undefined);
     });
 
     it('formatarRelogio usa o formato do relógio de xadrez', () => {
@@ -386,7 +475,7 @@ describe('TreinoDoDiaComponent com ?sessao= (D-56)', () => {
   it('pede só os exercícios da sessão e avisa que a fila está filtrada', async () => {
     const getFila = vi.spyOn(treinoService, 'getFila').mockResolvedValue({
       success: true,
-      fila: { itens: [], feitas_hoje: 0, total_hoje: 0, vencidos_total: 0, sessao_id: SESSAO }
+      fila: { itens: [], feitas_hoje: 0, total_hoje: 0, vencidos_total: 0, meta_diaria: 5, sessao_id: SESSAO }
     });
 
     const fixture = TestBed.createComponent(TreinoDoDiaComponent);
@@ -401,6 +490,32 @@ describe('TreinoDoDiaComponent com ?sessao= (D-56)', () => {
     // misteriosamente menos cards.
     expect(texto).toContain('sessão de treino focado');
     expect(texto).toContain('Ver a fila completa');
+  });
+
+  it('mantém o contador do conjunto em vez da meta do dia (D-82)', async () => {
+    vi.spyOn(treinoService, 'getFila').mockResolvedValue({
+      success: true,
+      fila: {
+        itens: [],
+        feitas_hoje: 12,
+        total_hoje: 12,
+        vencidos_total: 12,
+        meta_diaria: 5,
+        sessao_id: SESSAO
+      }
+    });
+
+    const fixture = TestBed.createComponent(TreinoDoDiaComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // Uma sessão é conjunto fechado e escolhido, não dívida acumulada: aqui
+    // ver "12 de 12" é informação útil, não cobrança.
+    expect(fixture.componentInstance.metaBatida()).toBe(false);
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(texto).toContain('Nesta sessão');
+    expect(texto).not.toContain('Meta de hoje');
   });
 });
 
@@ -471,6 +586,7 @@ describe('TreinoDoDiaComponent — refazer o trecho (D-66)', () => {
         feitas_hoje: 0,
         total_hoje: 1,
         vencidos_total: 1,
+        meta_diaria: 5,
         sessao_id: null
       }
     });
@@ -517,7 +633,7 @@ describe('TreinoDoDiaComponent — refazer o trecho (D-66)', () => {
 
     await fixture.componentInstance.responder();
 
-    expect(jogarTrecho).toHaveBeenCalledWith(21, 'Cf3');
+    expect(jogarTrecho).toHaveBeenCalledWith(21, 'Cf3', undefined);
     expect(responder).not.toHaveBeenCalled();
   });
 

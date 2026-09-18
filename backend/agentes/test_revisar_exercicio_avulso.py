@@ -19,6 +19,7 @@ from backend.agentes.revisar_exercicio_avulso import (
     normalizar_lances,
     processar_revisao_avulsa,
     processar_revisao_sequencia,
+    resolver_lance_uci,
     resolver_lance_usuario,
     resolver_sequencia_usuario,
     salvar_exercicio,
@@ -298,6 +299,44 @@ class ResolverLanceUsuarioTest(unittest.TestCase):
         self.assertEqual(resolvido.interpretacao, "PT")
         self.assertEqual(resolvido.san, "Kd2", "esperava o lance de REI (leitura PT)")
         self.assertEqual(resolvido.lance_interpretado, "Rd2")
+
+    def test_uci_desfaz_a_ambiguidade_que_o_texto_nao_resolve(self) -> None:
+        """D-82: é por isso que o clique no tabuleiro manda UCI, não SAN.
+
+        Na MESMA posição do teste acima, o SAN inglês 'Rd2' (torre) chega e é
+        lido como Rei, porque o PT tem prioridade e as duas leituras são
+        legais. Clicar na torre e mandar 'd1d2' não tem como ser mal lido.
+        """
+
+        board = chess.Board(self.FEN_R_AMBIGUO)
+
+        por_texto = resolver_lance_usuario(board, "Rd2")
+        por_clique = resolver_lance_uci(board, "d1d2")
+
+        self.assertEqual(por_texto.san, "Kd2", "o texto vira lance de rei")
+        self.assertEqual(por_clique.san, "Rd2", "o clique continua sendo a torre")
+        self.assertEqual(por_clique.interpretacao, "UCI")
+        self.assertEqual(por_clique.lance_interpretado, "Td2")
+
+    def test_uci_recusa_lance_ilegal_na_posicao(self) -> None:
+        board = chess.Board()
+
+        with self.assertRaises(ValueError):
+            resolver_lance_uci(board, "e2e5")
+
+    def test_uci_recusa_texto_que_nao_e_uci(self) -> None:
+        board = chess.Board()
+
+        with self.assertRaises(ValueError):
+            resolver_lance_uci(board, "Cf3")
+
+    def test_uci_aceita_promocao(self) -> None:
+        board = chess.Board("8/4P2k/8/8/8/8/8/4K3 w - - 0 1")
+
+        resolvido = resolver_lance_uci(board, "e7e8q")
+
+        self.assertEqual(resolvido.san, "e8=Q")
+        self.assertEqual(resolvido.lance_interpretado, "e8=D")
 
     def test_promocao_em_portugues(self) -> None:
         board = chess.Board("8/4P2k/8/8/8/8/8/4K3 w - - 0 1")

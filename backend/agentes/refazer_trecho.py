@@ -26,6 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from backend.agentes.revisar_exercicio_avulso import (  # noqa: E402
     _acquire_engine_lock,
+    resolver_lance_uci,
     resolver_lance_usuario,
 )
 from backend.analise_engine.analisar_partidas import evaluate_position  # noqa: E402
@@ -112,6 +113,7 @@ def jogar_passo_do_trecho(
     progresso: dict[str, Any],
     lance_texto: str,
     elo_oponente: int,
+    lance_uci: str | None = None,
 ) -> PassoDoTrecho:
     """Avança o trecho em um lance do jogador e a resposta do motor.
 
@@ -119,6 +121,10 @@ def jogar_passo_do_trecho(
     lance, a resposta e as duas leituras de win% acrescentadas. A posição vem
     do replay do histórico, nunca do cliente — quem chama manda só o texto do
     lance.
+
+    `lance_uci`, quando vem, tem precedência sobre `lance_texto`: é o lance
+    clicado no tabuleiro, exato por construção, e escapa da ambiguidade PT/EN
+    da notação (ver `resolver_lance_uci`, D-82).
 
     ValueError com "corrompido" vem do replay (estado inconsistente); qualquer
     outro ValueError é lance inválido do usuário.
@@ -132,7 +138,11 @@ def jogar_passo_do_trecho(
 
     board = reconstruir_tabuleiro(fen_inicial, lances)
     cor = "BRANCAS" if chess.Board(fen_inicial).turn == chess.WHITE else "PRETAS"
-    resolvido = resolver_lance_usuario(board, lance_texto)
+    resolvido = (
+        resolver_lance_uci(board, lance_uci)
+        if lance_uci
+        else resolver_lance_usuario(board, lance_texto)
+    )
     san_do_jogador = board.san(resolvido.move)
 
     lance_oponente: str | None = None
