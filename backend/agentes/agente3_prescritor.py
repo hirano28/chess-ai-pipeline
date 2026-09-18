@@ -56,6 +56,13 @@ CATEGORY_SEARCH_TERMS: dict[str, list[str]] = {
         "peão dobrado",
         "cadeia de peões",
         "estrutura de peões",
+        # D-79: "fraqueza_estrutural_de_peoes" é o formato mais comum que o
+        # Gemini sugere para esse tema (achado em 25 conceitos reais, de 4
+        # livros) e não batia em "estrutura de peões" por uma letra
+        # ("estrutural" vs "estrutura"). "peão da dama isolado" também não
+        # batia em "peão isolado" por causa de "da dama" no meio da frase.
+        "estrutural de peões",
+        "peão da dama isolado",
     ],
     "GESTAO_DE_TEMPO": ["desenvolvimento", "tempo", "iniciativa"],
     "CALCULO": ["segurança do rei", "iniciativa", "profilaxia", "restrição"],

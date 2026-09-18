@@ -101,7 +101,7 @@ pendência P-11 abaixo).
 | `explicacoes_posicao` | 7 (tabela nova, ver D-11 em `DECISOES.md`) |
 | `metricas_lichess_partida` | 18, para 67 partidas do Lichess; 14 já têm `precisao_abertura`/`precisao_meiojogo` preenchidas e 12 têm `precisao_final` — colunas novas (ver `BANCO.md`) sendo preenchidas prospectivamente pelo pipeline automatizado (D-37), sem reprocessamento retroativo das linhas mais antigas |
 | `analises_hexagono` | **7** — as 2 mais recentes (17/09/2026, D-63) são as primeiras com `metricas.por_cadencia`, e foram gravadas **sem narrativa** por causa do incidente do Gemini (seção 0). Dono principal: gargalo do conjunto TATICA, em blitz TATICA, em rápidas **CALCULO** — o gargalo muda com a cadência |
-| `sessoes_treino` | 5 prescritas, **0 concluídas**, 0 com eficácia medida. A validação do D-54 concluiu uma sessão de verdade (5/0/0 → 5/1/0, a primeira da história do produto) e **foi revertida de propósito**: aquele treino não aconteceu — os 12 exercícios foram respondidos por script, com lances quaisquer. Deixar a marca produziria a primeira medição de eficácia do produto em cima de um treino inexistente. O caminho está validado; o número volta a subir quando houver sessão real |
+| `sessoes_treino` | 6 prescritas (+1 real em D-79, verificação de ponta a ponta da prescrição pós-enriquecimento do RAG — gargalo TATICA, sprint real gerada e persistida), **0 concluídas**, 0 com eficácia medida. A validação do D-54 concluiu uma sessão de verdade (5/0/0 → 5/1/0, a primeira da história do produto) e **foi revertida de propósito**: aquele treino não aconteceu — os 12 exercícios foram respondidos por script, com lances quaisquer. Deixar a marca produziria a primeira medição de eficácia do produto em cima de um treino inexistente. O caminho está validado; o número volta a subir quando houver sessão real |
 | `resumo_partida` | **258** |
 | `fila_treino_espacado` | **716** — 658 do dono principal (agendada até 17/11) e 58 do segundo perfil (até 29/09). **16 são cards de trecho (EROSAO, D-66)**: 15 entraram na primeira execução da população com o recurso, todos no segundo perfil, espalhados pela cota de 2 por dia (22/09 a 29/09); o dono principal não recebeu nenhum porque a fila dele está cheia até o horizonte ("fila cheia até 18/11"), e o 16º é o card de verificação inserido à mão para ele. A válvula do D-64 continua em vigor. **712 dos 716 nunca foram respondidos** — o gargalo real do recurso não é o tamanho da fila, é o hábito de responder |
 | `exercicios_taticos` | 1.200 (D-49); 300 por categoria em `TATICA`/`CALCULO`/`FINAIS`/`ESTRUTURA_DE_PEOES` — `ESTRATEGIA`/`GESTAO_DE_TEMPO` seguem sem cobertura AQUI, e é esperado: não existe tema de puzzle equivalente |
@@ -877,6 +877,14 @@ vetorial — sumário e corpo usam formatos de capítulo inconsistentes entre
 si) e "The Complete Manual of Positional Chess Vol 1" de Sakaev/Landa
 (D-78, 227 chunks, 96 conceitos, 30 capítulos com título real conferido
 manualmente página a página antes da sugestão de conceito);
+`CATEGORY_SEARCH_TERMS["ESTRUTURA_DE_PEOES"]` ganhou 2 termos achados em
+dado real de produção — "estrutural de peões" (25 conceitos, 4 livros, só
+não batia por causa de "estrutura" vs "estrutural") e "peão da dama
+isolado" (D-79) — categoria saltou de 4 para 30 conceitos citáveis sem
+processar nenhum livro novo; prescrição de sprint verificada de ponta a
+ponta contra produção com o usuário real (Gemini de verdade, sessão
+gravada em `sessoes_treino`), confirmando que os livros novos do RAG
+entram no conjunto elegível de citação (D-79);
 Laboratório de Raciocínio com notação PT/EN, reconhecimento de posição por foto, preview do tabuleiro e
 histórico navegável dos exercícios salvos; Explicador de Posição com
 persistência automática e histórico navegável; Analisador de Partida com

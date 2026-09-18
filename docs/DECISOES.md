@@ -4384,6 +4384,65 @@ GESTAO_DE_TEMPO 13→18, FINAIS 14→15, ESTRUTURA_DE_PEOES continua em 4.
 
 ---
 
+### D-79 — Prescrição real verificada de ponta a ponta; ESTRUTURA_DE_PEOES 4→30 sem processar livro nenhum
+
+**Contexto:** depois de 5 commits seguidos de ingestão de RAG (D-74 a D-78)
+só verificados por contagem de linha no Supabase, o usuário pediu pra
+fechar o loop de verdade e atacar o gargalo de `ESTRUTURA_DE_PEOES` que
+persistia desde o D-72.
+
+**Parte 1 — prescrição real, não só contagem.** Rodei
+`prescrever_para_usuario()` (o mesmo código de produção, chamado pontual
+para um único `user_id` em vez do `main()`, que processaria todos os
+usuários) para o usuário real (`edson.hirano.dev@gmail.com`, UUID
+`bfde845a-8e2e-4885-801f-0fed2dd3b426`), com Gemini de verdade (embedding
+da consulta RAG + geração da sprint + validação) e persistência real em
+`sessoes_treino`. Gargalo atual: `TATICA`. A citação final saiu do
+Seirawan/Silman ("Ataques Descobertos", "Cravadas Relativas") — **não**
+de um dos livros novos — mas confirmei, consultando os 6 livros elegíveis
+que `buscar_conceitos()` devolveu para `TATICA` naquela chamada, que
+"The Complete Manual of Positional Chess Vol 1" (Sakaev/Landa, 19
+conceitos elegíveis) e "Segredos da Moderna Estratégia" (Watson, 4)
+estavam no conjunto de busca. O RAG vetorial escolheu o melhor encaixe
+semântico para os erros recentes reais do usuário nessa chamada
+específica — Seirawan/Silman venceu dessa vez, o que é o comportamento
+correto, não uma falha dos livros novos. O importante confirmado: a
+cadeia inteira (busca de conceito → busca vetorial → geração →
+validação → persistência) funciona de ponta a ponta com os livros novos
+dentro do pool elegível.
+
+**Parte 2 — o gap de `ESTRUTURA_DE_PEOES` era vocabulário, não falta de
+dado.** Antes de decidir entre sourcing de livro novo, geração de
+material via broadcast (o truque do P-15/D-55) ou ajuste de vocabulário,
+consultei o que estava realmente sendo perdido: **25 conceitos reais, de
+4 livros diferentes**, usam `fraqueza_estrutural_de_peoes` — não batiam
+no termo `"estrutura de peões"` porque a palavra é `"estrutural"`, não
+`"estrutura"` (uma letra de diferença). Achei também `"peão da dama
+isolado"` (Segredos da Moderna Estratégia), que não batia em `"peão
+isolado"` porque `"da dama"` fica no meio da frase. Os dois achados vêm
+de dado real, não de suposição.
+
+**Decisão:** adicionar `"estrutural de peões"` e `"peão da dama isolado"`
+a `CATEGORY_SEARCH_TERMS["ESTRUTURA_DE_PEOES"]`
+(`agente3_prescritor.py`) — mudança mínima e de baixo risco (são frases
+de 2-3 palavras específicas, sem chance real de falso positivo em outra
+categoria), em vez de investir num livro novo ou numa fonte de conteúdo
+inteiramente nova para resolver o que na verdade era um problema de
+correspondência de string, exatamente como o D-75 já tinha corrigido pro
+par acento/underscore.
+
+**Verificação real:** teste novo em `test_agente3_prescritor.py`
+(`test_estrutura_de_peoes_encontra_variantes_reais`), com os 2 conceitos
+reais encontrados em produção como fixture. Suíte completa do backend
+depois do fix, `exit=0`. Contagem por categoria contra produção
+(`pmzmershonrqzwbmhaco`) antes/depois: **ESTRUTURA_DE_PEOES 4→30**, sem
+processar nenhum livro novo — o gargalo mais persistente desde o D-72
+(4 categorias diferentes de tentativa: livro dedicado inexistente na
+biblioteca, D-73/D-74; material curto sem capítulo, D-73) se resolveu
+por uma correção de 2 linhas no código, não por mais ingestão.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

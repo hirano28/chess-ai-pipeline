@@ -120,6 +120,23 @@ class BuscarConceitosTest(unittest.TestCase):
 
         self.assertEqual(conceitos, [])
 
+    def test_estrutura_de_peoes_encontra_variantes_reais(self) -> None:
+        """D-79: achado em produção — "fraqueza_estrutural_de_peoes" (25
+        ocorrências, 4 livros) e "peão da dama isolado" não batiam nos
+        termos antigos ("estrutura de peões", "peão isolado")."""
+        client = MagicMock()
+        client.table.return_value.select.return_value.execute.return_value.data = [
+            {"id": "1", "conceito": "fraqueza_estrutural_de_peoes"},
+            {"id": "2", "conceito": "transição estrutural de peões"},
+            {"id": "3", "conceito": "peão da dama isolado"},
+            {"id": "4", "conceito": "peão envenenado"},
+        ]
+
+        conceitos = buscar_conceitos(client, "ESTRUTURA_DE_PEOES")
+
+        ids = {row["id"] for row in conceitos}
+        self.assertEqual(ids, {"1", "2", "3"})
+
     def test_nao_duplica_quando_conceito_bate_em_mais_de_um_termo(self) -> None:
         client = MagicMock()
         client.table.return_value.select.return_value.execute.return_value.data = [
