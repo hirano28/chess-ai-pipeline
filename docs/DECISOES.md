@@ -4657,6 +4657,72 @@ de gamificação também avisa que quase todo ganho publicado é medido em 1–3
 meses, antes da novidade passar — a métrica honesta é a retenção **depois** de
 pausar o mecanismo.
 
+### D-83 — `dirigir-tela.mjs`: asserção sobre contrato, não sobre aparência
+
+**Contexto.** O D-82 entregou "clicar no tabuleiro responde" com teste
+unitário (que chama o método do componente) e uma chamada direta à API (que
+não passa pelo navegador). Nenhum dos dois exercita o gesto real, nem prova
+que o `lance_uci` que chega ao backend corresponde às casas clicadas. O
+`capturar-telas.mjs` só fotografa. Ou seja: a feature foi declarada
+"conferida no navegador" tendo sido só fotografada.
+
+**Decisão.** Uma segunda ferramenta, irmã do `capturar-telas.mjs`, que dirige
+a tela e afirma. A divisão entre as duas é o ponto: o cabeçalho do
+`capturar-telas.mjs` registra que um script de tour cheio de asserções sobre a
+UI já existiu neste repositório e quebrou na primeira mudança de tela, e por
+isso ele fotografa sem afirmar nada. Repetir aquilo seria previsível.
+
+O que muda aqui é **o que** se afirma:
+
+- seletores são `[data-casa]` e `aria-*` — atributo de dado e de
+  acessibilidade, não classe de estilo;
+- a asserção é sobre **o corpo da requisição que o gesto produziu**, não sobre
+  o texto que apareceu na tela;
+- a posição vem da API e o lance legal é calculado com `chess.js`, então o
+  roteiro não depende de ler o tabuleiro pelo DOM.
+
+Restilizar a tela não quebra o roteiro. Mudar o contrato quebra — que é o
+serviço que ele presta.
+
+**Seguro por padrão.** Sem `--valendo`, a resposta do card é interceptada e
+devolvida falsa: prova o clique, a requisição e a renderização sem sujar a
+fila de repetição espaçada. Com a flag, responde de verdade.
+
+**Erro de console reprova.** O `capturar-telas.mjs` lista e segue em frente —
+e esse aviso foi ignorado duas vezes na sessão que originou esta ferramenta
+(eram 401 benignos do `/login` pós-logout, mas ninguém tinha olhado). Aqui o
+silêncio no console faz parte do contrato.
+
+**A ferramenta pegou dois defeitos dela mesma antes de ser commitada**, os
+dois diagnosticados pela captura de falha que ela mesma salva:
+
+1. `getAttribute('aria-pressed')` lido logo após o clique passava ou falhava
+   por milissegundos — o clique retorna quando é despachado, e a detecção de
+   mudanças do Angular ainda não escreveu o atributo. Trocado por um seletor
+   que espera (`[data-casa="x"][aria-pressed="true"]`).
+2. O roteiro escolhia o primeiro card **não-EROSAO** da fila, mas a tela mostra
+   sempre o topo — com um card de trecho no topo, ele clicaria num tabuleiro
+   que não era o dele, passando ou falhando por acaso. Agora usa `itens[0]` e
+   recusa explicitamente quando é EROSAO.
+
+**Verificação real.** Modo seguro verde duas vezes seguidas (estável). Modo
+`--valendo` verde de ponta a ponta em 41s, com o POST persistindo no banco —
+e o prazo de espera da revelação precisou subir para 120s, porque quem demora
+é o Stockfish na profundidade real, serializado no lock global (R3); com 10s
+a tela era fotografada ainda em "Avaliando…". Numa das execuções o lance
+sorteado foi `Rbc8` — uma torre cujo SAN começa com "R", exatamente a
+ambiguidade que o D-82 corrigiu, passando pelo caminho do clique.
+
+**Custo pago e registrado.** Validar `--valendo` respondeu de verdade os cards
+5, 6 e 10, restaurados um a um depois (aquelas revisões não aconteceram —
+mesmo princípio do D-54 e do D-82). O de `id 10` caiu na fronteira entre dois
+lotes de agendamento e a `proxima_revisao_data` original não estava em lugar
+nenhum; foi determinada contando os lotes (09-16 é exatamente `ids 11–20`, a
+cota de 10/dia do D-48, então o 10 pertence ao lote anterior, `ids 4–10`), não
+chutada. **É essa dor que a impressão do estado anterior em `--valendo`
+existe para evitar** — a ferramenta escolhe o card sozinha, então quem roda
+não teria como ter guardado o estado antes.
+
 ---
 
 ## Decisões tomadas sobre o que NÃO fazer

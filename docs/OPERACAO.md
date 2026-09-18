@@ -419,15 +419,39 @@ depende de nenhum secret.
 Secrets do GitHub Actions: os mesmos acima (exceto `STOCKFISH_PATH`, que não
 é secret) mais `GCP_SA_KEY`.
 
-## 8. Ferramentas de verificação local (D-53)
+## 8. Ferramentas de verificação local (D-53, D-83)
 
-Duas ferramentas para exercitar a aplicação de verdade, em vez de só rodar
+Três ferramentas para exercitar a aplicação de verdade, em vez de só rodar
 teste unitário. O procedimento completo está em `docs/ESTADO.md` §6.
 
 | Comando | O que faz |
 |---|---|
-| `python backend/common/gerar_sessao_local.py <email> [saida.json]` | Emite uma sessão real do Supabase Auth via magic link (Admin API), sem precisar da senha. Sem argumento de saída, imprime só o `access_token` — útil para `curl -H "Authorization: Bearer ..."`. **O token é credencial válida: não cole em log, issue nem commit.** |
-| `cd frontend && npm run telas -- <sessao.json> [pasta]` | Fotografa as 9 telas logadas de lista fixa em 1440px e 390px, e o login, com a sessão injetada. Requer `npx playwright install chromium` na primeira vez, e os dois servidores no ar. |
+| `python backend/common/gerar_sessao_local.py <email> [saida.json]` | Emite uma sessão real do Supabase Auth via magic link (Admin API), sem precisar da senha. Sem argumento de saída, imprime só o `access_token` — útil para `curl -H "Authorization: Bearer ..."`. **O token é credencial válida: não cole em log, issue nem commit.** O token vale 1 hora; `401` numa ferramenta destas quase sempre é isso. |
+| `cd frontend && npm run telas -- <sessao.json> [pasta]` | Fotografa as 10 telas logadas de lista fixa em 1440px e 390px, e o login, com a sessão injetada. Requer `npx playwright install chromium` na primeira vez, e os dois servidores no ar. |
+| `cd frontend && node tools/dirigir-tela.mjs <sessao.json> [roteiro] [--valendo]` | D-83: **dirige** a tela — clica, digita, e confere o que o gesto mandou pela rede. Reprova (exit 1) em erro de console e salva `falha-<roteiro>.png` no momento da falha. |
+
+**A divisão entre as duas últimas é deliberada.** `capturar-telas.mjs`
+fotografa e **não afirma nada**: um script de tour cheio de asserções sobre a
+UI já existiu aqui e quebrou na primeira mudança de tela. `dirigir-tela.mjs`
+afirma, mas só sobre **contrato** — seletores são `[data-casa]` e `aria-*`,
+nunca classe de estilo, e a asserção é sobre o corpo da requisição que o
+clique produziu, não sobre o texto que apareceu. Restilizar a tela não quebra
+o roteiro; mudar o contrato quebra, que é o ponto.
+
+Roteiros disponíveis:
+
+- **`treino-clique`** (padrão) — prova o caminho do D-82: clicar peça e casa
+  no Treino Diário responde o card, e o que sai na requisição é o `lance_uci`
+  das casas clicadas. É o que nem o teste unitário (chama o método do
+  componente) nem a chamada direta à API (não passa pelo navegador) cobrem.
+
+**`--valendo` grava de verdade.** Sem a flag, a resposta do card é
+interceptada e devolvida falsa, então rodar não suja a fila de repetição
+espaçada — mas ainda prova o clique, a requisição e a renderização. Com a
+flag, o card é respondido e o SM-2 reagenda; a ferramenta imprime antes o
+`fila_id` e a query para você guardar o estado e poder desfazer. Responder
+valendo leva ~40s, porque quem demora é o Stockfish na profundidade real,
+serializado no lock global (R3).
 
 Variáveis opcionais do `capturar-telas.mjs` (D-54, D-71):
 
