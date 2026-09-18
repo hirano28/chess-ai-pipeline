@@ -53,10 +53,21 @@ export interface AtualizacaoSessaoResult {
   error?: string;
 }
 
+/** D-81: capítulo real que trata do gargalo, vindo de `indice_conceitual`. */
+export interface CitacaoGargalo {
+  conceito: string | null;
+  livro: string | null;
+  capitulo: string | null;
+  pagina_aprox: number | null;
+  resumo_curto: string | null;
+}
+
 export interface AnaliseHexagonoCompleta {
   narrativa: string | null;
   gargalo_sistemico_atual: string | null;
   data_analise: string;
+  /** Ausente nas análises geradas antes do D-81. */
+  citacao_gargalo?: CitacaoGargalo | null;
 }
 
 export interface PerguntaPendente {
@@ -139,7 +150,10 @@ export class SupabaseService {
   async getUltimaAnaliseCompleta(): Promise<AnaliseHexagonoCompleta | null> {
     const { data, error } = await this.client
       .from('analises_hexagono')
-      .select('narrativa, gargalo_sistemico_atual, data_analise')
+      // `metricas->citacao_gargalo` (D-81) em vez de `metricas` inteiro: o
+      // jsonb de métricas carrega o hexágono completo, por cadência, e a tela
+      // só precisa do capítulo indicado.
+      .select('narrativa, gargalo_sistemico_atual, data_analise, metricas->citacao_gargalo')
       .order('data_analise', { ascending: false })
       .limit(1)
       .maybeSingle();

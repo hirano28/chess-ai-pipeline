@@ -55,5 +55,24 @@
     } @else {
       <p class="mt-5 text-sm text-bruma-400">Nenhuma narrativa textual disponível para esta análise.</p>
     }
+
+    @if (citacao(); as fonte) {
+      <div class="painel mt-6">
+        <p class="metrica-rotulo mt-0">Onde estudar esse gargalo</p>
+        <p class="text-marfim">
+          {{ fonte.livro }}@if (fonte.capitulo) {<span>&ngsp;— {{ fonte.capitulo }}</span>}@if (fonte.pagina_aprox != null) {<span>&ngsp;(pág. {{ fonte.pagina_aprox }})</span>}
+        </p>
+        @if (fonte.resumo_curto) {
+          <p class="mt-2 text-sm text-bruma-400">{{ fonte.resumo_curto }}</p>
+        }
+        <a
+          class="btn btn-secundario btn-pequeno mt-4"
+          [routerLink]="['/biblioteca']"
+          [queryParams]="{ pergunta: perguntaSobreCitacao() }"
+        >
+          Perguntar à Biblioteca
+        </a>
+      </div>
+    }
   }
 </section>

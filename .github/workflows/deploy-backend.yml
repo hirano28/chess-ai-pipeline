@@ -55,6 +55,7 @@ jobs:
             backend.agentes.test_analisar_pgn_avulso \
             backend.agentes.test_casar_consultas_ao_vivo \
             backend.agentes.test_consulta_ao_vivo \
+            backend.agentes.test_consultar_biblioteca \
             backend.agentes.test_explicador_posicao \
             backend.agentes.test_gerar_perguntas_pendentes \
             backend.agentes.test_gerar_resumo_partida \
@@ -88,6 +89,7 @@ jobs:
             backend.ingestao.test_common_ingestao \
             backend.ingestao.test_enriquecer_partidas_lichess \
             backend.ingestao.test_importar_puzzle_activity \
+            backend.rag.test_cobertura_categorias \
             backend.rag.test_importar_exercicios_taticos \
             backend.rag.test_importar_exercicios_posicionais \
             backend.rag.test_importar_indice_conceitual \

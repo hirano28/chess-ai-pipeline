@@ -18,6 +18,7 @@ from supabase import Client, create_client
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
+from backend.agentes.agente3_prescritor import buscar_conceitos  # noqa: E402
 from backend.common.progress import configurar_encoding_utf8, log_and_print  # noqa: E402
 from backend.common.settings import carregar_variaveis_obrigatorias  # noqa: E402
 
@@ -392,6 +393,64 @@ def _identify_bottleneck(metrics: dict[str, Any]) -> str | None:
     return best_category
 
 
+def buscar_citacao_do_gargalo(
+    client: Client, categoria: str | None
+) -> dict[str, Any] | None:
+    """Acha um capítulo real de livro para o gargalo desta análise (D-81).
+
+    Reaproveita `buscar_conceitos()` do Agente 3 — a MESMA busca que a
+    prescrição usa — para que o diagnóstico e a sprint apontem para o mesmo
+    acervo. Antes do D-81 a teoria só aparecia na sessão de treino, ou seja,
+    dias depois de o jogador ler o diagnóstico que a motivou.
+
+    Categoria sem conceito indexado não é erro: devolve None e a análise
+    segue sem citação, como sempre foi.
+    """
+
+    if not categoria:
+        return None
+    try:
+        conceitos = buscar_conceitos(client, categoria)
+    except Exception:
+        return None
+    if not conceitos:
+        return None
+    conceito = conceitos[0]
+    return {
+        "conceito": conceito.get("conceito"),
+        "livro": conceito.get("livro"),
+        "capitulo": conceito.get("capitulo"),
+        "pagina_aprox": conceito.get("pagina_aprox"),
+        "resumo_curto": conceito.get("resumo_curto"),
+    }
+
+
+def listar_livros_indexados(client: Client) -> list[str]:
+    """Títulos distintos presentes em `indice_conceitual`.
+
+    Serve só à checagem defensiva de `narrativa_cita_livro()`: é a lista do
+    que o produto REALMENTE tem para oferecer.
+    """
+
+    try:
+        resposta = client.table("indice_conceitual").select("livro").execute()
+    except Exception:
+        return []
+    return sorted({row["livro"] for row in resposta.data or [] if row.get("livro")})
+
+
+def narrativa_cita_livro(narrativa: str, livros_conhecidos: list[str]) -> list[str]:
+    """Títulos de livro que vazaram para dentro da narrativa.
+
+    O prompt proíbe o modelo de citar obra: a citação do diagnóstico é
+    montada por código, a partir de `indice_conceitual`, e nunca escrita pelo
+    LLM (R2 — o jeito mais barato de não validar uma citação alucinada é não
+    deixar o modelo escrever citação nenhuma).
+    """
+
+    return [livro for livro in livros_conhecidos if livro and livro in narrativa]
+
+
 def build_prompt(metrics: dict[str, Any]) -> str:
     """Monta um prompt curto com apenas os números já calculados."""
 
@@ -428,19 +487,49 @@ def build_prompt(metrics: dict[str, Any]) -> str:
         "explicitamente: é a informação mais útil para o jogador, porque separa "
         "erro de entendimento de erro sob pressão de relógio. Se for igual em "
         "todas, não force uma diferença. Não invente dados além dos "
-        "fornecidos.\n\n"
+        "fornecidos. NÃO cite livro, autor, capítulo nem página: a indicação "
+        "de estudo é anexada automaticamente depois do seu texto, a partir do "
+        "acervo real.\n\n"
         f"{json.dumps(resumo, ensure_ascii=False, indent=2)}"
     )
 
 
-def gerar_narrativa(client: Any, metrics: dict[str, Any]) -> str:
-    """Chama o Gemini para narrar as métricas calculadas."""
+def gerar_narrativa(
+    client: Any,
+    metrics: dict[str, Any],
+    livros_conhecidos: list[str] | None = None,
+    logger: logging.Logger | None = None,
+) -> str:
+    """Chama o Gemini para narrar as métricas calculadas.
 
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=build_prompt(metrics),
+    Uma única retentativa quando o modelo cita obra por conta própria: a
+    citação do diagnóstico vem de `indice_conceitual` (ver
+    `buscar_citacao_do_gargalo`), e um título escrito pelo modelo ao lado de
+    uma citação real seria exatamente a confusão que a R2 existe para evitar.
+    """
+
+    prompt = build_prompt(metrics)
+    narrativa = (
+        client.models.generate_content(model=MODEL_NAME, contents=prompt).text or ""
     )
-    return response.text or ""
+    vazados = narrativa_cita_livro(narrativa, livros_conhecidos or [])
+    if not vazados:
+        return narrativa
+
+    if logger is not None:
+        logger.warning(
+            "Narrativa citou obra por conta própria (%s); pedindo nova versão.",
+            ", ".join(vazados),
+        )
+    correcao = (
+        f"{prompt}\n\n"
+        "A versão anterior citou estas obras, o que não é permitido: "
+        f"{', '.join(vazados)}.\n"
+        "Reescreva sem mencionar nenhum livro, autor, capítulo ou página."
+    )
+    return (
+        client.models.generate_content(model=MODEL_NAME, contents=correcao).text or ""
+    )
 
 
 def salvar_analise(
@@ -478,9 +567,18 @@ def analisar_usuario(
         )
         return metrics
 
+    # D-81: a citação entra nas métricas, não na narrativa — assim ela é dado
+    # estruturado (a tela desenha um bloco próprio) e nenhum título de livro
+    # depende do que o modelo escreveu.
+    metrics["citacao_gargalo"] = buscar_citacao_do_gargalo(
+        client, metrics.get("gargalo_sistemico_atual")
+    )
+
     narrativa = ""
     try:
-        narrativa = gerar_narrativa(gemini_client, metrics)
+        narrativa = gerar_narrativa(
+            gemini_client, metrics, listar_livros_indexados(client), logger
+        )
     except Exception:
         logger.error(
             "Falha ao gerar narrativa do usuário %s:\n%s",

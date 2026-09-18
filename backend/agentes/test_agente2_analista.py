@@ -16,11 +16,15 @@ from backend.agentes.agente2_analista import (
     analisar_usuario,
     build_dataframe,
     build_prompt,
+    buscar_citacao_do_gargalo,
     calcular_metricas_completas,
     calcular_metricas_hexagono,
     calcular_metricas_por_cadencia,
     fetch_diagnosticos,
+    gerar_narrativa,
+    listar_livros_indexados,
     listar_usuarios_com_partidas,
+    narrativa_cita_livro,
     salvar_analise,
 )
 
@@ -425,6 +429,99 @@ class AnalisarUsuarioTest(unittest.TestCase):
         narrativa_mock.assert_called_once()
         salvar_mock.assert_called_once()
         self.assertEqual(salvar_mock.call_args[0][3], "user-a")
+
+
+class CitacaoDoGargaloTest(unittest.TestCase):
+    """D-81: o diagnóstico passa a apontar um capítulo real, como a sprint já fazia."""
+
+    @patch("backend.agentes.agente2_analista.buscar_conceitos")
+    def test_devolve_o_primeiro_conceito_da_categoria(self, buscar_mock):
+        buscar_mock.return_value = [
+            {
+                "conceito": "peao_isolado",
+                "livro": "Meu Sistema - Aaron Nimzowitsch",
+                "capitulo": "3- O peão d isolado e seus descendentes",
+                "pagina_aprox": 213,
+                "resumo_curto": "O peão d isolado como alvo e como força.",
+            }
+        ]
+
+        citacao = buscar_citacao_do_gargalo(MagicMock(), "ESTRUTURA_DE_PEOES")
+
+        self.assertEqual(citacao["livro"], "Meu Sistema - Aaron Nimzowitsch")
+        self.assertEqual(citacao["pagina_aprox"], 213)
+
+    def test_sem_gargalo_nao_consulta_o_banco(self):
+        client = MagicMock()
+
+        self.assertIsNone(buscar_citacao_do_gargalo(client, None))
+        client.table.assert_not_called()
+
+    @patch("backend.agentes.agente2_analista.buscar_conceitos")
+    def test_categoria_sem_conceito_indexado_devolve_none(self, buscar_mock):
+        buscar_mock.return_value = []
+
+        self.assertIsNone(buscar_citacao_do_gargalo(MagicMock(), "FINAIS"))
+
+    @patch("backend.agentes.agente2_analista.buscar_conceitos")
+    def test_falha_de_banco_nao_derruba_a_analise(self, buscar_mock):
+        buscar_mock.side_effect = RuntimeError("banco fora do ar")
+
+        self.assertIsNone(buscar_citacao_do_gargalo(MagicMock(), "TATICA"))
+
+    def test_listar_livros_indexados_nao_propaga_erro(self):
+        client = MagicMock()
+        client.table.side_effect = RuntimeError("banco fora do ar")
+
+        self.assertEqual(listar_livros_indexados(client), [])
+
+
+class NarrativaSemCitacaoTest(unittest.TestCase):
+    """A citação é montada por código; o modelo não escreve título de livro (R2)."""
+
+    def test_detecta_titulo_vazado_na_narrativa(self):
+        vazados = narrativa_cita_livro(
+            "Seu gargalo é tática; estude Meu Sistema para melhorar.",
+            ["Meu Sistema", "Arte do Ataque no Xadrez"],
+        )
+
+        self.assertEqual(vazados, ["Meu Sistema"])
+
+    def test_narrativa_limpa_nao_acusa_nada(self):
+        vazados = narrativa_cita_livro(
+            "Seu gargalo recente é tática, com queda média de 18%.",
+            ["Meu Sistema", "Arte do Ataque no Xadrez"],
+        )
+
+        self.assertEqual(vazados, [])
+
+    def test_regera_uma_vez_quando_o_modelo_cita_obra(self):
+        client = MagicMock()
+        client.models.generate_content.side_effect = [
+            MagicMock(text="Estude Meu Sistema, capítulo 3."),
+            MagicMock(text="Seu gargalo recente é estrutura de peões."),
+        ]
+
+        narrativa = gerar_narrativa(client, _metricas_minimas(), ["Meu Sistema"])
+
+        self.assertEqual(client.models.generate_content.call_count, 2)
+        self.assertNotIn("Meu Sistema", narrativa)
+
+    def test_nao_regera_quando_a_narrativa_ja_esta_limpa(self):
+        client = MagicMock()
+        client.models.generate_content.return_value = MagicMock(
+            text="Seu gargalo recente é estrutura de peões."
+        )
+
+        gerar_narrativa(client, _metricas_minimas(), ["Meu Sistema"])
+
+        client.models.generate_content.assert_called_once()
+
+
+def _metricas_minimas() -> dict:
+    """Métricas suficientes para `build_prompt` rodar num teste."""
+
+    return calcular_metricas_completas(build_dataframe([]))
 
 
 if __name__ == "__main__":

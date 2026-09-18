@@ -2,7 +2,7 @@
 doc: ARQUITETURA.md
 escopo: componentes, fluxo de dados, superfície de API, frontend, topologia de deploy
 nao_contem: estado factual (ver ESTADO.md), comandos (ver OPERACAO.md), schema (ver BANCO.md)
-verificado_em: 2026-09-16
+verificado_em: 2026-09-18
 ---
 
 # Arquitetura do Chess AI Pipeline
@@ -116,6 +116,21 @@ conceitos citáveis cada categoria do Hexágono tem hoje, reaproveitando a
 mesma `buscar_conceitos()` do Agente 3 — evita refazer a contagem por
 query solta a cada rodada de ingestão.
 
+Desde o D-81 o corpus tem **três** consumidores, não um:
+
+| Consumidor | Recorte da busca | Por quê |
+|---|---|---|
+| Agente 3 (`agente3_prescritor.py`) | restrita aos livros/capítulos da categoria do gargalo | é prescrição: o recorte é o ponto |
+| Agente 2 (`agente2_analista.py`) | nenhuma busca vetorial — só `buscar_conceitos()` pela categoria do gargalo, gravado em `analises_hexagono.metricas.citacao_gargalo` | põe a teoria no diagnóstico, não só na sprint dias depois |
+| Biblioteca (`consultar_biblioteca.py`) | **corpus inteiro, sem filtro** | a pergunta é de quem está na tela; não dá para saber de antemão em que livro está a resposta |
+
+**Abertura não é categoria do Hexágono, e isso é decisão (D-81).** O Hexágono
+mede *padrão de erro* sobre as 16 tags fechadas da R1, e nenhuma delas é de
+abertura; além disso `exercicios_taticos` e `exercicios_posicionais` têm
+`check` com exatamente as 6 chaves. Livro de abertura entra no corpus como
+qualquer outro e é alcançado pela Biblioteca; a ponte na interface é o link
+de cada card de `/aberturas` para `/biblioteca?pergunta=…`.
+
 ## 5. Superfície da API
 
 **Todo endpoint marcado com 🎫 exige `Authorization: Bearer <token da sessão
@@ -172,6 +187,8 @@ já foi atingido — mesmo princípio de "falhar rápido" de 🎫, mas para cust
 | `GET /consulta-ao-vivo/sincronizar` 🎫👤 | D-69: partidas em andamento do dono no Lichess (OAuth dele, `/api/account/playing`, **sem** o atraso de 3 lances dos endpoints públicos) e no Chess.com (só partidas **diárias** — a API pública não expõe as ao vivo). Qualquer adversário: bot, amigo, aluno, professor. Cada plataforma é isolada, e o que não deu para listar volta em `avisos`. Nunca usa o `LICHESS_TOKEN` do ambiente, que seria a conta de outra pessoa |
 | `GET /consulta-ao-vivo/sincronizar/{plataforma}/{game_id}` 🎫👤 | D-69: posição e lances atuais de uma partida sincronizada; a tela chama a cada 4 s. No Lichess, o histórico vem do export (atrasado) e os lances escondidos são reconstruídos por busca (`completar_lances`); depois da primeira vez, a partir do último estado guardado, o que é instantâneo. Sem caminho, `historico_completo=false` e a posição continua exata. Cache de 3 s por partida. 404 quando a partida terminou; 503 legível quando a plataforma recusa (a tela espera um minuto) |
 | `GET /explicacoes-posicao/recentes` 🎫👤 | histórico do Explicador, filtrado pelo dono; cada item embute a resposta completa, sem endpoint "buscar por id" |
+| `POST /biblioteca/consultar` 🎫👤⏱️ | D-81: pergunta em texto livre respondida com os livros indexados. 1 embedding + 1 chamada ao Gemini (2 no pior caso). A busca vetorial é no **corpus inteiro** — diferente do Agente 3, que filtra por livro/capítulo da categoria. Toda fonte citada é conferida contra o chunk recuperado (livro e capítulo exatos, página com tolerância de 2); errando duas vezes, cai num fallback **sem LLM** que devolve os trechos reais formatados literalmente (R2). Corpus sem trecho parecido responde isso em vez de completar com conhecimento próprio, e nem chama o modelo. 400 em pergunta vazia ou acima de 500 caracteres |
+| `GET /biblioteca/recentes` 🎫👤 | D-81: histórico da Biblioteca, filtrado pelo dono (D-18); mesmo formato de `/explicacoes-posicao/recentes` |
 | `GET /resolver-fen` 🎫 | resolve FEN ou PGN para o FEN final; parsing puro, sem Gemini nem Stockfish |
 | `POST /reconhecer-posicao` 🎫⏱️ | recebe foto de diagrama (multipart) e devolve o FEN, via Gemini multimodal |
 | `POST /analisar-pgn` 🎫👤⏱️ | dispara o pipeline completo de uma partida; responde `202` na hora e processa em `BackgroundTasks` |
@@ -210,6 +227,7 @@ os mesmos papéis; `ardosia-950`, `tinta` e `giz` não mudam com o tema.
 | `/` | `hexagono-radar` | "Visão geral": radar das 6 categorias + narrativa + perguntas pendentes + treino focado. Até o D-70 também carregava repertório, puzzles e sessões de treino, que viraram as três rotas abaixo (D-71). Desde o D-63 tem um seletor de cadência (Todas / Blitz / Rápida / …) que redesenha o radar a partir de `metricas.por_cadencia`, mostra a escala ("N diagnósticos em M partidas · gargalo: X") e avisa quando o gargalo do recorte é outro que o do conjunto. O seletor só aparece quando a análise traz o recorte — as gravadas antes do D-63 não trazem |
 | `/aberturas`, `/puzzles`, `/plano` | `diagnostico-secao` | D-71: uma página por bloco do diagnóstico — `repertorio-insights`, `puzzles-insights` e `sessoes-treino`, escolhido por `data.secao` da rota. `/sessao/:id` acende "Plano de treino" na navegação |
 | `/laboratorio` | `laboratorio-raciocinio` | exercício avulso com feedback imediato |
+| `/biblioteca` | `biblioteca` | D-81: pergunta livre sobre teoria, respondida com os livros indexados e sempre com livro/capítulo/página. Aceita `?pergunta=` e já consulta ao abrir — é assim que `/aberturas` (link por card) e a Visão geral (bloco "Onde estudar esse gargalo") mandam a pergunta pronta |
 | `/explicador` | `explicador-posicao` | explicação didática de uma posição |
 | `/analisador` | `analisador-partida` | cola PGN, acompanha o progresso, lê o resumo |
 | `/treino` | `treino-do-dia` | repetição espaçada sobre os próprios lances críticos já diagnosticados (D-48) e, quando pedido, exercícios dos catálogos tático (D-49) e posicional (D-55) focados numa categoria fraca — diferente das "Sessões de treino" da tela `/plano` (prescrição semanal do Agente 3). Aceita `?sessao_id=` para virar a prática de uma sessão específica (D-56), e o card cronometrado de `GESTAO_DE_TEMPO` mostra o relógio antes do tabuleiro de propósito (D-55) |
@@ -218,9 +236,10 @@ os mesmos papéis; `ardosia-950`, `tinta` e `giz` não mudam com o tema.
 | `/perfil` | `perfil-usuario` | cadastra a(s) conta(s) de Lichess/Chess.com de quem está logado (D-28) |
 | `/login` | `login` | signUp/signInWithPassword do Supabase Auth (Fase B.1 — ver D-15 em `DECISOES.md`) |
 
-`authGuard` está ligado nas **11 rotas** do dashboard (todas acima, exceto
+`authGuard` está ligado nas **12 rotas** do dashboard (todas acima, exceto
 `/login`) desde D-23 — `/treino` entrou em D-48, `/sessao/:id` em D-54,
-`/consulta-ao-vivo` em D-67 e `/aberturas`, `/puzzles` e `/plano` em D-71. Ver a
+`/consulta-ao-vivo` em D-67, `/aberturas`, `/puzzles` e `/plano` em D-71 e
+`/biblioteca` em D-81. Ver a
 nota mais abaixo sobre a Fase B.
 
 Componentes de apoio: `tabuleiro-preview` (tabuleiro 8x8 em CSS Grid com SVGs do

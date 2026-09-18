@@ -4504,6 +4504,84 @@ Suíte completa do backend depois de tudo, `exit=0`. Rodei
 (`pmzmershonrqzwbmhaco`): TATICA 72, CALCULO 66, ESTRATEGIA 42,
 ESTRUTURA_DE_PEOES 33, GESTAO_DE_TEMPO 19, FINAIS 15.
 
+### D-81 — Biblioteca (busca livre no corpus), citação no diagnóstico do Agente 2, e "abertura" fora do Hexágono
+
+**Contexto.** Até aqui o corpus de livros (2092 chunks, 409 conceitos) tinha
+um consumidor só: o Agente 3, na hora de montar a sprint. Duas consequências
+incomodavam. (1) A teoria só aparecia na sessão de treino — dias depois de a
+pessoa ler o diagnóstico que a motivou. (2) Todo o acervo de **abertura** do
+Drive (uma pasta inteira, mais dezenas de PDFs soltos) não tinha para onde
+ir, porque abertura não é nenhuma das 6 categorias do Hexágono.
+
+**Decisão 1 — a Biblioteca busca no corpus INTEIRO, sem filtro.** É a
+diferença essencial para o Agente 3, que restringe a busca aos livros e
+capítulos de `buscar_conceitos()` da categoria do gargalo. Lá o recorte é o
+ponto (é prescrição); aqui a pergunta é de quem está na tela e não há como
+saber de antemão em que livro está a resposta. O embedding e o retry são
+importados do Agente 3 de propósito: o vetor da pergunta precisa sair do
+**mesmo** modelo e da mesma dimensionalidade com que os chunks foram
+gravados, senão o `<=>` compara dois espaços diferentes e devolve lixo
+plausível.
+
+Validação anti-alucinação (R2) em três camadas: cada fonte citada é conferida
+contra os chunks recuperados (livro e capítulo exatos, página com tolerância
+de 2, mesma do Agente 3) → uma retentativa com as referências aceitáveis → e,
+persistindo o erro, um **fallback sem LLM** que devolve os trechos reais
+formatados literalmente. Corpus sem trecho parecido responde isso e nem chama
+o modelo.
+
+**Decisão 2 — no Agente 2, o modelo NÃO escreve a citação.** A forma mais
+barata de não ter que validar uma citação alucinada é não deixar o LLM
+escrever citação nenhuma. A citação vai para `analises_hexagono.metricas.
+citacao_gargalo` como dado estruturado, resolvido por `buscar_conceitos()` —
+a mesma função que a prescrição usa, para diagnóstico e sprint apontarem para
+o mesmo acervo — e a tela desenha o bloco "Onde estudar esse gargalo". O
+prompt passou a proibir citar obra, com uma checagem defensiva contra a lista
+real de `indice_conceitual` e uma única regeração se algum título vazar.
+
+**Decisão 3 — "abertura" NÃO vira a 7ª categoria do Hexágono.** Três motivos
+concretos, não estéticos: o Hexágono mede *padrão de erro* sobre as 16 tags
+fechadas da R1 e nenhuma é de abertura (criar uma violaria a R1 sem prova de
+lacuna); `exercicios_taticos` e `exercicios_posicionais` têm `check` com
+exatamente as 6 chaves; e repertório de abertura **já tem casa**, que é
+`/aberturas` (D-40). Livro de abertura entra no corpus como qualquer outro e
+é alcançado pela Biblioteca. A ponte na interface é um link por card de
+`/aberturas` para `/biblioteca?pergunta=…`, com o nome real da abertura e a
+cor jogada — e o mesmo mecanismo serve ao bloco de citação da Visão geral.
+
+**Sobre o livro escolhido.** "Xadrez Vitorioso - Aberturas" (Seirawan, 281
+págs, texto nativo) em vez de "Aberturas e Armadilhas" (Idel Becker), que
+está inteiro em **notação descritiva** (P4BR, C3B) — notação que o produto
+não usa em lugar nenhum. A detecção de capítulo por regex falhou igual ao
+D-78 (pegou o cabeçalho de página, "XADREZ VITORIOSO: ABERTURAS", em 88
+chunks), e a técnica de fonte do D-80 só funcionou **parcialmente**: as
+seções de 16–19pt colidem com a notação de lance (13–15pt) e vêm cheias de
+ruído de OCR ("INIRODUÇÃO", "UNHA PRINCIPAL"). O nível de 36–41pt, porém, é
+limpo — e o **Sumário impresso do próprio livro** confirmou os 11 capítulos
+página a página, sem offset. Duas fontes independentes concordando é o que
+permitiu escrever os títulos sem chutar nada (mesma disciplina do D-74).
+
+**Verificação real.** Endpoint chamado de verdade com sessão real: pergunta
+sobre peão isolado citou Nimzowitsch (págs. 213/214) e Watson (pág. 125), e
+**conferi as 3 citações uma a uma em `livros_chunks`** — livro, capítulo e
+página batem exatamente. Agente 2 rodado só para o usuário real
+(`bfde845a-…`, não o `main()` que percorre todo mundo): gargalo TATICA →
+citação Seirawan/Silman, "ATAQUES DESCOBERTOS", pág. 21, persistida no
+`metricas` (a análise anterior, do dia anterior, tem `citacao_gargalo: null`,
+como esperado). Livro de aberturas: 194 chunks, 192 com capítulo real (2 são
+folha de rosto), 34 conceitos importados — e ele alimentou **as 6
+categorias**, não só uma: TATICA 72→82, CALCULO 66→72, ESTRATEGIA 42→49,
+ESTRUTURA_DE_PEOES 33→37, GESTAO_DE_TEMPO 19→20, FINAIS 15→16. Pergunta de
+abertura ponta a ponta (a mesma que o botão gera) respondida com 5 citações,
+todas do Capítulo 5 (págs. 145–166), que é exatamente onde a Siciliana mora.
+Suítes completas: 988 testes de backend e 335 de frontend, mais `ng build`
+limpo, e as telas conferidas no navegador em desktop e celular.
+
+**Achado de processo:** `backend.rag.test_cobertura_categorias` tinha entrado
+em `docs/OPERACAO.md` no D-80 mas **não** no `deploy-backend.yml` — a R8
+acontecendo de novo, exatamente como ela avisa. As duas listas foram
+comparadas por diff e estão idênticas agora.
+
 ---
 
 ## Decisões tomadas sobre o que NÃO fazer

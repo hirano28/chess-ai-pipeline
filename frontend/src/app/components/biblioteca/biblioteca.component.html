@@ -1,0 +1,122 @@
+<main class="pagina">
+  <section class="conteudo max-w-4xl">
+    <header class="max-w-3xl">
+      <p class="sobrelinha">Acervo de livros</p>
+      <h1 class="titulo-pagina">Biblioteca</h1>
+      <p class="subtitulo">
+        Pergunte em português e receba a resposta construída a partir dos livros de xadrez já
+        indexados — sempre com o livro, o capítulo e a página de onde cada ideia saiu. Se os livros
+        não cobrirem a sua pergunta, a resposta diz isso em vez de inventar.
+      </p>
+    </header>
+
+    <section class="cartao">
+      <div class="mb-5">
+        <div class="mb-2 flex items-center justify-between gap-3">
+          <label class="rotulo mb-0" for="campo-pergunta">Sua pergunta</label>
+          <span
+            class="text-[11px]"
+            [class.text-bruma-600]="caracteresRestantes() >= 0"
+            [class.text-perigo]="caracteresRestantes() < 0"
+          >
+            {{ caracteresRestantes() }} caracteres restantes
+          </span>
+        </div>
+        <textarea
+          id="campo-pergunta"
+          rows="3"
+          class="campo"
+          placeholder="Ex.: por que a casa em frente a um peão isolado é tão importante?"
+          [value]="pergunta()"
+          [disabled]="carregando()"
+          (input)="pergunta.set($any($event.target).value)"
+        ></textarea>
+      </div>
+
+      @if (!resultado()) {
+        <div class="mb-6">
+          <span class="rotulo">Sugestões</span>
+          <div class="flex flex-wrap gap-2">
+            @for (sugestao of sugestoes; track sugestao) {
+              <button
+                type="button"
+                class="btn btn-secundario btn-pequeno text-left"
+                [disabled]="carregando()"
+                (click)="usarSugestao(sugestao)"
+              >
+                {{ sugestao }}
+              </button>
+            }
+          </div>
+        </div>
+      }
+
+      <button
+        type="button"
+        class="btn btn-primario"
+        [disabled]="!formularioValido || carregando()"
+        (click)="consultar()"
+      >
+        {{ carregando() ? 'Consultando os livros…' : 'Consultar a biblioteca' }}
+      </button>
+
+      @if (erro()) {
+        <div class="aviso aviso-erro mt-4">
+          <p>{{ erro() }}</p>
+          @if (sessaoExpirada()) {
+            <p class="mt-1 text-sm">Entre de novo para continuar consultando.</p>
+          }
+        </div>
+      }
+    </section>
+
+    @if (carregando()) {
+      <section class="cartao">
+        <div class="esqueleto pulso h-4 w-2/3"></div>
+        <div class="esqueleto pulso mt-3 h-4 w-full"></div>
+        <div class="esqueleto pulso mt-3 h-4 w-5/6"></div>
+      </section>
+    }
+
+    @if (resultado(); as dados) {
+      <section class="cartao">
+        <p class="metrica-rotulo mt-0">Pergunta</p>
+        <p class="mb-5 text-marfim">{{ dados.pergunta }}</p>
+
+        <p class="metrica-rotulo">Resposta</p>
+        <div class="prosa whitespace-pre-line">{{ dados.resposta }}</div>
+
+        <div class="painel mt-6">
+          <p class="metrica-rotulo mt-0">
+            Fontes ({{ dados.fontes.length }})
+          </p>
+          @if (dados.fontes.length) {
+            <ul class="space-y-2">
+              @for (fonte of dados.fontes; track $index) {
+                <li class="text-sm text-bruma-300">{{ descricaoFonte(fonte) }}</li>
+              }
+            </ul>
+            <p class="mt-3 text-[11px] text-bruma-600">
+              Cada referência acima foi conferida contra o trecho real do livro antes de aparecer
+              aqui.
+            </p>
+          } @else {
+            <p class="text-sm text-bruma-600">
+              Nenhum trecho dos livros indexados cobre essa pergunta.
+            </p>
+          }
+        </div>
+      </section>
+    }
+
+    <app-historico-analise
+      titulo="Suas consultas anteriores"
+      [itens]="itensHistoricoComponent()"
+      [carregando]="carregandoHistorico()"
+      [erro]="erroHistorico()"
+      mensagemVazio="Nenhuma consulta ainda. Faça a primeira pergunta acima."
+      (itemClicado)="abrirDoHistorico($event)"
+      (atualizarClicado)="carregarHistorico()"
+    />
+  </section>
+</main>

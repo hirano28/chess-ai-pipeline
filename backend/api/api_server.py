@@ -65,6 +65,11 @@ from backend.agentes.consulta_ao_vivo import (  # noqa: E402
     normalizar_escolha,
     usuarios_com_acesso as usuarios_com_acesso_consulta,
 )
+from backend.agentes.consultar_biblioteca import (  # noqa: E402
+    PerguntaInvalidaError,
+    consultar_biblioteca,
+    salvar_consulta as salvar_consulta_biblioteca,
+)
 from backend.agentes.explicador_posicao import (  # noqa: E402
     ExplicacaoPosicao,
     explicar_posicao,
@@ -195,6 +200,12 @@ LIMITES_DIARIOS_ENV: dict[str, tuple[str, int]] = {
     # pior caso). O teto por partida (CONSULTA_MAX_POR_PARTIDA) é o freio de
     # uso; este é o freio de gasto do dia.
     "consulta-ao-vivo": ("LIMITE_DIARIO_CONSULTA_AO_VIVO", 15),
+    # D-81: uma consulta à Biblioteca é 1 embedding + 1 chamada ao Gemini (2 no
+    # pior caso, quando a citação vem errada e precisa de correção). Não usa
+    # Stockfish, então o teto aqui é de gasto de API, não de contenção do
+    # engine_lock — mais folgado que /explicar-posicao porque perguntar é o
+    # gesto natural de quem está estudando, e cada pergunta é barata.
+    "biblioteca": ("LIMITE_DIARIO_BIBLIOTECA", 40),
     # D-65: a importação sob demanda dispara coleta + Stockfish + Agente 1 de
     # várias partidas de uma vez. É a rota mais cara que existe, por isso o
     # menor teto — ela serve ao onboarding ("quero ver meu Hexágono agora"),
@@ -642,6 +653,38 @@ class ExplicarPosicaoRequest(BaseModel):
 
     posicao: str
     lado: str | None = None
+
+
+class ConsultarBibliotecaRequest(BaseModel):
+    """Pergunta em texto livre para a Biblioteca (D-81)."""
+
+    pergunta: str
+
+
+class FonteBibliotecaResponse(BaseModel):
+    """Referência a um trecho real de livro indexado."""
+
+    livro: str
+    capitulo: str | None = None
+    pagina_aprox: int | None = None
+
+
+class ConsultarBibliotecaResponse(BaseModel):
+    """Resposta da Biblioteca, sempre acompanhada das fontes usadas."""
+
+    id: str | None = None
+    pergunta: str
+    resposta: str
+    fontes: list[FonteBibliotecaResponse]
+
+
+class ConsultaBibliotecaRecenteItem(BaseModel):
+    """Item do histórico da Biblioteca."""
+
+    id: str
+    pergunta: str
+    resposta: dict[str, Any]
+    created_at: str
 
 
 class PensamentoConsulta(BaseModel):
@@ -1164,6 +1207,7 @@ verificar_limite_treino_responder = limite_diario("treino-responder")
 verificar_limite_treino_trecho = limite_diario("treino-trecho")
 verificar_limite_consulta_ao_vivo = limite_diario("consulta-ao-vivo")
 verificar_limite_importar = limite_diario("importar-partidas")
+verificar_limite_biblioteca = limite_diario("biblioteca")
 
 
 @app.post(
@@ -2530,6 +2574,76 @@ def listar_explicacoes_recentes(
         ) from error
 
     return [ExplicacaoPosicaoRecenteItem(**row) for row in resp.data or []]
+
+
+@app.post("/biblioteca/consultar", response_model=ConsultarBibliotecaResponse)
+def consultar_biblioteca_endpoint(
+    payload: ConsultarBibliotecaRequest,
+    user_id: str = Depends(verificar_limite_biblioteca),
+) -> ConsultarBibliotecaResponse:
+    """Responde uma pergunta livre usando só os livros já indexados (D-81)."""
+
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resultado = consultar_biblioteca(
+            client,
+            _state["gemini_client"],
+            payload.pergunta,
+            _state.get("logger"),
+        )
+    except PerguntaInvalidaError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falha ao consultar a biblioteca: {error}",
+        ) from error
+
+    # Mesma regra de /explicar-posicao: persistir é efeito colateral. Quem
+    # perguntou recebe a resposta mesmo se o histórico falhar (só sem `id`).
+    try:
+        resultado["id"] = salvar_consulta_biblioteca(client, resultado, user_id)
+    except Exception as error:
+        logger = _state.get("logger")
+        if logger:
+            logger.warning(
+                "Falha ao salvar consulta da biblioteca; seguindo sem persistir. %s",
+                error,
+            )
+        resultado["id"] = None
+
+    return ConsultarBibliotecaResponse(**resultado)
+
+
+@app.get("/biblioteca/recentes", response_model=list[ConsultaBibliotecaRecenteItem])
+def listar_consultas_biblioteca_recentes(
+    limite: int = 20, user_id: str = Depends(verificar_sessao)
+) -> list[ConsultaBibliotecaRecenteItem]:
+    """Histórico da Biblioteca, filtrado pelo dono da sessão (D-18)."""
+
+    client = _state.get("supabase_client")
+    if not client:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
+
+    try:
+        resp = (
+            client.table("consultas_biblioteca")
+            .select("id, pergunta, resposta, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(min(limite, 50))
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falha ao consultar histórico da biblioteca: {error}",
+        ) from error
+
+    return [ConsultaBibliotecaRecenteItem(**row) for row in resp.data or []]
 
 
 def verificar_acesso_consulta_ao_vivo(user_id: str = Depends(verificar_sessao)) -> str:

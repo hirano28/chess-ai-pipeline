@@ -1,0 +1,218 @@
+{
+  "livro": "Xadrez Vitorioso - Aberturas - Seirawan",
+  "capitulos": [
+    {
+      "capitulo": "Introdução",
+      "pagina_min": 9,
+      "pagina_max": 12,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "erro_tecnico_de_final",
+          "resumo_curto": "Incapacidade de converter uma vantagem prévia conquistada na partida pela falta de domínio técnico sobre os finais."
+        },
+        {
+          "conceito": "principios de abertura",
+          "resumo_curto": "Uso de lógica e fundamentos sólidos nas primeiras jogadas para evitar derrotas precoces no início da partida."
+        },
+        {
+          "conceito": "transposicao de lances",
+          "resumo_curto": "Variação na sequência das jogadas que conduz a posições conhecidas ou expõe imprecisões no plano de jogo."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 1: Primórdios",
+      "pagina_min": 13,
+      "pagina_max": 35,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Mover peças isoladas sem um plano integrado impede a harmonia entre elas e fragiliza a posição."
+        },
+        {
+          "conceito": "perda_de_material",
+          "resumo_curto": "Lançar unidades à frente sem o devido apoio tático resulta em capturas fáceis para o oponente."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Descuidar da proteção da própria casa real expõe o rei a perigosos xeques e contra-ataques imprevistos."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 2: Princípios básicos de abertura",
+      "pagina_min": 37,
+      "pagina_max": 43,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Lançar peças maiores como a dama cedo demais ao ataque gera vulnerabilidades e atrasa o desenvolvimento sadio."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Proteger o próprio rei é um dos objetivos essenciais da abertura para evitar investidas devastadoras e mates rápidos."
+        },
+        {
+          "conceito": "xeque descoberto",
+          "resumo_curto": "Manobra tática decisiva na qual a movimentação de uma peça revela um ataque direto de outra contra o rei adversário."
+        },
+        {
+          "conceito": "controle do centro",
+          "resumo_curto": "Princípio básico de abertura que visa dominar as casas centrais com peões e peças menores antes de iniciar ataques diretos."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 3: Aberturas clássicas do Peão do Rei",
+      "pagina_min": 46,
+      "pagina_max": 85,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "controle do centro",
+          "resumo_curto": "A disputa e a ocupação das casas centrais com peões ditam a estabilidade e o dinamismo na fase de abertura."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Ignorar os princípios de equilíbrio e lutar por flancos irrelevantes desvantajosamente cede a iniciativa ao adversário."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Avanços prematuros de peões laterais criam alvos vulneráveis e debilitam a posição a longo prazo."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 4: Aberturas clássicas do Peão da Dama",
+      "pagina_min": 87,
+      "pagina_max": 118,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "perda_de_material",
+          "resumo_curto": "Ciladas na abertura como os avanços c5 e c4 aprisionam o bispo adversário e provocam desvantagem decisiva."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Linhas que atrasam o desenvolvimento da ala do rei exigem cuidado redobrado com a exposição prolongada do rei no centro."
+        },
+        {
+          "conceito": "peça cravada",
+          "resumo_curto": "A imobilização do cavalo pelo bispo adversário restringe a defesa e facilita rupturas centrais favoráveis."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 5: Defesas modernas do Peão do Rei",
+      "pagina_min": 120,
+      "pagina_max": 177,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Avançar peças ou peões precipitadamente na abertura concede tempos e alvos de contra-ataque ao adversário."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "O avanço excessivo de peões sem o devido suporte gera debilidades duradouras na estrutura."
+        },
+        {
+          "conceito": "controle do centro",
+          "resumo_curto": "A disputa imediata pela ocupação ou destruição dos peões centrais dita os rumos estratégicos da partida."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 6: Defesas modernas do Peão da Dama",
+      "pagina_min": 180,
+      "pagina_max": 230,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "controle do centro",
+          "resumo_curto": "A disputa e a ocupação de casas centrais importantes, como a casa e4, orientam as estratégias de abertura."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "O avanço precoce de peões na ala do rei fragiliza a proteção do monarca e possibilita ameaças diretas de mate."
+        },
+        {
+          "conceito": "jogo de gambito",
+          "resumo_curto": "O sacrifício de peões na abertura busca acelerar o desenvolvimento das peças e criar linhas rápidas de ataque."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 7: Uma solução para a abertura",
+      "pagina_min": 233,
+      "pagina_max": 246,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "compensação por material",
+          "resumo_curto": "Sacrificar um peão na abertura pode conferir compensação suficiente através de rápido desenvolvimento e atividade de peças."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "A deterioração da estrutura de peões após trocas forçadas pode gerar debilidades decisivas para a condução do final."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "Seguir lances teóricos decorados sem compreender as ideias por trás da posição leva a avaliações e decisões inadequadas."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 8: Uma solução para a Abertura do Peão da Dama",
+      "pagina_min": 249,
+      "pagina_max": 256,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "O avanço agressivo e excessivo da cadeia de peões centrais pode torná-la superestendida e vulnerável a rupturas imediatas do adversário."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Forçar rupturas no centro sem completar o desenvolvimento ou a sustentação das peças pode levar ao rápido colapso da posição."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "Certos avanços de peões, como f2-f3, privam peças menores de suas melhores casas de desenvolvimento e prejudicam a harmonia posicional."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 9: Uma solução para a Abertura do Peão do Rei",
+      "pagina_min": 259,
+      "pagina_max": 274,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Manter o peão em c2 em vez de avançá-lo preserva a proteção do rei caso as brancas optem pelo roque na ala da dama."
+        },
+        {
+          "conceito": "controle do centro",
+          "resumo_curto": "Diferentes estruturas de peões e lances de desenvolvimento competem diretamente pelo domínio das casas centrais na abertura."
+        },
+        {
+          "conceito": "transposição de aberturas",
+          "resumo_curto": "Diferentes ordens de lances iniciais podem convergir para estruturas e variantes conhecidas de outras aberturas."
+        }
+      ]
+    },
+    {
+      "capitulo": "Glossário",
+      "pagina_min": 276,
+      "pagina_max": 281,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Objetivo essencial da abertura que consiste em rocar rapidamente para proteger o rei contra ataques adversários."
+        },
+        {
+          "conceito": "ruptura central",
+          "resumo_curto": "Avanço de peões planejado para contestar o centro do oponente e abrir linhas ativas para as próprias peças."
+        },
+        {
+          "conceito": "desenvolvimento de peças",
+          "resumo_curto": "Mobilização rápida e eficiente das forças no início da partida para disputar o controle do tabuleiro."
+        }
+      ]
+    }
+  ]
+}

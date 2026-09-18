@@ -2,7 +2,7 @@
 doc: BANCO.md
 escopo: schema do Supabase, vocabulário controlado, invariantes e regras de migração
 nao_contem: contagem de linhas nem estado dos dados (ver ESTADO.md)
-verificado_em: 2026-09-16
+verificado_em: 2026-09-18
 fonte: introspecção direta do projeto Supabase pmzmershonrqzwbmhaco
 tabelas: 23 no schema `public`, todas com RLS ligada, todas descritas na seção 1
 ---
@@ -40,13 +40,21 @@ tabelas: 23 no schema `public`, todas com RLS ligada, todas descritas na seção
 | `resumo_partida` | `partida_id`, `narrativa`, `pontos_criticos` (jsonb), `momento_chave_estrategico` | resumo narrativo da partida inteira |
 | `consultas_ao_vivo` | `user_id` (**FK real** para `auth.users(id)`, `on delete cascade`), `partida_espelho_id` (uuid gerado pela tela, **não** é FK), `plataforma` (`LICHESS` \| `CHESSCOM` \| `OUTRA`), `adversario`, `cor_jogador`, `fen_inicial`, `lances_san` (text[], a partida inteira até a consulta), `numero_lance`, `fen`, `pensamento_situacao`/`pensamento_candidatos`/`pensamento_trava`, `resposta` (jsonb: `como_pensar`, o que a tela mostra, e `motor`, candidatos e melhor lance que só o desfecho lê e a API nunca devolve — D-70), `gerado_por` (`gemini` \| `fallback`), `criado_em`, e desde o D-68 o desfecho: `casamento_status` (`pendente` \| `casada` \| `sem_partida`), `partida_externa_id` (id do Lichess ou URL do Chess.com, preenchido na consulta sincronizada, D-69), `partida_id` (**FK** para `partidas`, `on delete set null`), `lance_jogado`, `queda_win_percent_jogado`, `lance_jogado_era_candidato`, `lance_jogado_era_o_melhor`, `lance_critico_id` (**FK** para `lances_criticos`, `on delete set null`), `casada_em` — índices nas duas FKs e parcial em `casamento_status = 'pendente'`, além de índice `(user_id, partida_espelho_id)` | D-67: cada linha é um momento de dúvida durante uma partida em andamento, espelhada à mão ou sincronizada com a plataforma (D-69). É o único dado do sistema que registra a dúvida quando ela acontece; o resto só vê a partida depois de acabar. `casar_consultas_ao_vivo.py` (D-68) preenche o desfecho quando a coleta traz a partida real. RLS: leitura só do próprio dono, escrita só pelo backend |
 | `explicacoes_posicao` | `fen`, `lado_analisado`, `resultado` (jsonb, resposta completa), `created_at` | histórico do Explicador de Posição (fecha P-10 — ver `DECISOES.md` D-11) |
+| `consultas_biblioteca` | `user_id`, `pergunta`, `resposta` (jsonb: `resposta` + `fontes`), `created_at`, índice `(user_id, created_at desc)` | D-81: histórico da Biblioteca. `user_id uuid not null` **sem FK** para `auth.users` — é a convenção desta base, não esquecimento. RLS ligada sem policy: só o backend (service role) lê e grava |
 
 ### RAG de livros
 
 | Tabela | Colunas relevantes | Papel |
 |---|---|---|
 | `livros_chunks` | `livro`, `capitulo`, `pagina_aprox`, `conteudo`, `embedding` (vector) | trechos vetorizados dos livros |
-| `indice_conceitual` | `conceito`, `livro`, `capitulo`, `pagina_aprox` | mapa **manual** conceito → localização |
+| `indice_conceitual` | `conceito`, `livro`, `capitulo`, `pagina_aprox`, `resumo_curto` | mapa **manual** conceito → localização |
+
+`analises_hexagono.metricas` ganhou a chave `citacao_gargalo` no D-81
+(`conceito`, `livro`, `capitulo`, `pagina_aprox`, `resumo_curto`, ou `null`):
+o capítulo real que trata do gargalo daquela análise, resolvido por
+`buscar_conceitos()` e gravado como **dado estruturado**, nunca escrito pelo
+LLM. Análises anteriores ao D-81 não têm a chave, e a tela trata a ausência
+como caso normal.
 
 ### Dono do dado (`user_id`) — Fase A do multi-tenant
 

@@ -55,6 +55,12 @@ export const routes: Routes = [
 		canActivate: [authGuard],
 	},
 	{
+		// D-81: busca livre no acervo de livros já indexados.
+		path: 'biblioteca',
+		loadComponent: () => import('./components/biblioteca/biblioteca.component').then((m) => m.BibliotecaComponent),
+		canActivate: [authGuard],
+	},
+	{
 		path: 'analisador',
 		loadComponent: () => import('./components/analisador-partida/analisador-partida.component').then((m) => m.AnalisadorPartidaComponent),
 		canActivate: [authGuard],

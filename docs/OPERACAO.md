@@ -2,7 +2,7 @@
 doc: OPERACAO.md
 escopo: comandos, execução de scripts, automação, variáveis de ambiente, troubleshooting
 nao_contem: arquitetura (ver ARQUITETURA.md), schema (ver BANCO.md), estado (ver ESTADO.md)
-verificado_em: 2026-09-16
+verificado_em: 2026-09-18
 ---
 
 # Operação
@@ -32,6 +32,7 @@ python -m unittest \
   backend.agentes.test_analisar_pgn_avulso \
   backend.agentes.test_casar_consultas_ao_vivo \
   backend.agentes.test_consulta_ao_vivo \
+  backend.agentes.test_consultar_biblioteca \
   backend.agentes.test_explicador_posicao \
   backend.agentes.test_gerar_perguntas_pendentes \
   backend.agentes.test_gerar_resumo_partida \
@@ -203,6 +204,7 @@ commitados.
 `LIMITE_DIARIO_REVISAR_AVULSO`, `LIMITE_DIARIO_RECONHECER_POSICAO`,
 `LIMITE_DIARIO_REPROCESSAR`, `LIMITE_DIARIO_TREINO_RESPONDER`,
 `LIMITE_DIARIO_TREINO_TRECHO`, `LIMITE_DIARIO_CONSULTA_AO_VIVO`,
+`LIMITE_DIARIO_BIBLIOTECA`,
 `CONSULTA_AO_VIVO_USUARIOS`, `CONSULTA_MAX_POR_PARTIDA`,
 `LIMITE_DIARIO_IMPORTAR_PARTIDAS`, `IMPORTACAO_MAX_PARTIDAS`,
 `LICHESS_OAUTH_CLIENT_ID`, `LICHESS_OAUTH_REDIRECT_URI`,

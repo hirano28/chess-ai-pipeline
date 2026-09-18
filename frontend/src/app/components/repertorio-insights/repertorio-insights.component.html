@@ -161,6 +161,19 @@
                   <span>{{ momento }} (pico de erro)</span>
                 </p>
               }
+
+              <!--
+                D-81: "abertura" não é (nem vai ser) uma categoria do Hexágono,
+                que mede padrão de erro. O acervo entra por aqui: a pergunta já
+                vai montada com o nome real da abertura e a cor jogada.
+              -->
+              <a
+                class="btn-texto mt-3 inline-block"
+                [routerLink]="['/biblioteca']"
+                [queryParams]="{ pergunta: perguntaSobreAbertura(item) }"
+              >
+                Ver o que os livros dizem sobre esta abertura
+              </a>
             </div>
 
             @if (obterTopCategorias(item.abertura_normalizada); as categorias) {

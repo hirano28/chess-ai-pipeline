@@ -51,6 +51,7 @@ export const NAVEGACAO: GrupoNavegacao[] = [
   {
     titulo: 'Ferramentas',
     itens: [
+      { rota: '/biblioteca', rotulo: 'Biblioteca', icone: 'M5 4h5v16H5z M10 4h5v16h-5z M15.5 5.2l3.8 1 -3.2 15.5 -3.8-1z' },
       { rota: '/explicador', rotulo: 'Explicador', icone: 'M4 5h16v11H9l-5 4z M8 9.5h8 M8 12.5h5' },
       { rota: '/analisador', rotulo: 'Analisador', icone: 'M4 4v16h16 M7.5 15l4-5 3 3 5-6' },
       { rota: '/consulta-ao-vivo', rotulo: 'Ao vivo', exclusivoConsultaAoVivo: true, icone: 'M10 12a2 2 0 1 0 4 0 2 2 0 0 0-4 0 M7.76 7.76a6 6 0 0 0 0 8.48 M16.24 7.76a6 6 0 0 1 0 8.48 M4.93 4.93a10 10 0 0 0 0 14.14 M19.07 4.93a10 10 0 0 1 0 14.14' }

@@ -1,5 +1,6 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import {
   InsightsRepertorio,
   MetricasAberturaCorItem,
@@ -8,10 +9,19 @@ import {
 
 export type FiltroCor = 'TODAS' | 'BRANCAS' | 'PRETAS';
 
+/**
+ * D-81: pergunta pronta que leva uma abertura do repertório para a Biblioteca.
+ * Fora do componente para poder ser testada sem montar a tela.
+ */
+export function perguntaSobreAbertura(item: MetricasAberturaCorItem): string {
+  const cor = item.cor_jogada.toUpperCase() === 'PRETAS' ? 'de pretas' : 'de brancas';
+  return `Quais são os planos e as ideias principais da ${item.abertura_normalizada} jogando ${cor}?`;
+}
+
 @Component({
   selector: 'app-repertorio-insights',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, RouterLink],
   templateUrl: './repertorio-insights.component.html'
 })
 export class RepertorioInsightsComponent implements OnInit {
@@ -31,6 +41,11 @@ export class RepertorioInsightsComponent implements OnInit {
       (item) => item.cor_jogada.toUpperCase() === filtro
     );
   });
+
+  /** Wrapper fino sobre o helper puro, só para o template chamá-lo. */
+  perguntaSobreAbertura(item: MetricasAberturaCorItem): string {
+    return perguntaSobreAbertura(item);
+  }
 
   readonly taxaBrancas = computed(() => {
     return this.insights()?.taxa_vitoria_por_cor?.BRANCAS;

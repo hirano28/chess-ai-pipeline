@@ -72,6 +72,7 @@ const ROTAS = [
   { caminho: '/plano', nome: 'plano' },
   { caminho: '/treino', nome: 'treino' },
   { caminho: '/laboratorio', nome: 'laboratorio' },
+  { caminho: '/biblioteca', nome: 'biblioteca' },
   { caminho: '/explicador', nome: 'explicador' },
   { caminho: '/analisador', nome: 'analisador' },
   { caminho: '/perfil', nome: 'perfil' },

@@ -1,12 +1,12 @@
 ---
 doc: ESTADO.md
 escopo: ÚNICO lugar do repositório onde mora estado factual (contagens, status, pendências)
-verificado_em: 2026-09-17
+verificado_em: 2026-09-18
 como_reverificar: rode as queries da seção 6 e os comandos da seção 1
 aviso: número sem data de verificação em qualquer outro documento deve ser tratado como suspeito
 ---
 
-# Estado verificado — 2026-09-17
+# Estado verificado — 2026-09-18
 
 Tudo nesta página foi conferido nesta data contra o banco real
 (`pmzmershonrqzwbmhaco`), o código e os workflows. Ao mudar qualquer fato aqui,
@@ -93,8 +93,9 @@ pendência P-11 abaixo).
 | `perfis_usuario` | 2 (o dono do acervo + uma conta sem partida ingerida). É a tabela que prova que o multi-tenant do D-28 não é hipótese |
 | `puzzle_atividade` | 660, em 41 dias distintos |
 | `tempos_lance` | 16.161, cobrindo 228 partidas (4.847 do Lichess + 11.314 do Chess.com via backfill D-43) |
-| `livros_chunks` | 2092 (1621 anteriores + 244 de "Arte do Ataque no Xadrez", Vukovic, D-78 — só RAG vetorial — + 227 de "The Complete Manual of Positional Chess Vol 1", Sakaev/Landa, D-78) |
-| `indice_conceitual` | 409 (370 anteriores + 39 de "Arte do Ataque no Xadrez", D-80 — 244 chunks reclassificados por 12 capítulos reais, achados via tamanho de fonte no PDF, sem processar livro novo) |
+| `livros_chunks` | **2286**, de **12 livros** (2092 anteriores + 194 de "Xadrez Vitorioso - Aberturas", Seirawan, D-81 — o primeiro livro de ABERTURA do acervo; 192 com capítulo real, 2 são folha de rosto) |
+| `indice_conceitual` | **443**, de **8 livros citáveis** (409 anteriores + 34 do livro de aberturas, D-81). Cobertura por categoria (`python -m backend.rag.cobertura_categorias`): TATICA 82, CALCULO 72, ESTRATEGIA 49, ESTRUTURA_DE_PEOES 37, GESTAO_DE_TEMPO 20, FINAIS 16 — o livro de aberturas foi o primeiro a alimentar **as 6 de uma vez** |
+| `consultas_biblioteca` | 2 (tabela nova, D-81) — as duas de verificação da Biblioteca, não uso real ainda |
 | `anotacoes_pensamento` | 23, cobrindo 3 partidas |
 | `revisoes_pensamento` | 23, todas em 1 único dia |
 | `revisao_exercicio_avulso` | 17 |
@@ -888,7 +889,19 @@ ponta contra produção com o usuário real (Gemini de verdade, sessão
 gravada em `sessoes_treino`), confirmando que os livros novos do RAG
 entram no conjunto elegível de citação (D-79); `backend/rag/
 cobertura_categorias.py` (D-80) reaproveita `buscar_conceitos()` pra
-relatar a cobertura por categoria sem query solta;
+relatar a cobertura por categoria sem query solta; **Biblioteca** (D-81),
+a tela `/biblioteca`, que responde pergunta em texto livre buscando no
+corpus INTEIRO (sem o filtro por livro/capítulo que o Agente 3 aplica) e
+sempre devolve livro/capítulo/página conferidos contra o chunk de origem,
+com fallback sem LLM quando a citação não bate duas vezes; o diagnóstico
+do Agente 2 passou a trazer o capítulo real do gargalo em
+`analises_hexagono.metricas.citacao_gargalo` — **dado estruturado
+resolvido por código, nunca escrito pelo modelo**, que agora é proibido de
+citar obra no prompt (D-81); e "Xadrez Vitorioso - Aberturas" de Seirawan
+(D-81, 194 chunks, 34 conceitos), primeiro livro de ABERTURA do acervo —
+abertura **não** virou a 7ª categoria do Hexágono (ver D-81 para os 3
+motivos concretos), ela chega pela Biblioteca, com link por card em
+`/aberturas`;
 Laboratório de Raciocínio com notação PT/EN, reconhecimento de posição por foto, preview do tabuleiro e
 histórico navegável dos exercícios salvos; Explicador de Posição com
 persistência automática e histórico navegável; Analisador de Partida com

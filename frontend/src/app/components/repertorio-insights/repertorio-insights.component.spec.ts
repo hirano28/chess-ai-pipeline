@@ -1,7 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { vi, describe, beforeEach, it, expect } from 'vitest';
-import { RepertorioInsightsComponent } from './repertorio-insights.component';
+import {
+  RepertorioInsightsComponent,
+  perguntaSobreAbertura
+} from './repertorio-insights.component';
 import {
   InsightsRepertorio,
   RepertorioService
@@ -134,6 +137,24 @@ describe('RepertorioInsightsComponent', () => {
     expect(component.corBadgeTaxa(60)).toBe('selo-sucesso');
     expect(component.corBadgeTaxa(45)).toBe('selo-latao');
     expect(component.corBadgeTaxa(30)).toBe('selo-perigo');
+  });
+
+  // D-81: a ponte entre o repertório e o acervo. "Abertura" não é categoria do
+  // Hexágono, então é por esta pergunta que os livros de abertura chegam à tela.
+  it('perguntaSobreAbertura usa o nome real da abertura e a cor jogada', () => {
+    expect(
+      perguntaSobreAbertura({
+        abertura_normalizada: 'Defesa Siciliana',
+        cor_jogada: 'PRETAS'
+      } as never)
+    ).toBe('Quais são os planos e as ideias principais da Defesa Siciliana jogando de pretas?');
+
+    expect(
+      perguntaSobreAbertura({
+        abertura_normalizada: 'Ruy Lopez',
+        cor_jogada: 'BRANCAS'
+      } as never)
+    ).toBe('Quais são os planos e as ideias principais da Ruy Lopez jogando de brancas?');
   });
 });
 
