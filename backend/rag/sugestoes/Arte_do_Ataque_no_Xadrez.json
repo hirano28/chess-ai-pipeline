@@ -1,0 +1,252 @@
+{
+  "livro": "Arte do Ataque no Xadrez",
+  "capitulos": [
+    {
+      "capitulo": "Introdução",
+      "pagina_min": 8,
+      "pagina_max": 16,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Princípio estratégico e defensivo voltado a resguardar o monarca de ameaças diretas e investidas de mate."
+        },
+        {
+          "conceito": "ataque ao rei",
+          "resumo_curto": "Ação direta e dinâmica orientada a explorar debilidades defensivas para buscar o xeque-mate adversário."
+        },
+        {
+          "conceito": "jogo posicional",
+          "resumo_curto": "Fundamentação estratégica e técnica que fornece as bases necessárias para sustentar ataques eficazes."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 1: O ataque contra o rei não rocado",
+      "pagina_min": 18,
+      "pagina_max": 34,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A demora em realizar o roque mantém o rei vulnerável no centro a ataques decisivos."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "A abertura de colunas centrais expõe o rei não protegido à invasão direta das peças pesadas."
+        },
+        {
+          "conceito": "ataque ao rei centralizado",
+          "resumo_curto": "A exploração tática de linhas abertas e peças cravadas contra o monarca impedido de rocar."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 2: O ataque ao rei que perdeu o direito de rocar",
+      "pagina_min": 35,
+      "pagina_max": 60,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A perda do direito de rocar fragiliza a proteção do monarca, tornando-o suscetível a perseguições e redes de mate."
+        },
+        {
+          "conceito": "falta_de_coordenacao_de_pecas",
+          "resumo_curto": "A permanência forçada do rei no centro impede a conexão e o trabalho conjunto eficiente entre as torres."
+        },
+        {
+          "conceito": "perda_de_iniciativa",
+          "resumo_curto": "Sofrer constantes xeques com o rei exposto obriga a perder tempos defensivos enquanto o adversário desenvolve seu ataque."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 3: Sobre o roque e o ataque à posição de roque em geral",
+      "pagina_min": 62,
+      "pagina_max": 79,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Destaca a necessidade do roque para proteger o rei vulnerável no centro contra peças adversárias de longo alcance."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Ilustra os riscos e a ineficácia de conduzir ataques mal coordenados contra o monarca adversário."
+        },
+        {
+          "conceito": "perda_de_material",
+          "resumo_curto": "Mostra como combinações táticas resultam na captura de peças decisivas e levam a um final perdido."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 4: Padrões de acasalamento",
+      "pagina_min": 83,
+      "pagina_max": 93,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "padrões de mate",
+          "resumo_curto": "Apresenta configurações táticas clássicas e recorrentes de xeque-mate, como o mate árabe, o de Damiano e o mate sufocado."
+        },
+        {
+          "conceito": "segurança do rei",
+          "resumo_curto": "Evidencia a vulnerabilidade do monarca encurralado na borda do tabuleiro ou no roque com restrição de casas de fuga."
+        },
+        {
+          "conceito": "coordenação de peças",
+          "resumo_curto": "Demonstra como diferentes peças combinam suas forças de maneira harmoniosa para executar arremates forçados contra o rei adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 5: Pontos focais",
+      "pagina_min": 96,
+      "pagina_max": 144,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Analisa a vulnerabilidade do monarca no roque e a identificação de pontos focais críticos para ataques de mate."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Explica como peões deslocados à frente do rei criam buracos e enfraquecem casas essenciais na defesa."
+        },
+        {
+          "conceito": "padrões de mate",
+          "resumo_curto": "Ilustra modelos táticos clássicos de arremate com sacrifícios, como os mates de Max Lange, Réti e Blackburne."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 6: O clássico sacrifício do bispo",
+      "pagina_min": 146,
+      "pagina_max": 169,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "presente grego",
+          "resumo_curto": "Sacrifício clássico do bispo em h7 para desmantelar a ala do rei e abrir linhas de ataque direto."
+        },
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Demonstração de como a perda do peão protetor deixa o rei roqueado exposto a redes de mate inescapáveis."
+        },
+        {
+          "conceito": "ataque ao roque",
+          "resumo_curto": "Ação coordenada de dama e cavalo explorando casas-chave para invadir a posição enfraquecida do adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 7: Posições, arquivos e diagonais no ataque ao rei roque",
+      "pagina_min": 174,
+      "pagina_max": 218,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A vulnerabilidade do rei na última fileira sem casas de fuga cria oportunidades decisivas para temas de mate."
+        },
+        {
+          "conceito": "negligencia_profilatica",
+          "resumo_curto": "Deixar de abrir um respiro para o próprio rei permite que o adversário explore fraquezas fatais na retaguarda."
+        },
+        {
+          "conceito": "calculo_tatico_deficiente",
+          "resumo_curto": "A falha em antecipar lances táticos e desvios do oponente na primeira fileira leva ao colapso imediato da posição."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 8: Peças e peões no ataque ao rei roque",
+      "pagina_min": 220,
+      "pagina_max": 276,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "A vulnerabilidade do rei rocado é explorada através da concentração de forças e invasão de casas críticas ao redor do monarca."
+        },
+        {
+          "conceito": "sacrifício de dama",
+          "resumo_curto": "A entrega da peça de maior valor é empregada de forma forçada para destruir a defesa adversária e arrematar com xeque-mate."
+        },
+        {
+          "conceito": "abertura_de_linhas_desfavoravel",
+          "resumo_curto": "A aceitação precipitada de sacrifícios de peças expõe o próprio rei ao abrir diagonais e colunas vitais para o ataque adversário."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 9: O ataque às posições de roque do fianqueto e do lado da rainha",
+      "pagina_min": 278,
+      "pagina_max": 295,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Analisa a solidez e as vulnerabilidades das posições de roque, destacando o papel essencial do bispo de fianqueto na proteção do rei."
+        },
+        {
+          "conceito": "fraqueza_estrutural_de_peoes",
+          "resumo_curto": "Demonstra como o avanço do peão em g6 cria pontos de contato para a abertura de colunas e enfraquece um complexo de casas no roque."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Enfatiza que ofensivas contra o rei roqueado exigem avaliação prévia da posição como um todo para evitar investidas insuficientemente justificadas."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 10: Defendendo-se contra o ataque ao rei roqueiro",
+      "pagina_min": 297,
+      "pagina_max": 352,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "Aborda os métodos estruturados e princípios necessários para proteger a posição do rei roqueiro contra investidas adversárias."
+        },
+        {
+          "conceito": "defesa indireta",
+          "resumo_curto": "Consiste em criar contra-ameaças ativas longe do próprio roque para desviar as peças agressivas e neutralizar o ataque inimigo."
+        },
+        {
+          "conceito": "autodefesa do rei",
+          "resumo_curto": "Emprega movimentos do próprio rei para consolidar casas, alterar os focos táticos do adversário ou escapar do perigo iminente."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 11: As fases do ataque ao rei encampado",
+      "pagina_min": 354,
+      "pagina_max": 402,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "segurança do rei",
+          "resumo_curto": "A vulnerabilidade do monarca adversário e a ausência de defensores próximos constituem pré-condições essenciais para o êxito de uma ofensiva."
+        },
+        {
+          "conceito": "ataque prematuro",
+          "resumo_curto": "Iniciar operações de ataque sem estabelecer previamente as condições e a coordenação necessárias compromete o plano e a própria posição."
+        },
+        {
+          "conceito": "fraqueza estrutural de peões",
+          "resumo_curto": "Provocar debilidades na cadeia de peões que protege o rei roque é crucial para abrir brechas e viabilizar a ruptura tática."
+        }
+      ]
+    },
+    {
+      "capitulo": "Capítulo 12: O ataque ao rei como parte integrante do jogo",
+      "pagina_min": 404,
+      "pagina_max": 427,
+      "conceitos_sugeridos": [
+        {
+          "conceito": "seguranca_do_rei",
+          "resumo_curto": "O ataque contra o monarca adversário deve ser uma operação lógica decorrente de fragilidades reais em sua defesa e da situação global do tabuleiro."
+        },
+        {
+          "conceito": "ataque_prematuro",
+          "resumo_curto": "Iniciar uma ofensiva contra o rei sem acumular previamente as condições favoráveis necessárias resulta em comprometimentos graves e posições inferiores."
+        },
+        {
+          "conceito": "avaliacao_posicional_incorreta",
+          "resumo_curto": "A decisão de iniciar um ataque exige julgar com precisão o equilíbrio da posição em todos os setores antes de aceitar concessões de espaço e estrutura."
+        }
+      ]
+    }
+  ]
+}

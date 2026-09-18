@@ -4443,6 +4443,69 @@ por uma correção de 2 linhas no código, não por mais ingestão.
 
 ---
 
+### D-80 — Detecção de capítulo por tamanho de fonte destrava "Arte do Ataque no Xadrez"; script de cobertura por categoria
+
+**Contexto:** pedido do usuário para implementar os passos que faltaram
+da lista de "próximos passos naturais" — extrair mais valor dos livros
+que ficaram só no RAG vetorial (item 3) e, se houvesse mais OCR pendente,
+fazer (não havia — os 3 livros RAG-only já tinham texto nativo, o
+problema nunca foi falta de OCR).
+
+**"Arte do Ataque no Xadrez" (Vukovic) — resolvido.** O D-78 já tinha
+diagnosticado a causa (sumário usa "N. Título", corpo usa "N Título" sem
+pontuação) e decidido não arriscar relaxar `NUMBERED_CHAPTER_PATTERN`
+pelo risco de confundir lance de xadrez anotado com título. Em vez de
+mexer no regex compartilhado (que afetaria todo livro processado, não só
+este), usei uma abordagem específica a este PDF: **tamanho de fonte**.
+`pdfplumber` expõe o tamanho de cada caractere; os 12 títulos reais de
+capítulo usam fonte ~13–17pt contra ~9–11pt do corpo — sinal limpo,
+sem nenhum falso positivo de lance de xadrez (que é sempre corpo). A
+varredura pelo livro inteiro achou os 12 capítulos reais de uma vez,
+e revelou um achado extra: **3 dos 12 títulos do corpo divergem do
+sumário** (ex.: Capítulo 1 é "O ataque contra o rei **não rocado**" no
+corpo, mas "não **castigado**" no sumário) — usei o texto do corpo, que é
+onde o capítulo realmente começa, não o do sumário. Apliquei os títulos
+via `UPDATE` em `livros_chunks` por faixa de `pagina_aprox` (sem
+reprocessar/re-embedar nada, só metadado), rodei
+`sugerir_indice_conceitual.py` (13 capítulos incluindo a Introdução) e
+importei direto — conteúdo saiu coerente com os títulos, sem sinal de
+mistura tipo D-74, então não precisou de revisão manual capítulo a
+capítulo dessa vez.
+
+**"Los 100 Finales" e "Understanding Chess Endgames" — testados, não
+destravados.** Testei a mesma técnica de tamanho de fonte no "Los 100
+Finales" antes de investir tempo nos dois: a fonte de diagrama de
+xadrez usa tamanho parecido ao dos títulos de seção, criando ruído, e os
+~100 finais individuais de cada livro (diferente dos 12 capítulos do
+Vukovic) não têm nenhum destaque tipográfico — só as 4 seções grandes já
+encontradas no D-76. Sem sinal confiável e sem uma abordagem óbvia de
+baixo risco, mantive a decisão já tomada com o usuário no D-76/D-77 de
+deixar os dois só no RAG vetorial, em vez de forçar uma heurística sem
+verificação real por trás.
+
+**Ferramenta nova, para não repetir a contagem manual de novo:**
+`backend/rag/cobertura_categorias.py` — reaproveita a própria
+`buscar_conceitos()` do Agente 3 (não uma query SQL solta reimplementada
+à parte, que correria o risco de ficar dessincronizada da lógica real,
+como quase aconteceu comigo 2 vezes nesta sessão com um `translate()` de
+acento escrito errado). Imprime a cobertura das 6 categorias, ordenada da
+mais fraca pra mais forte, com `--livros` opcional pra listar os livros
+distintos por categoria. Teste novo garante que toda categoria de
+`HEXAGON_CATEGORIES` tem termo de busca definido em
+`CATEGORY_SEARCH_TERMS` — não evita o gap semântico fino (tipo
+"estrutural" vs "estrutura"), mas pega o caso grosseiro de uma categoria
+nova sem termo nenhum.
+
+**Verificação real:** `livros_chunks` de "Arte do Ataque no Xadrez"
+100% reclassificado (243 chunks com capítulo real, 1 sem — folha de
+rosto). `indice_conceitual` 370→409 (+39, confirmado por query).
+Suíte completa do backend depois de tudo, `exit=0`. Rodei
+`cobertura_categorias.py` de verdade contra produção
+(`pmzmershonrqzwbmhaco`): TATICA 72, CALCULO 66, ESTRATEGIA 42,
+ESTRUTURA_DE_PEOES 33, GESTAO_DE_TEMPO 19, FINAIS 15.
+
+---
+
 ## Decisões tomadas sobre o que NÃO fazer
 
 - **ChessTempo não tem API pública.** Não gaste tempo tentando integrar; a

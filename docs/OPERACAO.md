@@ -65,6 +65,7 @@ python -m unittest \
   backend.ingestao.test_common_ingestao \
   backend.ingestao.test_enriquecer_partidas_lichess \
   backend.ingestao.test_importar_puzzle_activity \
+  backend.rag.test_cobertura_categorias \
   backend.rag.test_importar_exercicios_taticos \
   backend.rag.test_importar_exercicios_posicionais \
   backend.rag.test_importar_indice_conceitual \

@@ -111,7 +111,10 @@ grava em `livros_chunks` (pgvector). A busca acontece via RPC
 `match_livros_chunks` (`backend/db/match_livros_chunks.sql`), consumida pelo
 Agente 3. A tabela `indice_conceitual` é um mapa **manual** de
 conceito → livro → capítulo → página, populado por SQL depois de processar cada
-livro.
+livro. `backend/rag/cobertura_categorias.py` (D-79/D-80) mostra quantos
+conceitos citáveis cada categoria do Hexágono tem hoje, reaproveitando a
+mesma `buscar_conceitos()` do Agente 3 — evita refazer a contagem por
+query solta a cada rodada de ingestão.
 
 ## 5. Superfície da API
 
